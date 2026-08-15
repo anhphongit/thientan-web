@@ -13,6 +13,9 @@ export/
 *.csv
 *.pdf
 
+# Office temp/lock files (created while a file is open)
+~$*
+
 # OS / editor
 .DS_Store
 Thumbs.db
