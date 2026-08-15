@@ -1,0 +1,5 @@
+# Everything not under src/ is documentation — do not push to Apps Script
+**/**
+!appsscript.json
+!server/**/*.gs
+!ui/**/*.html

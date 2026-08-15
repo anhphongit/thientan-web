@@ -1,0 +1,20 @@
+# clasp — contains the private scriptId, never commit
+.clasp.json
+.clasprc.json
+
+# Local secrets / notes
+*.local
+.env
+secrets/
+
+# Real business data must not be committed
+data/
+export/
+*.csv
+*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+node_modules/
