@@ -1,7 +1,9 @@
 # THIENTAN — Quản lý Đơn hàng & Tồn kho
 
 Internal web tool for managing orders, inventory and revenue statistics for a small
-Vietnamese business. Built on **Google Apps Script + private Google Sheets**.
+Vietnamese business. Built on **Google Apps Script + private Google Sheets**, as
+two deployments: `apps/web` (knows who the employee is) and `apps/api` (holds the
+data). See [`docs/IDENTITY.md`](docs/IDENTITY.md) for why.
 
 - Users: 1 Admin + 5–6 employees
 - Volume: ≤ 100 orders / month
@@ -41,6 +43,7 @@ scaffold. Implementation starts at Milestone 1.
 | [`docs/SETUP.md`](docs/SETUP.md) | One-time setup steps |
 | [`docs/MILESTONES.md`](docs/MILESTONES.md) | Build plan with exit criteria |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Decisions still needed from Phong |
+| [`docs/IDENTITY.md`](docs/IDENTITY.md) | How visitors are identified, and why there are two projects |
 
 ## Reference data
 

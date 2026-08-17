@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <base target="_top">
+  <?!= include_('ui/Styles'); ?>
+</head>
+<body>
+
+  <div id="boot" class="boot">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Đang tải...</p>
+  </div>
+
+  <div id="denied" class="boot hidden">
+    <div class="denied-card">
+      <h1>Không truy cập được</h1>
+      <p id="denied-message"></p>
+
+      <div class="account-box">
+        <div class="account-label">Tài khoản Google đang dùng</div>
+        <div id="denied-email" class="account-email">—</div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="retry" class="btn">Tải lại</button>
+        <a id="logout-link" class="btn btn-ghost" href="#" target="_top">Đăng xuất Google</a>
+      </div>
+
+      <div id="diag-box" class="diag hidden">
+        <div class="slots-label">Chẩn đoán nhận diện (DEV_MODE)</div>
+        <table id="diag-table" class="diag-table"></table>
+      </div>
+
+      <div class="slots">
+        <div class="slots-label">Cách đổi sang tài khoản khác</div>
+        <ol class="howto">
+          <li>Bấm <strong>Đăng xuất Google</strong> ở trên.</li>
+          <li>Đăng nhập lại bằng tài khoản đúng.</li>
+          <li>Mở lại đường dẫn ứng dụng bên dưới.</li>
+        </ol>
+        <div class="url-label">Đường dẫn ứng dụng</div>
+        <div class="url-row">
+          <code id="app-url" class="app-url"></code>
+          <button type="button" id="copy-url" class="btn-mini">Sao chép</button>
+        </div>
+        <p class="hint">Mẹo: mở đường dẫn trong cửa sổ ẩn danh để đăng nhập bằng một tài khoản riêng.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="brand">THIÊN TÂN</span>
+        <span class="brand-sub">Quản lý đơn hàng</span>
+      </div>
+      <div class="topbar-right">
+        <div class="who">
+          <span id="user-name" class="user-name"></span>
+          <span id="user-email" class="user-email"></span>
+        </div>
+        <span id="user-role" class="badge"></span>
+        <a id="switch-top" class="link-sm" href="#" target="_top">Đăng xuất</a>
+      </div>
+    </header>
+
+    <nav id="nav" class="nav" aria-label="Điều hướng chính"></nav>
+
+    <main id="main" class="main"></main>
+
+    <footer class="footer">
+      <span>THIÊN TÂN · Giai đoạn 1 — Nền tảng</span>
+      <span id="build-stamp" class="build-stamp hidden"></span>
+    </footer>
+  </div>
+
+  <?!= include_('ui/App'); ?>
+</body>
+</html>

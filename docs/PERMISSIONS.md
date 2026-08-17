@@ -89,13 +89,13 @@ Presets only — the Admin can override any individual checkbox.
    `visible_fields` means the default safe subset, never "all".
 2. **Every** exported server function starts with:
    ```js
-   const user = getCurrentUser();
-   requirePermission(user, 'create_order');
+   const user = getCurrentUser_();
+   requirePermission_(user, 'create_order');
    ```
 3. **Ownership is checked separately from permission.** Holding `edit_order`
    without `view_all_orders` allows editing only rows where
    `createdBy === user.email`. Check this *after* loading the row, before writing.
-4. **Field filtering happens on the way out.** `filterVisibleFields()` runs on every
+4. **Field filtering happens on the way out.** `filterVisibleFields_()` runs on every
    record before it leaves the server, including in exports and statistics.
 5. **The client is not a security boundary.** Hiding a button is UX. A user who
    calls `google.script.run.deleteOrder(...)` from the console must be rejected

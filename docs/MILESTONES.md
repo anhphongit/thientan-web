@@ -17,16 +17,20 @@ contain the Spreadsheet ID.
 
 ---
 
-## ☐ Milestone 1 — Foundation
+## ◐ Milestone 1 — Foundation
 
 Auth, permissions, and the app shell. No business features.
 
+Code written 2026-08-15, **not yet verified on a live deployment**.
+
 Scope:
-- `Config.gs`: sheet names, column maps, Script Property keys
+- `Config.gs`: sheet names, header rows, permission vocabulary, Vietnamese messages
 - `SheetsRepo.gs`: open spreadsheet, generic read/find/append/update
 - `Auth.gs`: `getCurrentUser()` — email → Users row → permissions
 - `Permissions.gs`: `hasPermission`, `requirePermission`, `filterVisibleFields`
 - `Main.gs`: `doGet`, `include`, error wrapper
+- `Setup.gs`: `setupMilestone1()` — creates the Users + Config tabs and seeds the
+  first admin, so no header row is typed by hand
 - `ui/Index.html` + `Styles.html` + `App.html`: shell, nav, "logged in as", loading
   and no-access states, all in Vietnamese
 
@@ -38,6 +42,11 @@ Scope:
 - [ ] Nav items appear/disappear according to the permissions JSON
 - [ ] No Spreadsheet ID appears anywhere in page source
 - [ ] Layout is usable on a phone
+- [ ] The no-access screen names the Google account it saw, and offers account switching
+- [ ] **An employee (different Google account) logs in as themselves, not as the owner**
+- [ ] WEB deployed **Execute as: User accessing**, API deployed **Execute as: Me** (SETUP.md steps 4 and 6)
+- [ ] The employee cannot open the spreadsheet directly
+- [ ] `DEV_MODE` is off before employees get the link
 
 ---
 
@@ -139,3 +148,7 @@ Scope:
 | Date | Milestone | Note |
 |------|-----------|------|
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |
+| 2026-08-17 | 1 | Restructured to Option B: `apps/api` + `apps/web`. Employees now authenticate as themselves. Setup checklist rewritten. |
+| 2026-08-17 | 1 | 🔴 Identity bug found: every visitor authenticated as the owner. Fallback removed, identity now fails closed. See `IDENTITY.md`. |
+| 2026-08-17 | 1 | Deployment-mode error translated to Vietnamese; current account shown on every screen; account switching added |
+| 2026-08-15 | 1 | Foundation code written: auth (with identity-token fallback), permission gate, Sheets repo, Vietnamese shell, setup bootstrap. Awaiting live verification. |

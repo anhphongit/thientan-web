@@ -21,20 +21,27 @@ It is **not** a public website. All UI text is **Vietnamese**.
 
 ## 2. Architecture — decided, do not re-open
 
-**Option C — Google Apps Script + private Google Sheets.**
+**Option C data model, Option B deployment.** Two Apps Script projects:
 
 ```
-Browser (PC / mobile)
-    ↓  Google account login
-Apps Script Web App   (Execute as: Me)
-    ↓  permission check: email → Users sheet
-Private Google Sheets (Restricted sharing)
+Employee browser
+   │  signs in + authorizes (once)
+   ▼
+THIENTAN-WEB   Execute as: USER ACCESSING   ← Session.getActiveUser() works here
+   │  POST { secret, actor, action, payload }
+   ▼
+THIENTAN-API   Execute as: ME               ← opens the Restricted spreadsheet
+   ▼
+Private Google Sheets
 ```
 
-- No local server, no local JSON, no database.
-- Google handles **authentication**. Apps Script handles **authorization**.
-- Option B (local Node/Python server) is documented but **must not be implemented**
-  unless Phong explicitly switches.
+Google will not give one deployment both visitor identity and private Sheet
+access. The split is the whole point — do not merge the projects back together.
+See `docs/IDENTITY.md`.
+
+The `actor` email is trusted by the API **only** because the shared secret proves
+the call came from THIENTAN-WEB, which read it from its own Session. A browser
+never supplies its own identity.
 
 ---
 
@@ -42,13 +49,21 @@ Private Google Sheets (Restricted sharing)
 
 1. Google Sheets sharing stays **Restricted**. Never "Anyone with the link".
 2. Web app deployment: **Execute as: Me** / **Who has access: Anyone with a Google account**.
+   Switching to *Execute as: User accessing* does not merely break — it inverts the
+   security model, because every employee would then need direct Sheet access and
+   could bypass all permission checks. `getSpreadsheet_()` detects this and raises
+   a Vietnamese message naming the setting.
 3. The frontend must never contain Sheet IDs, keys, or raw data-access logic.
    Sheet IDs live in Script Properties, read server-side only.
 4. **Every** server-side entry point begins with:
    ```
-   const user = getCurrentUser();          // Session.getActiveUser().getEmail() → Users sheet
-   requirePermission(user, 'edit_order');  // throws if not allowed
+   const user = getCurrentUser_();          // Google identity → Users sheet
+   requirePermission_(user, 'edit_order');  // throws if not allowed
    ```
+   Every server function also ends in `_` so it is not reachable from
+   `google.script.run`. Only `doGet`, `api*` and `setupMilestone1` may omit it —
+   see `docs/CONVENTIONS.md`. This is not style; without it, any signed-in
+   employee can call `readAll_('Users')` from the browser console.
    No exceptions. A function that returns or mutates data without this is a bug.
 5. Permission checks are **never** client-side only. The client hides buttons for UX;
    the server decides.
@@ -62,51 +77,57 @@ Private Google Sheets (Restricted sharing)
 
 ```
 THIENTAN/
-├── AGENTS.md                          ← you are here
-├── README.md                          ← human quickstart
-├── PROJECT_INSTRUCTION.md             ← requirements (authoritative)
-├── DETAILED_PLANS_OPTION_B_AND_C.md   ← architecture options
+├── AGENTS.md · README.md · PROJECT_INSTRUCTION.md · DETAILED_PLANS_OPTION_B_AND_C.md
 ├── FILE THEO DOI DON HANG.xlsx        ← REFERENCE ONLY, never imported
-├── .clasp.json.example                ← copy to .clasp.json, fill scriptId
-├── .claspignore / .gitignore
-├── src/
-│   ├── appsscript.json                ← Apps Script manifest
-│   ├── server/                        ← .gs files (stubs, comment-only today)
-│   └── ui/                            ← .html files (stubs, comment-only today)
+├── apps/
+│   ├── api/          THIENTAN-API — Execute as: Me. All data access.
+│   │   ├── appsscript.json  Config.gs  SheetsRepo.gs  Auth.gs
+│   │   ├── Permissions.gs   Router.gs  Setup.gs
+│   └── web/          THIENTAN-WEB — Execute as: User accessing. Knows the visitor.
+│       ├── appsscript.json  Config.gs  Auth.gs  ApiClient.gs  Main.gs
+│       └── ui/       Index · Styles · App · Views*
 └── docs/
-    ├── DATA_MODEL.md        sheet schemas + field types + ID rules
-    ├── PERMISSIONS.md       the permission matrix and how it is enforced
-    ├── EXCEL_REFERENCE.md   what the current Excel actually looks like
-    ├── GLOSSARY_VI.md       Vietnamese UI wording (use these exact strings)
-    ├── CONVENTIONS.md       code style, naming, error handling
-    ├── SETUP.md             clasp + Apps Script + Sheets setup steps
-    ├── MILESTONES.md        6 milestones, exit criteria, test checklists
-    └── OPEN_QUESTIONS.md    unresolved decisions — ask before guessing
+    ├── SETUP.md            ordered setup checklist — start here
+    ├── IDENTITY.md         why there are two projects
+    ├── DATA_MODEL.md · PERMISSIONS.md · EXCEL_REFERENCE.md
+    ├── GLOSSARY_VI.md · CONVENTIONS.md · MILESTONES.md · OPEN_QUESTIONS.md
 ```
 
-`src/server/*.gs` and `src/ui/*.html` currently contain **only header comments**
-describing their intended responsibility. That is deliberate: this repo is
-initialized, not implemented.
+Each app is its own clasp project with its own `.clasp.json` and `rootDir: "."`.
+Run clasp from **inside** `apps/api` or `apps/web`.
+
+**Milestone 1 is implemented**: `Config.gs`, `SheetsRepo.gs`, `Auth.gs`,
+`Permissions.gs`, `Main.gs`, `Setup.gs`, and the UI shell (`Index`, `Styles`, `App`).
+The remaining `.gs` and view `.html` files are still comment-only stubs.
 
 ---
 
-## 5. Server file responsibilities
+## 5. File responsibilities
+
+**apps/api** (runs as you)
 
 | File | Responsibility |
 |------|----------------|
-| `server/Main.gs` | `doGet(e)` entry point, HTML service routing, `include()` helper |
-| `server/Auth.gs` | `getCurrentUser()` — active email → Users row → permissions object |
-| `server/Permissions.gs` | `hasPermission()`, `requirePermission()`, field-level filtering |
-| `server/SheetsRepo.gs` | The **only** file that touches `SpreadsheetApp`. Generic read/write/append/find |
-| `server/Orders.gs` | Order + OrderLine CRUD, status changes, own-orders filter |
-| `server/Inventory.gs` | Product / stock CRUD |
-| `server/Stats.gs` | Revenue aggregation by week / month / quarter / year |
-| `server/Export.gs` | Build export payloads (CSV / XLSX / PDF) |
-| `server/Admin.gs` | User management + permission matrix editing + backup helper |
-| `server/Config.gs` | Sheet names, column maps, status list, Script Property keys |
+| `Config.gs` | Sheet names, headers, permission vocabulary, Vietnamese messages, `BUILD` |
+| `SheetsRepo.gs` | The **only** file touching `SpreadsheetApp`. `readAll_`, `findBy_`, `appendRecord_`, `updateRecord_`, `deleteRecord_` |
+| `Auth.gs` | `loadUser_(email)` — actor email → Users row → permissions |
+| `Permissions.gs` | `hasPermission_`, `requirePermission_`, ownership, field filtering |
+| `Router.gs` | `doPost`, secret check, action registry, `readPublicConfig_` |
+| `Setup.gs` | `setupMilestone1()` bootstrap |
 
-Rule: business logic never calls `SpreadsheetApp` directly — it goes through
-`SheetsRepo.gs`. This keeps permission enforcement and column mapping in one place.
+**apps/web** (runs as the employee)
+
+| File | Responsibility |
+|------|----------------|
+| `Config.gs` | `API_URL` / `SHARED_SECRET` / `DEV_MODE` keys, web-layer messages, `BUILD` |
+| `Auth.gs` | `resolveActiveEmail_()` — the ONE place identity is read |
+| `ApiClient.gs` | `apiCall_(action, payload)` — the only file that talks to the API |
+| `Main.gs` | `doGet`, `apiGetSession`, build stamp, account links |
+| `ui/*.html` | Vietnamese responsive shell |
+
+Rules: business logic never calls `SpreadsheetApp` directly — always via
+`SheetsRepo.gs`. The web project must never gain a spreadsheet scope; adding one
+would change what employees are asked to consent to and defeat the split.
 
 ---
 
@@ -137,8 +158,28 @@ Rule: business logic never calls `SpreadsheetApp` directly — it goes through
 
 ---
 
-## 8. Current state
+## 8. Identity: the open problem — read `docs/IDENTITY.md`
 
-Nothing is implemented. The next action is **Milestone 1 — Foundation**
-(see `docs/MILESTONES.md`), which requires `docs/SETUP.md` to be completed by
-Phong first (Apps Script project + Sheets created, IDs stored in Script Properties).
+In an **Execute as: Me** deployment, `Session.getActiveUser().getEmail()` is often
+an **empty string** for personal Gmail visitors. That is a real constraint with no
+clean workaround, and it is currently **unresolved**.
+
+**Never** paper over it with `ScriptApp.getIdentityToken()`. That token describes
+the *effective* user — the owner — so it authenticates every visitor as the admin.
+That bug shipped on 2026-08-15 and was caught in testing on 2026-08-17.
+
+The rule: identity must **fail closed**. If we cannot prove who someone is, they
+get nothing. An auth fallback that guesses wrong in the permissive direction is
+worse than no fallback.
+
+---
+
+## 9. Current state
+
+**Milestone 1 code is written and partly verified live. It is NOT signed off:**
+employee sign-in does not yet work — see `docs/IDENTITY.md`.
+Next action: Phong completes `docs/SETUP.md`, runs `setupMilestone1()` from the
+editor, then works through the Milestone 1 checklist in `docs/MILESTONES.md`.
+
+Orders / OrderLines / Products tabs are deliberately **not** created yet — their
+schema depends on open questions Q1, Q3, Q4 and Q6.

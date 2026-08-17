@@ -1,0 +1,115 @@
+/**
+ * Main.gs — web app entry point and the browser-facing API surface.
+ *
+ * Only doGet and api* functions may omit the trailing underscore: in Apps Script
+ * every global function without one is callable from the browser via
+ * google.script.run. See docs/CONVENTIONS.md.
+ */
+
+function doGet() {
+  return HtmlService.createTemplateFromFile('ui/Index').evaluate()
+    .setTitle('THIÊN TÂN — Quản lý đơn hàng')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Partial-include helper used by ui/Index.html. */
+function include_(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+/** Always hand the client {ok, data} or {ok, error}; log the technical detail. */
+function handle_(name, fn) {
+  try {
+    return { ok: true, data: fn() };
+  } catch (err) {
+    console.error(name + ' failed: ' + (err && err.stack ? err.stack : err));
+    return { ok: false, error: (err && err.message) ? err.message : MSG.GENERIC };
+  }
+}
+
+/**
+ * Everything the shell needs. Denial is a normal outcome, not an exception:
+ * the client still needs the email and the sign-out link to fix it.
+ */
+function apiGetSession() {
+  return handle_('apiGetSession', function () {
+    var email = resolveActiveEmail_();
+    var base = {
+      urls: buildAccountUrls_(),
+      diag: collectDiagnostics_(),
+      build: buildStamp_(null)
+    };
+
+    if (!email) {
+      return merge_(base, {
+        authorized: false,
+        reason: 'no_identity',
+        message: MSG.NO_IDENTITY,
+        email: ''
+      });
+    }
+
+    var data;
+    try {
+      data = apiCall_('getSession', {});
+    } catch (err) {
+      return merge_(base, {
+        authorized: false,
+        reason: 'denied',
+        message: err.message,
+        email: email,
+        build: buildStamp_(lastApiBuild_)
+      });
+    }
+
+    return merge_(base, {
+      authorized: true,
+      reason: 'ok',
+      email: data.email || email,
+      displayName: data.displayName,
+      role: data.role,
+      permissions: data.permissions,
+      config: data.config,
+      build: buildStamp_(lastApiBuild_)
+    });
+  });
+}
+
+/**
+ * Build strings, for spotting the one real hazard of a two-project setup:
+ * pushing one side and forgetting to publish a new version of the other.
+ * Null outside DEV_MODE so production shows nothing.
+ */
+function buildStamp_(apiBuild) {
+  if (!isDevMode_()) return null;
+  return { web: BUILD, api: apiBuild || '(chưa gọi API)' };
+}
+
+/**
+ * Account links.
+ *
+ * Deliberately NOT offered: /macros/u/N/s/<id>/exec slot links and
+ * accounts.google.com/AccountChooser?continue=... — both send people to Google's
+ * Drive error page when the slot does not exist or the redirect loses account
+ * context (seen 2026-08-17). Sign out, sign back in, reopen: that works.
+ */
+function buildAccountUrls_() {
+  var exec = '';
+  try {
+    exec = ScriptApp.getService().getUrl() || '';
+  } catch (err) {
+    console.error('buildAccountUrls_: service URL unavailable: ' + err);
+  }
+  return {
+    app: exec,
+    logout: 'https://accounts.google.com/Logout'
+  };
+}
+
+function merge_(base, extra) {
+  var out = {};
+  Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+  Object.keys(extra).forEach(function (k) { out[k] = extra[k]; });
+  return out;
+}

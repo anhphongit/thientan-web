@@ -1,0 +1,236 @@
+<script>
+/**
+ * App.html — all client JavaScript.
+ *
+ * The permissions received here are a UI HINT ONLY. THIENTAN-API re-checks every
+ * call. Nothing in this file is a security boundary.
+ */
+(function () {
+  'use strict';
+
+  var session = null;
+  var activeView = 'home';
+
+  /* ---------------- server bridge ---------------- */
+
+  function call(fnName) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) resolve(res.data);
+          else reject(new Error((res && res.error) || 'Đã xảy ra lỗi. Vui lòng thử lại.'));
+        })
+        .withFailureHandler(function (err) {
+          reject(new Error((err && err.message) ||
+            'Không kết nối được máy chủ. Kiểm tra kết nối mạng.'));
+        })[fnName].apply(null, args);
+    });
+  }
+
+  /* ---------------- helpers ---------------- */
+
+  function el(id) { return document.getElementById(id); }
+
+  function can(name) {
+    return !!(session && session.permissions && session.permissions[name] === true);
+  }
+
+  function esc(value) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatVnd(n) {
+    return Math.round(Number(n) || 0).toLocaleString('vi-VN') + ' ₫';
+  }
+
+  function formatDate(value) {
+    if (!value) return '';
+    var d = (value instanceof Date) ? value : new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+
+  function toast(message, isError) {
+    var node = document.createElement('div');
+    node.className = 'toast' + (isError ? ' err' : '');
+    node.textContent = message;
+    document.body.appendChild(node);
+    setTimeout(function () { node.remove(); }, 3600);
+  }
+
+  window.TT = { call: call, can: can, esc: esc, formatVnd: formatVnd,
+                formatDate: formatDate, toast: toast };
+
+  /* ---------------- navigation ---------------- */
+
+  var VIEWS = [
+    { id: 'home',       label: 'Trang chủ',  permission: null },
+    { id: 'orders',     label: 'Đơn hàng',   permission: 'view_orders' },
+    { id: 'statistics', label: 'Thống kê',   permission: 'view_statistics' },
+    { id: 'inventory',  label: 'Kho hàng',   permission: 'manage_inventory' },
+    { id: 'users',      label: 'Người dùng', permission: 'manage_users' }
+  ];
+
+  function renderNav() {
+    var nav = el('nav');
+    nav.innerHTML = '';
+    VIEWS.filter(function (v) { return !v.permission || can(v.permission); })
+      .forEach(function (v) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = v.label;
+        if (v.id === activeView) b.classList.add('active');
+        b.addEventListener('click', function () { show(v.id); });
+        nav.appendChild(b);
+      });
+  }
+
+  function show(viewId) {
+    activeView = viewId;
+    renderNav();
+    el('main').innerHTML = (viewId === 'home') ? homeHtml() : placeholderHtml(viewId);
+  }
+
+  /* ---------------- views ---------------- */
+
+  function homeHtml() {
+    var granted = [], denied = [];
+    Object.keys(session.permissions).forEach(function (k) {
+      if (k === 'visible_fields') return;
+      (session.permissions[k] === true ? granted : denied).push(k);
+    });
+
+    var chips = granted.map(function (k) { return '<li class="perm on">' + esc(k) + '</li>'; })
+      .concat(denied.map(function (k) { return '<li class="perm">' + esc(k) + '</li>'; }))
+      .join('');
+
+    var fields = session.permissions.visible_fields || [];
+    var fieldText = (fields.length === 1 && fields[0] === '*') ? 'Toàn bộ cột' : fields.join(', ');
+    var logout = (session.urls && session.urls.logout) || 'https://accounts.google.com/Logout';
+
+    return '' +
+      '<section class="card">' +
+        '<h2>Tài khoản của bạn</h2>' +
+        '<dl class="kv">' +
+          '<dt>Họ tên</dt><dd>' + esc(session.displayName) + '</dd>' +
+          '<dt>Email</dt><dd>' + esc(session.email) +
+            ' &nbsp;<a class="link-sm" target="_top" href="' + esc(logout) + '">Đăng xuất</a></dd>' +
+          '<dt>Vai trò</dt><dd>' + esc(session.role) + '</dd>' +
+          '<dt>Cột được xem</dt><dd>' + esc(fieldText) + '</dd>' +
+        '</dl>' +
+      '</section>' +
+      '<section class="card">' +
+        '<h2>Quyền hạn</h2>' +
+        '<ul class="perm-list">' + chips + '</ul>' +
+      '</section>';
+  }
+
+  function placeholderHtml(viewId) {
+    var view = VIEWS.filter(function (v) { return v.id === viewId; })[0];
+    var milestone = { orders: 2, statistics: 4, inventory: 5, users: 5 }[viewId] || 2;
+    return '' +
+      '<section class="card">' +
+        '<h2>' + esc(view ? view.label : '') + '</h2>' +
+        '<p class="empty">Chức năng này sẽ có ở giai đoạn ' + milestone + '.</p>' +
+      '</section>';
+  }
+
+  /* ---------------- build stamp (DEV_MODE only) ---------------- */
+
+  /**
+   * The one real hazard of two projects is pushing one side and forgetting to
+   * publish a new version of the other. Showing both build strings makes that
+   * visible instead of silent.
+   */
+  function renderBuild(build) {
+    var node = el('build-stamp');
+    if (!build) { node.classList.add('hidden'); return; }
+    node.textContent = build.web + '  ·  ' + build.api;
+    node.classList.remove('hidden');
+
+    var webDate = (build.web || '').replace('web-', '');
+    var apiDate = (build.api || '').replace('api-', '');
+    node.classList.toggle('drift', !!apiDate && !!webDate && apiDate !== webDate);
+  }
+
+  /* ---------------- boot ---------------- */
+
+  function denied(info) {
+    el('boot').classList.add('hidden');
+    el('denied-message').textContent = info.message || 'Đã xảy ra lỗi. Vui lòng thử lại.';
+    el('denied-email').textContent = info.email || 'Không xác định được';
+
+    var urls = info.urls || {};
+    el('logout-link').href = urls.logout || 'https://accounts.google.com/Logout';
+    el('app-url').textContent = urls.app || '(không xác định)';
+
+    renderDiag(info.diag);
+    el('denied').classList.remove('hidden');
+  }
+
+  function renderDiag(diag) {
+    var box = el('diag-box'), table = el('diag-table');
+    if (!diag) { box.classList.add('hidden'); return; }
+
+    table.innerHTML = '';
+    Object.keys(diag).forEach(function (k) {
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td');
+      var td2 = document.createElement('td');
+      td1.textContent = k;
+      td2.textContent = diag[k];
+      tr.appendChild(td1); tr.appendChild(td2);
+      table.appendChild(tr);
+    });
+    box.classList.remove('hidden');
+  }
+
+  function authorized(data) {
+    session = data;
+    el('user-name').textContent = session.displayName;
+    el('user-email').textContent = session.email;
+    el('user-role').textContent = (session.role === 'admin') ? 'Quản trị' : 'Nhân viên';
+    el('switch-top').href = (session.urls && session.urls.logout) ||
+      'https://accounts.google.com/Logout';
+
+    renderBuild(session.build);
+    el('boot').classList.add('hidden');
+    el('app').classList.remove('hidden');
+    show('home');
+  }
+
+  function start() {
+    call('apiGetSession')
+      .then(function (data) {
+        if (data && data.authorized) authorized(data);
+        else denied(data || {});
+      })
+      .catch(function (err) {
+        denied({ message: err.message, email: '', urls: {} });
+      });
+  }
+
+  el('copy-url').addEventListener('click', function () {
+    var text = el('app-url').textContent || '';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text)
+        .then(function () { toast('Đã sao chép đường dẫn.'); })
+        .catch(function () { toast('Không sao chép được. Hãy chọn và copy thủ công.', true); });
+    } else {
+      toast('Trình duyệt không hỗ trợ sao chép. Hãy chọn và copy thủ công.', true);
+    }
+  });
+
+  el('retry').addEventListener('click', function () {
+    el('denied').classList.add('hidden');
+    el('boot').classList.remove('hidden');
+    start();
+  });
+
+  start();
+})();
+</script>
