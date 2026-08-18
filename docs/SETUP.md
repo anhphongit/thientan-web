@@ -79,9 +79,12 @@ clasp push
 ```
 Sheet "Users": created with 8 columns.
 Sheet "Config": created with 3 columns.
+Sheet "Security": created with 3 columns.
 Config: added 5 default row(s).
+Security: added 6 default row(s).
 Admin seed: added you@gmail.com with all permissions.
 SHARED_SECRET: present (44 chars).
+Security gate: key registered, valid 30 more day(s).
 Session identity: correctly unavailable in the API project.
 ```
 
@@ -221,3 +224,26 @@ It also switches off the identity diagnostics panel.
 The web project asking for **no spreadsheet scope** is why the employee's consent
 screen reads *"see your primary email address"* and *"connect to an external
 service"* — and nothing about their files.
+
+---
+
+## 11. Monthly: rotate the security key
+
+The API is reachable by anyone who learns its URL; the shared secret is what
+stops them, and a leaked secret grants impersonation of any user. It therefore
+expires every 30 days.
+
+```bash
+openssl rand -base64 32
+```
+
+1. Paste into `SHARED_SECRET` on **both** projects (API and WEB).
+2. API editor → run `rotateSecret`.
+
+Admins see an amber banner from 7 days out and a red one once it lapses, with the
+steps in-app. Run `installExpiryReminder` once to also get an email.
+
+**Emergency:** open the `Security` sheet and set `status` = `revoked`. Everything
+is refused immediately — no editor, no deploy, works from the Sheets phone app.
+
+Full model, limits and runbook: [`SECURITY.md`](SECURITY.md).

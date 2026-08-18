@@ -68,6 +68,14 @@ never supplies its own identity.
 5. Permission checks are **never** client-side only. The client hides buttons for UX;
    the server decides.
 6. Employees never get direct access to the underlying Sheets.
+7. The API is anonymous-access, so the shared secret is the only thing between
+   the internet and the data — and because the caller asserts `actor`, a leaked
+   secret means impersonation of anyone, admin included. Rotation and revocation
+   bound the damage; they do not remove it. Read `docs/SECURITY.md` before
+   touching `Router.gs` or `Security.gs`.
+8. `doPost` runs three guards in a fixed order: secret → security gate → actor
+   and permission. Never reorder them, and never look up the action before the
+   gate — a locked system must not reveal which actions exist.
 7. Default visibility rule: a user sees only orders they created, unless they hold
    `view_all_orders`.
 
@@ -88,6 +96,7 @@ THIENTAN/
 │       └── ui/       Index · Styles · App · Views*
 └── docs/
     ├── SETUP.md            ordered setup checklist — start here
+    ├── SECURITY.md         threat model, limits, rotation runbook
     ├── IDENTITY.md         why there are two projects
     ├── DATA_MODEL.md · PERMISSIONS.md · EXCEL_REFERENCE.md
     ├── GLOSSARY_VI.md · CONVENTIONS.md · MILESTONES.md · OPEN_QUESTIONS.md
@@ -112,7 +121,8 @@ The remaining `.gs` and view `.html` files are still comment-only stubs.
 | `SheetsRepo.gs` | The **only** file touching `SpreadsheetApp`. `readAll_`, `findBy_`, `appendRecord_`, `updateRecord_`, `deleteRecord_` |
 | `Auth.gs` | `loadUser_(email)` — actor email → Users row → permissions |
 | `Permissions.gs` | `hasPermission_`, `requirePermission_`, ownership, field filtering |
-| `Router.gs` | `doPost`, secret check, action registry, `readPublicConfig_` |
+| `Router.gs` | `doPost`, three guards in order, action registry, `readPublicConfig_` |
+| `Security.gs` | Gate, fingerprint, rotate/revoke, audit log, expiry reminder |
 | `Setup.gs` | `setupMilestone1()` bootstrap |
 
 **apps/web** (runs as the employee)

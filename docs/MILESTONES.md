@@ -36,17 +36,17 @@ Scope:
 
 **Exit criteria**
 
-- [ ] Opening the URL prompts Google login and then shows the user's Vietnamese name
-- [ ] An email not in `Users` sees *"Tài khoản của bạn chưa được cấp quyền truy cập..."*
-- [ ] `active = FALSE` is locked out
-- [ ] Nav items appear/disappear according to the permissions JSON
-- [ ] No Spreadsheet ID appears anywhere in page source
-- [ ] Layout is usable on a phone
-- [ ] The no-access screen names the Google account it saw, and offers account switching
-- [ ] **An employee (different Google account) logs in as themselves, not as the owner**
-- [ ] WEB deployed **Execute as: User accessing**, API deployed **Execute as: Me** (SETUP.md steps 4 and 6)
-- [ ] The employee cannot open the spreadsheet directly
-- [ ] `DEV_MODE` is off before employees get the link
+- [x] Opening the URL prompts Google login and then shows the user's Vietnamese name
+- [x] An email not in `Users` sees *"Tài khoản của bạn chưa được cấp quyền truy cập..."*
+- [x] `active = FALSE` is locked out
+- [x] Nav items appear/disappear according to the permissions JSON
+- [x] No Spreadsheet ID appears anywhere in page source
+- [x] Layout is usable on a phone
+- [x] The no-access screen names the Google account it saw, and offers account switching
+- [x] **An employee (different Google account) logs in as themselves, not as the owner**
+- [x] WEB deployed **Execute as: User accessing**, API deployed **Execute as: Me** (SETUP.md steps 4 and 6)
+- [x] The employee cannot open the spreadsheet directly
+- [x] `DEV_MODE` is off before employees get the link
 
 ---
 
@@ -148,6 +148,7 @@ Scope:
 | Date | Milestone | Note |
 |------|-----------|------|
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |
+| 2026-08-18 | 1 | Security layer 2: sheet-backed key expiry (30d), phone-friendly revocation, fingerprint check, throttled audit log, admin banners + optional expiry email. Threat model documented in `SECURITY.md`. |
 | 2026-08-18 | 1 | Account help condensed: one 14-word line + three tappable rows, steps moved behind the tap (max 3 per option). |
 | 2026-08-18 | 1 | Account help reframed as product scope, not a Google limitation. |
 | 2026-08-18 | 1 | Account switching: all four Google redirect schemes proven dead. Replaced with in-app instructions, copy-link and a request-access mailto. |

@@ -22,9 +22,12 @@ function setupMilestone1() {
 
   log.push(ensureSheetWithHeaders_(ss, SHEETS.USERS, HEADERS.Users));
   log.push(ensureSheetWithHeaders_(ss, SHEETS.CONFIG, HEADERS.Config));
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.SECURITY, HEADERS.Security));
   log.push(seedConfigDefaults_(ss));
+  log.push(seedSecurityDefaults_(ss));
   log.push(seedFirstAdmin_());
   log.push(checkSecret_());
+  log.push(blessSecretIfNeeded_());
   log.push(checkNoSessionUse_());
 
   var summary = log.join('\n');
@@ -43,8 +46,15 @@ function setupMilestone1() {
  * below refuses to overwrite data that already exists.
  */
 function guardSetup_() {
-  if (getActions_().setupMilestone1) {
-    throw new Error('setupMilestone1 must never be added to the action registry.');
+  // Editor-only maintenance functions lack a trailing underscore so they appear
+  // in the Run dropdown. None may ever become reachable over HTTP.
+  var editorOnly = ['setupMilestone1', 'rotateSecret', 'revokeSecret',
+                    'securityStatus', 'installExpiryReminder', 'checkSecretExpiry'];
+  var registry = getActions_();
+  for (var i = 0; i < editorOnly.length; i++) {
+    if (registry[editorOnly[i]]) {
+      throw new Error(editorOnly[i] + ' must never be added to the action registry.');
+    }
   }
 }
 
@@ -74,6 +84,35 @@ function seedConfigDefaults_(ss) {
     }
   }
   return 'Config: added ' + added + ' default row(s).';
+}
+
+function seedSecurityDefaults_(ss) {
+  var sheet = ss.getSheetByName(SHEETS.SECURITY);
+  var existing = {};
+  readAll_(SHEETS.SECURITY).forEach(function (r) { existing[String(r.key).trim()] = true; });
+
+  var added = 0;
+  for (var i = 0; i < SECURITY_DEFAULTS.length; i++) {
+    if (!existing[SECURITY_DEFAULTS[i][0]]) {
+      sheet.appendRow(SECURITY_DEFAULTS[i]);
+      added++;
+    }
+  }
+  return 'Security: added ' + added + ' default row(s).';
+}
+
+/** Register the configured secret on first setup, so nothing starts out locked. */
+function blessSecretIfNeeded_() {
+  var gate = securityGate_();
+  if (gate.ok) {
+    return 'Security gate: ' + gate.state + ', ' + gate.daysLeft + ' day(s) left.';
+  }
+  if (!getConfiguredSecret_()) {
+    return '⚠️  Security gate: cannot register a key — SHARED_SECRET is not set.';
+  }
+  rotateSecret();
+  var after = securityGate_();
+  return 'Security gate: key registered, valid ' + after.daysLeft + ' more day(s).';
 }
 
 function seedFirstAdmin_() {

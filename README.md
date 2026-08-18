@@ -44,6 +44,7 @@ scaffold. Implementation starts at Milestone 1.
 | [`docs/MILESTONES.md`](docs/MILESTONES.md) | Build plan with exit criteria |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Decisions still needed from Phong |
 | [`docs/IDENTITY.md`](docs/IDENTITY.md) | How visitors are identified, and why there are two projects |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, the shared-secret limitation, rotation runbook |
 
 ## Reference data
 

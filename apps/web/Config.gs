@@ -26,6 +26,7 @@ var MSG = {
     'Vui lòng liên hệ quản trị viên.',
   NO_IDENTITY: 'Không xác định được tài khoản Google của bạn. Vui lòng đăng nhập lại.',
   API_UNREACHABLE: 'Không kết nối được máy chủ dữ liệu. Vui lòng thử lại sau ít phút.',
+  LOCKED: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',
   API_BAD_RESPONSE: 'Máy chủ dữ liệu trả về dữ liệu không hợp lệ.',
   GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.'
 };

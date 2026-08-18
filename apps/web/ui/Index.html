@@ -34,6 +34,9 @@
       <div class="slots">
         <p class="hint hint-lead" id="options-lead"></p>
         <div id="account-options" class="opt-list"></div>
+        <div id="locked-help" class="hidden">
+          <button type="button" class="btn-mini" data-action="rotate-guide">Cách đổi khoá bảo mật</button>
+        </div>
         <p class="hint" id="ask-access-wrap">
           <a id="ask-access" class="link-sm" href="#">Xin cấp quyền cho tài khoản này</a>
         </p>
@@ -58,6 +61,11 @@
     </header>
 
     <nav id="nav" class="nav" aria-label="Điều hướng chính"></nav>
+
+    <div id="sec-banner" class="sec-banner hidden">
+      <span id="sec-banner-text"></span>
+      <button type="button" id="sec-banner-btn" class="btn-mini">Cách đổi khoá</button>
+    </div>
 
     <main id="main" class="main"></main>
 

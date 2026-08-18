@@ -19,29 +19,89 @@ function doPost(e) {
     req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
   } catch (err) {
     console.error('doPost: unparseable body');
+    logSecurityEvent_('bad_request', 'unparseable body');
     return json_({ ok: false, error: MSG.BAD_REQUEST, build: BUILD });
   }
 
+  /* ---- Guard 1: is the caller our web app? ---- */
   if (!secretMatches_(req.secret)) {
     // Do not echo anything useful — this endpoint is reachable anonymously.
     console.error('doPost: rejected, bad or missing secret. action=' + req.action);
+    logSecurityEvent_('bad_secret', 'action=' + String(req.action).substring(0, 60));
     return json_({ ok: false, error: MSG.UNAUTHORIZED_CALLER, build: BUILD });
   }
 
+  /* ---- Guard 2: is that secret still blessed and unexpired? ---- */
+  var gate = securityGate_();
+
+  if (!gate.ok) {
+    // The secret matched, so this really is our web app; safe to resolve the
+    // actor in order to tell an admin what to do rather than stonewalling them.
+    var actor = null;
+    try { actor = loadUser_(req.actor); } catch (err) { actor = null; }
+    var isAdmin = !!(actor && hasPermission_(actor, 'manage_users'));
+
+    logSecurityEvent_('gate_' + gate.state, 'actor=' + String(req.actor).substring(0, 80));
+
+    if (ACTIONS_ALLOWED_WHEN_LOCKED.indexOf(req.action) >= 0) {
+      return json_({
+        ok: true,
+        data: { locked: true, security: securityPayload_(gate, isAdmin),
+                message: isAdmin ? gate.adminMessage : MSG.LOCKED_USER },
+        build: BUILD
+      });
+    }
+    return json_({
+      ok: false,
+      error: isAdmin ? gate.adminMessage : MSG.LOCKED_USER,
+      build: BUILD
+    });
+  }
+
+  /* ---- Action must exist. Checked AFTER the gate on purpose: while the system
+         is locked, an unknown action should report "locked", not reveal whether
+         that action exists. ---- */
   var handler = getActions_()[req.action];
   if (!handler) {
     console.error('doPost: unknown action ' + req.action);
+    logSecurityEvent_('unknown_action', String(req.action).substring(0, 60));
     return json_({ ok: false, error: MSG.UNKNOWN_ACTION + req.action, build: BUILD });
   }
 
+  /* ---- Guard 3: who is this, and may they do it? ---- */
   try {
     var user = loadUser_(req.actor);
-    return json_({ ok: true, data: handler(user, req.payload || {}), build: BUILD });
+    var data = handler(user, req.payload || {});
+    if (data && typeof data === 'object') {
+      data.security = securityPayload_(gate, hasPermission_(user, 'manage_users'));
+    }
+    return json_({ ok: true, data: data, build: BUILD });
   } catch (err) {
     console.error(req.action + ' failed for ' + req.actor + ': ' +
                   (err && err.stack ? err.stack : err));
     return json_({ ok: false, error: (err && err.message) || MSG.GENERIC, build: BUILD });
   }
+}
+
+/**
+ * What the browser is told about the security state.
+ *
+ * Employees get the state only — enough for a "temporarily locked" message.
+ * Dates and remaining days go to admins, who are the ones who can act on them.
+ */
+function securityPayload_(gate, isAdmin) {
+  var out = { state: gate.state };
+  if (!isAdmin) return out;
+
+  var fmt = function (d) {
+    return d ? Utilities.formatDate(d, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy') : '';
+  };
+  out.daysLeft = gate.daysLeft;
+  out.rotatedAt = fmt(gate.rotatedAt);
+  out.expiresAt = fmt(gate.expiresAt);
+  out.adminMessage = gate.adminMessage;
+  out.isAdmin = true;
+  return out;
 }
 
 /**

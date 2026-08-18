@@ -53,12 +53,25 @@ function apiGetSession() {
     var data;
     try {
       data = apiCall_('getSession', {});
-    } catch (err) {
+    } catch (err) {  // includes the security gate refusing a non-getSession action
       return merge_(base, {
         authorized: false,
         reason: 'denied',
         message: err.message,
         email: email,
+        build: buildStamp_(lastApiBuild_)
+      });
+    }
+
+    // The security gate can lock the system even for a valid employee. getSession
+    // still answers, so the UI can explain rather than look broken.
+    if (data.locked) {
+      return merge_(base, {
+        authorized: false,
+        reason: 'locked',
+        message: data.message || MSG.LOCKED,
+        email: email,
+        security: data.security || null,
         build: buildStamp_(lastApiBuild_)
       });
     }
@@ -71,6 +84,7 @@ function apiGetSession() {
       role: data.role,
       permissions: data.permissions,
       config: data.config,
+      security: data.security || null,
       build: buildStamp_(lastApiBuild_)
     });
   });

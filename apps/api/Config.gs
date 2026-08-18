@@ -28,6 +28,8 @@ var PROP = {
 
 var SHEETS = {
   USERS: 'Users',
+  SECURITY: 'Security',
+  SECURITY_LOG: 'SecurityLog',
   ORDERS: 'Orders',
   ORDER_LINES: 'OrderLines',
   PRODUCTS: 'Products',
@@ -42,8 +44,30 @@ var SHEETS = {
  */
 var HEADERS = {
   Users: ['email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'createdBy', 'note'],
-  Config: ['key', 'value', 'description']
+  Config: ['key', 'value', 'description'],
+  Security: ['key', 'value', 'description'],
+  SecurityLog: ['timestamp', 'event', 'detail']
 };
+
+/**
+ * Security sheet defaults. Deliberately a SHEET, not Script Properties: the admin
+ * can revoke access from a phone with the Sheets app, without opening the Apps
+ * Script editor. That is the point of this layer.
+ */
+var SECURITY_DEFAULTS = [
+  ['status', 'active', 'active = cho phép truy cập. Đổi thành "revoked" để khoá toàn bộ ngay lập tức.'],
+  ['secretFingerprint', '', 'Dấu vân tay của khoá đang dùng. Do rotateSecret() ghi, không sửa tay.'],
+  ['rotatedAt', '', 'Lần đổi khoá gần nhất.'],
+  ['expiresAt', '', 'Sau ngày này, mọi truy cập bị từ chối cho tới khi đổi khoá.'],
+  ['rotationDays', '30', 'Số ngày một khoá còn hiệu lực.'],
+  ['warnDays', '7', 'Bắt đầu nhắc quản trị viên trước khi hết hạn bao nhiêu ngày.']
+];
+
+/** Actions still allowed while the security gate is failing. */
+var ACTIONS_ALLOWED_WHEN_LOCKED = ['getSession'];
+
+/** Cap on SecurityLog rows, so an anonymous flood cannot grow the sheet forever. */
+var SECURITY_LOG_MAX_ROWS = 500;
 
 var PERMISSION_KEYS = [
   'view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
@@ -111,5 +135,15 @@ var MSG = {
   UNKNOWN_ACTION: 'Không hỗ trợ thao tác: ',
   DEPLOY_MISCONFIGURED: 'Ứng dụng API chưa được triển khai đúng cách. ' +
     'Mục "Execute as" phải chọn "Me". Vui lòng liên hệ quản trị viên.',
+
+  /* ---- security gate: what a normal employee sees ---- */
+  LOCKED_USER: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',
+
+  /* ---- security gate: what the admin sees, with the action to take ---- */
+  LOCKED_ADMIN_EXPIRED: 'Khoá bảo mật đã hết hạn. Hãy đổi khoá mới trước khi tiếp tục.',
+  LOCKED_ADMIN_REVOKED: 'Khoá bảo mật đang bị thu hồi (status = revoked trong sheet Security).',
+  LOCKED_ADMIN_MISMATCH: 'Khoá trong Script Properties không khớp khoá đã đăng ký. ' +
+    'Hãy chạy rotateSecret() trên project API.',
+  LOCKED_ADMIN_UNSET: 'Chưa đăng ký khoá bảo mật. Hãy chạy rotateSecret() trên project API.',
   GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.'
 };

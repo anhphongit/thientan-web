@@ -166,8 +166,21 @@
     var urls = info.urls || {};
     appUrl = urls.app || '';
     if (urls.logout) logoutUrl = urls.logout;
-    renderAccountOptions();
-    renderAskAccess(urls.supportEmail, info.email);
+    var locked = info.reason === 'locked';
+    var sec = info.security || null;
+    var isAdmin = !!(sec && sec.isAdmin);
+
+    // A locked system is not an account problem: hide the account options so the
+    // person is not sent chasing the wrong fix.
+    el('account-options').classList.toggle('hidden', locked);
+    el('options-lead').classList.toggle('hidden', locked);
+    el('locked-help').classList.toggle('hidden', !(locked && isAdmin));
+    el('ask-access-wrap').classList.toggle('hidden', locked);
+
+    if (!locked) {
+      renderAccountOptions();
+      renderAskAccess(urls.supportEmail, info.email);
+    }
 
     renderDiag(info.diag);
     el('denied').classList.remove('hidden');
@@ -198,6 +211,7 @@
     appUrl = (session.urls && session.urls.app) || '';
     if (session.urls && session.urls.logout) logoutUrl = session.urls.logout;
 
+    renderSecurityBanner(session.security);
     renderBuild(session.build);
     el('boot').classList.add('hidden');
     el('app').classList.remove('hidden');
@@ -342,6 +356,49 @@
       '</div>';
   }
 
+  /**
+   * How the admin rotates the key. Three steps, because that is all it is —
+   * rotation happens in the Apps Script editor so no secret ever passes through
+   * a browser.
+   */
+  function openRotateGuide() {
+    el('modal-title').textContent = 'Đổi khoá bảo mật';
+    el('modal-body').innerHTML =
+      '<ol class="opt-steps">' +
+        '<li>Tạo khoá mới: <code class="kbd">openssl rand -base64 32</code></li>' +
+        '<li>Dán vào <strong>SHARED_SECRET</strong> ở cả hai project (API và WEB)</li>' +
+        '<li>Mở project API → chạy hàm <code class="kbd">rotateSecret</code></li>' +
+      '</ol>' +
+      '<p class="opt-warn">Cần khoá toàn bộ ngay? Mở sheet <strong>Security</strong>, ' +
+      'đặt <code>status</code> = <code>revoked</code>.</p>';
+    el('modal-back').classList.add('hidden');
+    showModal();
+  }
+
+  /**
+   * Security banner. Amber while the key is nearing expiry, red once it has
+   * lapsed. Shown to admins only: an employee can do nothing about it, and the
+   * expiry date is not their business.
+   */
+  function renderSecurityBanner(sec) {
+    var banner = el('sec-banner');
+    if (!sec || !sec.isAdmin || sec.state === 'active') {
+      banner.classList.add('hidden');
+      return;
+    }
+    var text;
+    if (sec.state === 'expiring') {
+      text = 'Khoá bảo mật hết hạn sau ' + sec.daysLeft + ' ngày (' +
+             (sec.expiresAt || '') + '). Nên đổi khoá sớm.';
+      banner.classList.remove('danger');
+    } else {
+      text = sec.adminMessage || 'Khoá bảo mật cần được đổi.';
+      banner.classList.add('danger');
+    }
+    el('sec-banner-text').textContent = text;
+    banner.classList.remove('hidden');
+  }
+
   /* ---------------- modal ---------------- */
 
   function showModal() { el('switch-modal').classList.remove('hidden'); }
@@ -389,10 +446,16 @@
     if (e.target.closest('[data-action="copy"]')) {
       e.preventDefault();
       copyText(appUrl);
+      return;
+    }
+    if (e.target.closest('[data-action="rotate-guide"]')) {
+      e.preventDefault();
+      openRotateGuide();
     }
   });
 
   el('switch-top').addEventListener('click', openOptionList);
+  el('sec-banner-btn').addEventListener('click', openRotateGuide);
   el('modal-back').addEventListener('click', openOptionList);
   el('modal-close').addEventListener('click', closeModal);
   el('switch-modal').addEventListener('click', function (e) {
