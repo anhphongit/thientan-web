@@ -162,6 +162,62 @@ no-identity paths all deny with the right Vietnamese message; a wrong secret is
 rejected; and per-email script-cache keys do not leak one user's permissions to
 another.
 
+## 6d. Account switching cannot be automated — stop trying
+
+Four schemes were tried against the real deployment. **All four dead-ended on
+Google's Drive error page** (*"Rất tiếc, không thể mở tệp tại thời điểm này"*):
+
+| Attempt | Result |
+|---------|--------|
+| `/macros/u/N/s/<id>/exec` slot links | Drive error whenever slot N does not exist |
+| `AccountChooser?continue=<exec>` | Drive error after choosing |
+| `AddSession?continue=<exec>` | login page (not a chooser), then Drive error |
+| `<exec>?authuser=<email>` | Drive error |
+
+The consistent explanation is that a redirect arriving from `accounts.google.com`
+rewrites the target into a per-account `/u/N/` form, which Apps Script `/exec`
+deployments do not serve. That mechanism is a theory; the observation is not.
+
+**Conclusion: an Apps Script web app cannot be reached through Google's
+account-switch redirects.** Switching account is a browser-level action.
+
+**How this is worded to users:** as our own product scope — *"Ứng dụng dùng tài
+khoản Google chính của profile trình duyệt này. Hiện chúng tôi chưa hỗ trợ chuyển
+nhanh giữa nhiều tài khoản."* — never as a Google restriction. The technical
+record above is for us; a user needs to know what to do next, not whose
+limitation it is. See the tone rule in `GLOSSARY_VI.md`.
+
+What the app does instead:
+
+The refusal screen shows one short line and **three tappable rows** — title plus
+a one-line description. Tapping a row opens a dialog with at most three steps and
+the buttons that apply. Nothing longer is shown up front: people reach this screen
+blocked and impatient, and a paragraph gets skipped, which is the same as no
+instruction at all.
+
+| Row | Description | In the dialog |
+|-----|-------------|---------------|
+| Dùng cửa sổ ẩn danh *(Nhanh nhất)* | Không ảnh hưởng tài khoản đang dùng | 3 steps + copy link |
+| Dùng profile khác | Hợp khi dùng cả hai tài khoản mỗi ngày | 3 steps + copy link |
+| Đăng xuất rồi đăng nhập lại | Đăng xuất mọi dịch vụ Google trên trình duyệt này | warning + 3 steps + copy link + **Đăng xuất Google** |
+
+Lead line, 14 words: *"Ứng dụng dùng tài khoản Google chính của trình duyệt này.
+Chọn cách đổi:"*
+
+Wording adapts to the browser — *cửa sổ ẩn danh* / *riêng tư* / *InPrivate*,
+`⌘` vs `Ctrl`, and profile steps only where profiles exist (Chrome, Edge, Opera),
+with a "use another browser" variant elsewhere. Verified across six browser/OS
+combinations; longest single step is 46 characters.
+
+The same rows appear in the in-app dialog behind "Đổi tài khoản", rendered from
+one definition so the two can never drift.
+
+A refused visitor also gets a prefilled **mailto** to the admin requesting access
+for the account they are already signed in as — usually the fastest real fix,
+since that is the account they use all day.
+
+Do not add another URL scheme here without testing it against a live deployment.
+
 ## 7. Meanwhile
 
 The app **fails closed**: an unidentifiable visitor sees

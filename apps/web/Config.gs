@@ -15,7 +15,9 @@ var BUILD = 'web-2026-08-17-1';
 var PROP = {
   API_URL: 'API_URL',
   SHARED_SECRET: 'SHARED_SECRET',
-  DEV_MODE: 'DEV_MODE'
+  DEV_MODE: 'DEV_MODE',
+  /** Admin address shown to a refused visitor so they can ask for access. */
+  SUPPORT_EMAIL: 'SUPPORT_EMAIL'
 };
 
 /** Vietnamese messages owned by the web layer. Data messages come from the API. */

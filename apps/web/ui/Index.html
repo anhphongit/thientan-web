@@ -24,7 +24,6 @@
 
       <div class="actions">
         <button type="button" id="retry" class="btn">Tải lại</button>
-        <a id="logout-link" class="btn btn-ghost" href="#" target="_top">Đăng xuất Google</a>
       </div>
 
       <div id="diag-box" class="diag hidden">
@@ -33,18 +32,11 @@
       </div>
 
       <div class="slots">
-        <div class="slots-label">Cách đổi sang tài khoản khác</div>
-        <ol class="howto">
-          <li>Bấm <strong>Đăng xuất Google</strong> ở trên.</li>
-          <li>Đăng nhập lại bằng tài khoản đúng.</li>
-          <li>Mở lại đường dẫn ứng dụng bên dưới.</li>
-        </ol>
-        <div class="url-label">Đường dẫn ứng dụng</div>
-        <div class="url-row">
-          <code id="app-url" class="app-url"></code>
-          <button type="button" id="copy-url" class="btn-mini">Sao chép</button>
-        </div>
-        <p class="hint">Mẹo: mở đường dẫn trong cửa sổ ẩn danh để đăng nhập bằng một tài khoản riêng.</p>
+        <p class="hint hint-lead" id="options-lead"></p>
+        <div id="account-options" class="opt-list"></div>
+        <p class="hint" id="ask-access-wrap">
+          <a id="ask-access" class="link-sm" href="#">Xin cấp quyền cho tài khoản này</a>
+        </p>
       </div>
     </div>
   </div>
@@ -61,7 +53,7 @@
           <span id="user-email" class="user-email"></span>
         </div>
         <span id="user-role" class="badge"></span>
-        <a id="switch-top" class="link-sm" href="#" target="_top">Đăng xuất</a>
+        <button type="button" id="switch-top" class="link-btn">Đổi tài khoản</button>
       </div>
     </header>
 
@@ -73,6 +65,20 @@
       <span>THIÊN TÂN · Giai đoạn 1 — Nền tảng</span>
       <span id="build-stamp" class="build-stamp hidden"></span>
     </footer>
+  </div>
+
+  <div id="switch-modal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <button type="button" id="modal-back" class="link-btn hidden">← Quay lại</button>
+        <h2 id="modal-title"></h2>
+      </div>
+      <div id="modal-body"></div>
+      <div class="actions">
+        <button type="button" id="modal-close" class="btn">Đóng</button>
+      </div>
+    </div>
   </div>
 
   <?!= include_('ui/App'); ?>

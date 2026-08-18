@@ -70,6 +70,11 @@ via the `Config` sheet.
 | Approve | Duyệt |
 | Change status | Đổi trạng thái |
 | Backup | Sao lưu |
+| Switch account | Đổi tài khoản |
+| Private / incognito window | Cửa sổ ẩn danh (Chrome) · Cửa sổ riêng tư (Firefox, Safari) · Cửa sổ InPrivate (Edge) |
+| Browser profile | Profile trình duyệt |
+| Sign out of Google | Đăng xuất Google |
+| Request access | Xin cấp quyền |
 | Refresh | Tải lại |
 
 ## Time periods
@@ -106,3 +111,24 @@ via the `Config` sheet.
 - **Dates:** `dd/MM/yyyy` (e.g. `23/04/2026`). Timezone `Asia/Ho_Chi_Minh`.
 - **Numbers:** dot as thousand separator, comma as decimal separator (Vietnamese convention).
 - Never show raw technical IDs (`ORD-2026-0001`) as the primary label — show `Số đơn`.
+
+---
+
+## Tone rule: describe our scope, never blame a vendor
+
+User-facing text says what **this app** supports and what the person should do
+next. It does not explain what Google does or does not permit — that framing
+makes the product sound broken and gives the reader nothing actionable.
+
+| ❌ Don't write | ✅ Write |
+|---------------|---------|
+| "Google không cho phép ứng dụng tự đổi tài khoản" | "Ứng dụng dùng tài khoản Google chính của profile trình duyệt này" |
+| "Không thể chuyển tài khoản" | "Hiện chúng tôi chưa hỗ trợ chuyển nhanh giữa nhiều tài khoản. Bạn có thể chọn một trong ba cách sau." |
+
+Every limitation stated to a user should be followed immediately by the options
+open to them, each with concrete steps — and a button wherever one is possible.
+
+**Keep the first screen short.** State the limit in one sentence, then offer
+choices as tappable rows: a title and a single line of description each. Put the
+steps behind the tap, capped at three, one short line apiece. A blocked user
+skims; a paragraph they skip is worth nothing.

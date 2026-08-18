@@ -60,14 +60,19 @@ var DEFAULT_VISIBLE_FIELDS = [
 /**
  * Caches.
  *
- * IMPORTANT: use getScriptCache(), never getUserCache(). This project runs as the
- * OWNER for every employee, so the "user" cache would be one shared bucket and
- * employee A could be served employee B's permissions. The email is part of the
- * key instead.
+ * Only the Config sheet is cached — display vocabulary that changes rarely and
+ * carries no access-control meaning.
+ *
+ * User records are NOT cached. See the note on loadUser_ in Auth.gs: caching them
+ * made `active` = FALSE take up to two minutes to bite.
+ *
+ * If anything here ever caches per-user data, use getScriptCache() with the email
+ * in the key, never getUserCache(): this project runs as the OWNER for every
+ * employee, so the "user" cache is one shared bucket and would serve employee A
+ * employee B's permissions.
  */
 var CACHE = {
   TTL_SECONDS: 120,
-  userKey: function (email) { return 'user:' + email; },
   CONFIG_KEY: 'config:all'
 };
 

@@ -11,6 +11,18 @@
  */
 
 /**
+ * Resolve an actor email into a user with permissions.
+ *
+ * DELIBERATELY NOT CACHED. An earlier version cached this record for 120s, which
+ * meant setting `active` = FALSE in the sheet did nothing for up to two minutes:
+ * a revoked employee kept working normally (found 2026-08-17). Access control
+ * must take effect when the admin says so, not when a TTL happens to lapse.
+ *
+ * The cost is one extra `getValues()` on the Users sheet per request — a few
+ * hundred milliseconds, for 5–6 people. Correctness is worth more than that.
+ * If this ever needs caching, cache the *permissions* and re-read `active`
+ * fresh; never cache the fact that someone is allowed in.
+ *
  * @param {string} email actor email supplied by the verified caller
  * @return {{email:string, displayName:string, role:string, permissions:Object}}
  */
@@ -18,34 +30,16 @@ function loadUser_(email) {
   var normalized = String(email || '').trim().toLowerCase();
   if (!normalized) throw new Error(MSG.NO_IDENTITY);
 
-  // Script cache, keyed by email — see the warning in Config.gs CACHE.
-  var cache = CacheService.getScriptCache();
-  var key = CACHE.userKey(normalized);
-
-  var cached = cache ? cache.get(key) : null;
-  if (cached) {
-    try { return JSON.parse(cached); } catch (err) { /* reload below */ }
-  }
-
   var row = findBy_(SHEETS.USERS, 'email', normalized);
   if (!row) throw new Error(MSG.NO_ACCESS);
   if (!isTrue_(row.active)) throw new Error(MSG.INACTIVE);
 
-  var user = {
+  return {
     email: normalized,
     displayName: String(row.displayName || normalized).trim(),
     role: String(row.role || 'staff').trim(),
     permissions: parsePermissions_(row.permissions)
   };
-
-  if (cache) cache.put(key, JSON.stringify(user), CACHE.TTL_SECONDS);
-  return user;
-}
-
-/** Call after an Admin edits a user, so the change lands on their next request. */
-function invalidateUserCache_(email) {
-  var cache = CacheService.getScriptCache();
-  if (cache && email) cache.remove(CACHE.userKey(String(email).trim().toLowerCase()));
 }
 
 /** Sheets give TRUE/FALSE, 'TRUE'/'true', 1/0 — normalise all of it. */

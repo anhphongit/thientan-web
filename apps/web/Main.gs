@@ -87,12 +87,20 @@ function buildStamp_(apiBuild) {
 }
 
 /**
- * Account links.
+ * Account information for the UI.
  *
- * Deliberately NOT offered: /macros/u/N/s/<id>/exec slot links and
- * accounts.google.com/AccountChooser?continue=... — both send people to Google's
- * Drive error page when the slot does not exist or the redirect loses account
- * context (seen 2026-08-17). Sign out, sign back in, reopen: that works.
+ * PRODUCT DECISION: this app supports the **primary Google account of the
+ * browser profile** it is opened in. Fast switching between several signed-in
+ * accounts is not a feature we offer.
+ *
+ * That is worded as our own scope, not as a Google restriction — the person
+ * using the app does not care whose limitation it is, only what to do next. The
+ * engineering history behind the decision (four redirect schemes, all dead ends)
+ * is recorded in docs/IDENTITY.md §6d, for us, not for them.
+ *
+ * `logout` is provided because signing out IS a legitimate choice a person may
+ * make — it is offered as one option of three, clearly labelled with its cost,
+ * never as the default path.
  */
 function buildAccountUrls_() {
   var exec = '';
@@ -101,9 +109,12 @@ function buildAccountUrls_() {
   } catch (err) {
     console.error('buildAccountUrls_: service URL unavailable: ' + err);
   }
+
   return {
     app: exec,
-    logout: 'https://accounts.google.com/Logout'
+    logout: 'https://accounts.google.com/Logout',
+    supportEmail: PropertiesService.getScriptProperties()
+      .getProperty(PROP.SUPPORT_EMAIL) || ''
   };
 }
 

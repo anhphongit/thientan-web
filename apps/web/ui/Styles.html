@@ -98,6 +98,74 @@
     font: inherit; font-size: 13px; padding: 0 12px; cursor: pointer; white-space: nowrap;
   }
   .btn-mini:hover { background: var(--c-brand-soft); }
+  a.btn-mini { display: inline-flex; align-items: center; text-decoration: none; }
+  a.btn-mini.disabled { opacity: .45; pointer-events: none; }
+
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; background: var(--c-bg);
+    border: 1px solid var(--c-border); border-radius: 4px; padding: 1px 5px;
+  }
+  .hint-lead { margin-top: 0; margin-bottom: 12px; line-height: 1.55; }
+
+  .link-btn {
+    border: 0; background: none; padding: 0;
+    font: inherit; font-size: 13px; color: var(--c-brand);
+    cursor: pointer; white-space: nowrap;
+  }
+  .link-btn:hover { text-decoration: underline; }
+
+  .opt-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .opt-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid var(--c-border); border-radius: 8px;
+    background: var(--c-surface); padding: 11px 13px;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .opt-row:hover { border-color: var(--c-brand); background: var(--c-brand-soft); }
+  .opt-row-body { flex: 1; min-width: 0; }
+  .opt-row-title { font-size: 14px; font-weight: 600; }
+  .opt-row-desc { font-size: 12px; color: var(--c-muted); margin-top: 1px; }
+  .opt-row-chev { color: var(--c-muted); flex: 0 0 auto; }
+  .opt-tag {
+    font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    white-space: nowrap; margin-left: 6px;
+  }
+
+  .opt-steps { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+  .opt-steps li { margin-bottom: 5px; }
+  .opt-warn {
+    font-size: 12px; color: #8a6d00; background: #fff8e1;
+    border: 1px solid #f0dca0; border-radius: 6px;
+    padding: 8px 10px; margin: 0 0 12px;
+  }
+  .opt-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .modal-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .modal-head h2 { margin: 0; font-size: 17px; }
+
+  .modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(16, 24, 40, .45);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-card {
+    background: var(--c-surface); border-radius: var(--r);
+    box-shadow: 0 12px 32px rgba(16, 24, 40, .22);
+    padding: 22px; max-width: 500px; width: 100%;
+    max-height: 88vh; overflow-y: auto;
+  }
+  .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
+  .modal-card .actions { margin-top: 18px; }
+
+  .switch-input {
+    flex: 1; min-width: 0;
+    font: inherit; font-size: 14px;
+    border: 1px solid var(--c-border); border-radius: 6px;
+    padding: 9px 10px; background: var(--c-surface); color: var(--c-text);
+  }
+  .switch-input:focus { outline: 2px solid var(--c-brand-soft); border-color: var(--c-brand); }
   .hint { font-size: 12px; color: var(--c-muted); margin: 10px 0 0; text-align: left; }
 
   .diag { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--c-border); text-align: left; }

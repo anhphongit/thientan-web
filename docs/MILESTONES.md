@@ -148,6 +148,10 @@ Scope:
 | Date | Milestone | Note |
 |------|-----------|------|
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |
+| 2026-08-18 | 1 | Account help condensed: one 14-word line + three tappable rows, steps moved behind the tap (max 3 per option). |
+| 2026-08-18 | 1 | Account help reframed as product scope, not a Google limitation. |
+| 2026-08-18 | 1 | Account switching: all four Google redirect schemes proven dead. Replaced with in-app instructions, copy-link and a request-access mailto. |
+| 2026-08-17 | 1 | Deactivation made immediate (user record no longer cached); account switching replaced sign-out with `authuser` + AddSession. |
 | 2026-08-17 | 1 | Restructured to Option B: `apps/api` + `apps/web`. Employees now authenticate as themselves. Setup checklist rewritten. |
 | 2026-08-17 | 1 | 🔴 Identity bug found: every visitor authenticated as the owner. Fallback removed, identity now fails closed. See `IDENTITY.md`. |
 | 2026-08-17 | 1 | Deployment-mode error translated to Vietnamese; current account shown on every screen; account switching added |

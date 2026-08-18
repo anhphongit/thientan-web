@@ -10,6 +10,8 @@
 
   var session = null;
   var activeView = 'home';
+  var appUrl = '';
+  var logoutUrl = 'https://accounts.google.com/Logout';
 
   /* ---------------- server bridge ---------------- */
 
@@ -110,15 +112,12 @@
 
     var fields = session.permissions.visible_fields || [];
     var fieldText = (fields.length === 1 && fields[0] === '*') ? 'Toàn bộ cột' : fields.join(', ');
-    var logout = (session.urls && session.urls.logout) || 'https://accounts.google.com/Logout';
-
     return '' +
       '<section class="card">' +
         '<h2>Tài khoản của bạn</h2>' +
         '<dl class="kv">' +
           '<dt>Họ tên</dt><dd>' + esc(session.displayName) + '</dd>' +
-          '<dt>Email</dt><dd>' + esc(session.email) +
-            ' &nbsp;<a class="link-sm" target="_top" href="' + esc(logout) + '">Đăng xuất</a></dd>' +
+          '<dt>Email</dt><dd>' + esc(session.email) + '</dd>' +
           '<dt>Vai trò</dt><dd>' + esc(session.role) + '</dd>' +
           '<dt>Cột được xem</dt><dd>' + esc(fieldText) + '</dd>' +
         '</dl>' +
@@ -165,8 +164,10 @@
     el('denied-email').textContent = info.email || 'Không xác định được';
 
     var urls = info.urls || {};
-    el('logout-link').href = urls.logout || 'https://accounts.google.com/Logout';
-    el('app-url').textContent = urls.app || '(không xác định)';
+    appUrl = urls.app || '';
+    if (urls.logout) logoutUrl = urls.logout;
+    renderAccountOptions();
+    renderAskAccess(urls.supportEmail, info.email);
 
     renderDiag(info.diag);
     el('denied').classList.remove('hidden');
@@ -194,8 +195,8 @@
     el('user-name').textContent = session.displayName;
     el('user-email').textContent = session.email;
     el('user-role').textContent = (session.role === 'admin') ? 'Quản trị' : 'Nhân viên';
-    el('switch-top').href = (session.urls && session.urls.logout) ||
-      'https://accounts.google.com/Logout';
+    appUrl = (session.urls && session.urls.app) || '';
+    if (session.urls && session.urls.logout) logoutUrl = session.urls.logout;
 
     renderBuild(session.build);
     el('boot').classList.add('hidden');
@@ -214,8 +215,26 @@
       });
   }
 
-  el('copy-url').addEventListener('click', function () {
-    var text = el('app-url').textContent || '';
+  /**
+   * Offer to ask the admin for access with THIS account. Often the real fix: the
+   * person is signed in as the account they use all day, and it simply has not
+   * been added to the Users sheet yet.
+   */
+  function renderAskAccess(supportEmail, currentEmail) {
+    var wrap = el('ask-access-wrap');
+    if (!wrap) return;
+    if (!supportEmail || !currentEmail) { wrap.classList.add('hidden'); return; }
+
+    var subject = 'Xin cấp quyền truy cập THIÊN TÂN';
+    var body = 'Chào anh/chị,\n\nEm không truy cập được ứng dụng THIÊN TÂN.\n' +
+               'Tài khoản Google em đang dùng: ' + currentEmail + '\n\n' +
+               'Nhờ anh/chị cấp quyền giúp em. Em cảm ơn.';
+    el('ask-access').href = 'mailto:' + supportEmail +
+      '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    wrap.classList.remove('hidden');
+  }
+
+  function copyText(text) {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text)
         .then(function () { toast('Đã sao chép đường dẫn.'); })
@@ -223,6 +242,164 @@
     } else {
       toast('Trình duyệt không hỗ trợ sao chép. Hãy chọn và copy thủ công.', true);
     }
+  }
+
+  /**
+   * Detect enough about the browser to name the right menu item and the right
+   * keystroke. Wrong wording here is the difference between a step someone
+   * follows and a step someone abandons.
+   */
+  function browserInfo() {
+    var ua = navigator.userAgent;
+    var isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || ua);
+    var info = { name: 'Chrome', priv: 'cửa sổ ẩn danh', key: 'Shift + N', profiles: true };
+
+    if (/Firefox\//.test(ua)) {
+      info = { name: 'Firefox', priv: 'cửa sổ riêng tư', key: 'Shift + P', profiles: false };
+    } else if (/Edg\//.test(ua)) {
+      info = { name: 'Edge', priv: 'cửa sổ InPrivate', key: 'Shift + N', profiles: true };
+    } else if (/OPR\//.test(ua)) {
+      info = { name: 'Opera', priv: 'cửa sổ riêng tư', key: 'Shift + N', profiles: true };
+    } else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) {
+      info = { name: 'Safari', priv: 'cửa sổ riêng tư', key: 'Shift + N', profiles: false };
+    }
+    info.shortcut = (isMac ? '⌘' : 'Ctrl') + ' + ' + info.key;
+    return info;
+  }
+
+  /**
+   * The three ways to end up signed in as a different account.
+   *
+   * Each is one line in the list and at most three steps in the dialog. People
+   * hit this screen blocked and impatient; a wall of text gets skipped, and a
+   * skipped instruction is the same as no instruction.
+   */
+  function accountOptions() {
+    var b = browserInfo();
+    return [
+      {
+        id: 'private',
+        title: 'Dùng ' + b.priv,
+        tag: 'Nhanh nhất',
+        desc: 'Không ảnh hưởng tài khoản đang dùng',
+        steps: [
+          'Mở ' + b.priv + ': <code class="kbd">' + esc(b.shortcut) + '</code>',
+          'Dán đường dẫn ứng dụng',
+          'Đăng nhập tài khoản cần dùng'
+        ]
+      },
+      {
+        id: 'profile',
+        title: b.profiles ? 'Dùng profile khác' : 'Dùng trình duyệt khác',
+        desc: b.profiles ? 'Hợp khi dùng cả hai tài khoản mỗi ngày'
+                         : 'Đăng nhập tài khoản kia ở trình duyệt khác',
+        steps: b.profiles
+          ? ['Bấm ảnh đại diện góc trên bên phải ' + esc(b.name),
+             'Chọn hoặc thêm profile của tài khoản kia',
+             'Dán đường dẫn ứng dụng vào cửa sổ đó']
+          : ['Mở một trình duyệt khác',
+             'Đăng nhập tài khoản cần dùng',
+             'Dán đường dẫn ứng dụng vào đó']
+      },
+      {
+        id: 'logout',
+        title: 'Đăng xuất rồi đăng nhập lại',
+        desc: 'Đăng xuất mọi dịch vụ Google trên trình duyệt này',
+        warn: 'Cách này thoát cả Gmail, Drive… trên trình duyệt này.',
+        steps: [
+          'Sao chép đường dẫn ứng dụng',
+          'Bấm <strong>Đăng xuất Google</strong>',
+          'Đăng nhập tài khoản cần dùng rồi dán đường dẫn'
+        ],
+        logout: true
+      }
+    ];
+  }
+
+  function optionListHtml() {
+    return accountOptions().map(function (o) {
+      return '<button type="button" class="opt-row" data-opt="' + o.id + '">' +
+               '<span class="opt-row-body">' +
+                 '<span class="opt-row-title">' + esc(o.title) +
+                   (o.tag ? '<span class="opt-tag">' + esc(o.tag) + '</span>' : '') +
+                 '</span>' +
+                 '<span class="opt-row-desc">' + esc(o.desc) + '</span>' +
+               '</span>' +
+               '<span class="opt-row-chev">›</span>' +
+             '</button>';
+    }).join('');
+  }
+
+  function optionDetailHtml(o) {
+    return (o.warn ? '<p class="opt-warn">' + esc(o.warn) + '</p>' : '') +
+      '<ol class="opt-steps">' +
+        o.steps.map(function (t) { return '<li>' + t + '</li>'; }).join('') +
+      '</ol>' +
+      '<div class="opt-actions">' +
+        '<button type="button" class="btn-mini" data-action="copy">Sao chép đường dẫn</button>' +
+        (o.logout ? '<a class="btn-mini" href="' + esc(logoutUrl) +
+                    '" target="_top">Đăng xuất Google</a>' : '') +
+      '</div>';
+  }
+
+  /* ---------------- modal ---------------- */
+
+  function showModal() { el('switch-modal').classList.remove('hidden'); }
+  function closeModal() { el('switch-modal').classList.add('hidden'); }
+
+  /** List view — used by the "Đổi tài khoản" control in the top bar. */
+  function openOptionList() {
+    el('modal-title').textContent = 'Đổi tài khoản';
+    el('modal-body').innerHTML = '<p class="hint hint-lead">' + esc(leadText()) + '</p>' +
+                                 '<div class="opt-list">' + optionListHtml() + '</div>';
+    el('modal-back').classList.add('hidden');
+    showModal();
+  }
+
+  /** Detail view. `fromList` decides whether a back arrow makes sense. */
+  function openOptionDetail(id, fromList) {
+    var o = accountOptions().filter(function (x) { return x.id === id; })[0];
+    if (!o) return;
+    el('modal-title').textContent = o.title;
+    el('modal-body').innerHTML = optionDetailHtml(o);
+    el('modal-back').classList.toggle('hidden', !fromList);
+    showModal();
+  }
+
+  function leadText() {
+    return 'Ứng dụng dùng tài khoản Google chính của trình duyệt này. Chọn cách đổi:';
+  }
+
+  function renderAccountOptions() {
+    var lead = el('options-lead');
+    if (lead) lead.textContent = leadText();
+    var list = el('account-options');
+    if (list) list.innerHTML = optionListHtml();
+  }
+
+  // One delegated listener serves the inline list and both modal views.
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest) return;
+
+    var row = e.target.closest('[data-opt]');
+    if (row) {
+      openOptionDetail(row.getAttribute('data-opt'), !el('denied').contains(row));
+      return;
+    }
+    if (e.target.closest('[data-action="copy"]')) {
+      e.preventDefault();
+      copyText(appUrl);
+    }
+  });
+
+  el('switch-top').addEventListener('click', openOptionList);
+  el('modal-back').addEventListener('click', openOptionList);
+  el('modal-close').addEventListener('click', closeModal);
+  el('switch-modal').addEventListener('click', function (e) {
+    if (e.target === el('switch-modal')) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
   });
 
   el('retry').addEventListener('click', function () {

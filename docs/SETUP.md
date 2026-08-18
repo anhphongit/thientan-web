@@ -112,6 +112,7 @@ Running it twice is safe: it never overwrites existing rows.
 | `API_URL` | the `/exec` URL from Step 4 |
 | `SHARED_SECRET` | the **same** string from Step 1 |
 | `DEV_MODE` | `on` while building — see below |
+| `SUPPORT_EMAIL` | your address, shown to refused visitors so they can request access |
 
 ```bash
 cd apps/web
@@ -147,9 +148,16 @@ exists to make true.
    [`PERMISSIONS.md`](PERMISSIONS.md) §3.
 2. Send them the **WEB** `/exec` URL. Never the API URL, never the spreadsheet.
 
-Permission changes take effect on their next action, within ~2 minutes (cache TTL).
-To deactivate someone instantly, set `active` = `FALSE` and clear the cache by
-re-running any admin action, or just wait out the two minutes.
+Use the address they actually sign into Google with day to day. There is no way
+for the app to switch their account for them (`IDENTITY.md` §6d), so authorising
+the account already in their browser saves everyone the private-window dance.
+
+Permission and `active` changes take effect on the employee's **very next
+request** — the Users sheet is read fresh every time, deliberately. To revoke
+someone, set `active` = `FALSE`; they are locked out at once.
+
+Any of `FALSE`, `false`, `0`, `No` or an empty cell counts as inactive; the check
+denies by default.
 
 ---
 
@@ -197,6 +205,8 @@ It also switches off the identity diagnostics panel.
 | `Specified permissions are not sufficient to call Session.getEffectiveUser` | Something in `apps/api` is reading a Session identity — it must not | Use the `ADMIN_EMAIL` property instead. Do **not** add the `userinfo.email` scope to the API |
 | `⚠️ Admin seed skipped` | `ADMIN_EMAIL` not set on the API project | Add it in Step 2 and re-run `setupMilestone1` |
 | Employee sees the old UI | Pushed without publishing a version | Manage deployments → Edit → New version |
+| A deactivated user still gets in | Old build with the user cache | Push the API and publish a new version |
+| Employee is signed into the wrong Google account | Google offers no way for a web app to switch accounts — see `IDENTITY.md` §6d | Either add the account they actually use to `Users`, or have them open the app in a private window |
 
 ## What each project may touch
 

@@ -112,7 +112,25 @@ Presets only — the Admin can override any individual checkbox.
 
 - [ ] A user without `view_all_orders` sees only their own orders in list, search, export and statistics.
 - [ ] Removing a permission takes effect on the user's **next request**, no re-login needed.
-- [ ] A deactivated user is locked out immediately.
+- [ ] A deactivated user (`active` = `FALSE`) is locked out on their **very next request** — not after a delay.
 - [ ] A field outside `visible_fields` is absent from the JSON response, not just hidden in the DOM.
 - [ ] Calling a privileged function directly from the browser console is rejected.
 - [ ] An email that isn't in the `Users` sheet gets the Vietnamese "no access" message, not a stack trace.
+
+---
+
+## 6. Why user records are not cached
+
+An early version cached the resolved user for 120 seconds. Setting `active` =
+`FALSE` then did nothing for up to two minutes: a revoked employee carried on
+working normally (found 2026-08-17).
+
+Access control has to take effect when the admin says so. The Users sheet is
+therefore read fresh on every request — one `getValues()` call, a few hundred
+milliseconds, for 5–6 people.
+
+If this ever needs caching for performance, cache the **permissions blob** and
+re-read `active` fresh. Never cache the fact that someone is allowed in.
+
+The `Config` sheet *is* cached (120s): it holds status labels and units, which
+carry no access-control meaning.
