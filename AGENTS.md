@@ -125,9 +125,21 @@ The remaining `.gs` and view `.html` files are still comment-only stubs.
 | `Main.gs` | `doGet`, `apiGetSession`, build stamp, account links |
 | `ui/*.html` | Vietnamese responsive shell |
 
-Rules: business logic never calls `SpreadsheetApp` directly — always via
-`SheetsRepo.gs`. The web project must never gain a spreadsheet scope; adding one
-would change what employees are asked to consent to and defeat the split.
+Rules:
+- Business logic never calls `SpreadsheetApp` directly — always via `SheetsRepo.gs`.
+- The **web** project must never gain a spreadsheet scope; adding one would change
+  what employees consent to and defeat the split.
+- The **api** project must never gain the `userinfo.email` scope. Without it every
+  `Session.*` call there throws, which is exactly what we want: the API runs as the
+  owner for everyone, so any identity it could read would be the owner's. Where
+  setup needs an address, it reads the `ADMIN_EMAIL` script property.
+  `setupMilestone1()` reports on this every time it runs.
+
+Quick audit:
+```bash
+grep -n 'Session\.' apps/api/*.gs      # only the checkNoSessionUse_ probe should appear
+grep -n 'spreadsheets' apps/web/appsscript.json   # must return nothing
+```
 
 ---
 

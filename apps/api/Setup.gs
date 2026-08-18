@@ -6,9 +6,13 @@
  * depend on open questions Q1, Q3, Q4, Q6 in docs/OPEN_QUESTIONS.md.
  *
  * HOW TO RUN
- *   1. Set SPREADSHEET_ID and SHARED_SECRET in Script Properties first.
+ *   1. Set SPREADSHEET_ID, SHARED_SECRET and ADMIN_EMAIL in Script Properties.
  *   2. Select `setupMilestone1` in the editor and press Run.
  *   3. Authorize when prompted, then read the execution log.
+ *
+ * Note the absence of Session.getEffectiveUser(): this project has no
+ * `userinfo.email` scope on purpose (see Config.gs), so the admin address comes
+ * from the ADMIN_EMAIL property instead.
  */
 function setupMilestone1() {
   guardSetup_();
@@ -21,6 +25,7 @@ function setupMilestone1() {
   log.push(seedConfigDefaults_(ss));
   log.push(seedFirstAdmin_());
   log.push(checkSecret_());
+  log.push(checkNoSessionUse_());
 
   var summary = log.join('\n');
   console.log(summary);
@@ -28,22 +33,19 @@ function setupMilestone1() {
 }
 
 /**
- * This function has no trailing underscore, so the editor can run it. It is NOT
- * reachable from a browser — this project exposes only doGet/doPost, and doPost
- * dispatches through getActions_(), which does not include setup.
- * The guard is belt-and-braces for anyone who later adds it to the registry.
+ * `setupMilestone1` has no trailing underscore so it appears in the editor's Run
+ * dropdown. That does not expose it: this project serves no HTML, so there is no
+ * `google.script.run` surface at all, and its only external entry points are
+ * doGet (plain text) and doPost (which dispatches through getActions_(), where
+ * setup is deliberately absent).
+ *
+ * Safety therefore comes from idempotency, not from an identity check: every step
+ * below refuses to overwrite data that already exists.
  */
 function guardSetup_() {
-  var sheet;
-  try {
-    sheet = getSpreadsheet_().getSheetByName(SHEETS.USERS);
-  } catch (err) {
-    return; // getSpreadsheet_ will raise the real error
+  if (getActions_().setupMilestone1) {
+    throw new Error('setupMilestone1 must never be added to the action registry.');
   }
-  if (!sheet || sheet.getLastRow() < 2) return; // virgin system: first run
-
-  var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  requirePermission_(loadUser_(email), 'manage_users');
 }
 
 function ensureSheetWithHeaders_(ss, name, headers) {
@@ -75,8 +77,12 @@ function seedConfigDefaults_(ss) {
 }
 
 function seedFirstAdmin_() {
-  var email = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
-  if (!email) return 'Admin seed: could not determine your email — add the row by hand.';
+  var email = String(
+    PropertiesService.getScriptProperties().getProperty(PROP.ADMIN_EMAIL) || ''
+  ).trim().toLowerCase();
+
+  if (!email) return '⚠️  Admin seed skipped: ' + MSG.NO_ADMIN_EMAIL;
+  if (email.indexOf('@') < 1) return '⚠️  Admin seed skipped: ADMIN_EMAIL "' + email + '" is not an email address.';
 
   if (findBy_(SHEETS.USERS, 'email', email)) {
     return 'Admin seed: ' + email + ' is already in the Users sheet.';
@@ -105,4 +111,19 @@ function checkSecret_() {
   if (!secret) return '⚠️  SHARED_SECRET is NOT set — THIENTAN-WEB will be rejected.';
   if (secret.length < 24) return '⚠️  SHARED_SECRET is short (' + secret.length + ' chars). Use `openssl rand -base64 32`.';
   return 'SHARED_SECRET: present (' + secret.length + ' chars).';
+}
+
+/**
+ * Guards the rule that keeps the escalation bug dead: this project must never
+ * read a Session identity. Without the userinfo.email scope the call throws, and
+ * this reports that clearly instead of leaving someone to rediscover it.
+ */
+function checkNoSessionUse_() {
+  try {
+    Session.getEffectiveUser().getEmail();
+    return '⚠️  This project can read Session identity — the userinfo.email scope ' +
+           'has crept back into appsscript.json. Remove it (see Config.gs).';
+  } catch (err) {
+    return 'Session identity: correctly unavailable in the API project.';
+  }
 }

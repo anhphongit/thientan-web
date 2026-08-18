@@ -5,6 +5,13 @@
  * open the private spreadsheet. It has no UI and no notion of a browser session:
  * the caller's identity arrives as `actor` on each request, trusted only because
  * the shared secret proves the request came from THIENTAN-WEB.
+ *
+ * DELIBERATE OMISSION: this project does not request the `userinfo.email` scope,
+ * so every Session.getActiveUser() / getEffectiveUser() call here throws. That is
+ * a feature. This project runs as the OWNER for every employee, so any Session
+ * identity it could read would say "owner" — the exact mistake that produced the
+ * 2026-08-17 privilege-escalation bug. Making it impossible beats remembering.
+ * Where setup genuinely needs an address, use the ADMIN_EMAIL property.
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
@@ -14,6 +21,7 @@ var BUILD = 'api-2026-08-17-1';
 var PROP = {
   SPREADSHEET_ID: 'SPREADSHEET_ID',
   SHARED_SECRET: 'SHARED_SECRET',
+  ADMIN_EMAIL: 'ADMIN_EMAIL',
   ORDER_SEQ_YEAR: 'ORDER_SEQ_YEAR',
   ORDER_SEQ_NEXT: 'ORDER_SEQ_NEXT'
 };
@@ -87,6 +95,7 @@ var CONFIG_DEFAULTS = [
 /** Vietnamese messages. These travel to the browser, so keep them user-facing. */
 var MSG = {
   NOT_CONFIGURED: 'Hệ thống chưa được cấu hình. Vui lòng liên hệ quản trị viên.',
+  NO_ADMIN_EMAIL: 'Chưa đặt ADMIN_EMAIL trong Script Properties của THIENTAN-API.',
   NO_IDENTITY: 'Không xác định được tài khoản Google của bạn. Vui lòng liên hệ quản trị viên.',
   NO_ACCESS: 'Tài khoản của bạn chưa được cấp quyền truy cập. Vui lòng liên hệ quản trị viên.',
   INACTIVE: 'Tài khoản của bạn đã bị khoá. Vui lòng liên hệ quản trị viên.',

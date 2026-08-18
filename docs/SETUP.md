@@ -24,9 +24,9 @@ Private Spreadsheet (Restricted)
 
 ## Step 0 — The spreadsheet
 
-- [ ] Create a Google Spreadsheet, e.g. `THIENTAN - Dữ liệu`
-- [ ] **Share → Restricted.** Never "Anyone with the link". Never add employees.
-- [ ] Copy the ID from the URL:
+- [x] Create a Google Spreadsheet, e.g. `THIENTAN - Dữ liệu`
+- [x] **Share → Restricted.** Never "Anyone with the link". Never add employees.
+- [x] Copy the ID from the URL:
       `docs.google.com/spreadsheets/d/`**`<THIS PART>`**`/edit`
 
 Do **not** create tabs or type headers — Step 3 does that.
@@ -37,23 +37,30 @@ Do **not** create tabs or type headers — Step 3 does that.
 openssl rand -base64 32
 ```
 
-- [ ] Save it somewhere safe. You will paste it into **both** projects.
+- [x] Save it somewhere safe. You will paste it into **both** projects.
 
 This string is the only thing standing between the internet and your data, because
 the API is deployed with anonymous access (see Step 4). Treat it like a password.
 
 ## Step 2 — Create THIENTAN-API
 
-- [ ] <https://script.google.com> → **New project** → rename to `THIENTAN-API`
-- [ ] **Project Settings** → tick *"Show appsscript.json manifest file in editor"*
-- [ ] **Project Settings → Script Properties**:
+- [x] <https://script.google.com> → **New project** → rename to `THIENTAN-API`
+- [x] **Project Settings** → tick *"Show appsscript.json manifest file in editor"*
+- [x] **Project Settings → Script Properties**:
 
 | Property | Value |
 |---|---|
 | `SPREADSHEET_ID` | from Step 0 |
 | `SHARED_SECRET` | from Step 1 |
+| `ADMIN_EMAIL` | your own Gmail — the first admin account |
 
-- [ ] Copy the **Script ID** from Project Settings
+> `ADMIN_EMAIL` exists because this project deliberately has **no**
+> `userinfo.email` scope, so `Session.getEffectiveUser()` throws here. That is
+> intentional: the API runs as you for every employee, so any identity it could
+> read would say "owner" — the bug from 2026-08-17. Removing the ability beats
+> remembering the rule.
+
+- [x] Copy the **Script ID** from Project Settings
 
 Then push the code:
 
@@ -65,9 +72,9 @@ clasp push
 
 ## Step 3 — Run the bootstrap
 
-- [ ] In the API editor, select **`setupMilestone1`** → **Run**
-- [ ] Authorize when prompted (Advanced → Go to THIENTAN-API)
-- [ ] Read the execution log. Expect:
+- [x] In the API editor, select **`setupMilestone1`** → **Run**
+- [x] Authorize when prompted (Advanced → Go to THIENTAN-API)
+- [x] Read the execution log. Expect:
 
 ```
 Sheet "Users": created with 8 columns.
@@ -75,16 +82,18 @@ Sheet "Config": created with 3 columns.
 Config: added 5 default row(s).
 Admin seed: added you@gmail.com with all permissions.
 SHARED_SECRET: present (44 chars).
+Session identity: correctly unavailable in the API project.
 ```
 
-If the last line says ⚠️, go back to Step 2. Running it twice is safe.
+Any line starting with ⚠️ means a Script Property is missing — go back to Step 2.
+Running it twice is safe: it never overwrites existing rows.
 
 ## Step 4 — Deploy THIENTAN-API
 
-- [ ] **Deploy → New deployment → Web app**
+- [x] **Deploy → New deployment → Web app**
   - Execute as: **Me**
   - Who has access: **Anyone**
-- [ ] Copy the `/exec` URL
+- [x] Copy the `/exec` URL
 
 > **"Anyone" means anonymous.** This is deliberate. The alternative, "Anyone with a
 > Google account", requires an `Authorization` header, and Apps Script web apps
@@ -94,9 +103,9 @@ If the last line says ⚠️, go back to Step 2. Running it twice is safe.
 
 ## Step 5 — Create THIENTAN-WEB
 
-- [ ] New Apps Script project → rename to `THIENTAN-WEB`
-- [ ] Show the manifest, as in Step 2
-- [ ] **Script Properties**:
+- [x] New Apps Script project → rename to `THIENTAN-WEB`
+- [x] Show the manifest, as in Step 2
+- [x] **Script Properties**:
 
 | Property | Value |
 |---|---|
@@ -112,19 +121,19 @@ clasp push
 
 ## Step 6 — Deploy THIENTAN-WEB
 
-- [ ] **Deploy → New deployment → Web app**
+- [x] **Deploy → New deployment → Web app**
   - Execute as: **User accessing the web app**
   - Who has access: **Anyone with a Google account**
-- [ ] Copy the `/exec` URL — **this is the link employees get**
+- [x] Copy the `/exec` URL — **this is the link employees get**
 
 ## Step 7 — Verify
 
-- [ ] Open the WEB `/exec` URL yourself → your name, role `admin`, all permission chips
-- [ ] With `DEV_MODE=on`, the footer shows `web-… · api-…`
-- [ ] Open the API `/exec` URL in a browser → plain text `THIENTAN API` and nothing else
-- [ ] Add a second Google account to the `Users` sheet, open the link as them →
+- [x] Open the WEB `/exec` URL yourself → your name, role `admin`, all perission chips
+- [x] With `DEV_MODE=on`, the footer shows `web-… · api-…`
+- [x] Open the API `/exec` URL in a browser → plain text `THIENTAN API` and nothing else
+- [x] Add a second Google account to the `Users` sheet, open the link as them →
       **their** name and **their** permissions, not yours
-- [ ] That second account cannot open the spreadsheet directly
+- [x] That second account cannot open the spreadsheet directly
 
 The fourth box is the one that matters. It is what the whole two-project structure
 exists to make true.
@@ -185,6 +194,8 @@ It also switches off the identity diagnostics panel.
 | *"Tài khoản của bạn chưa được cấp quyền"* | Signed in, but not in the `Users` sheet | Add the row, or sign in as the right account |
 | *"Không xác định được tài khoản Google"* | The WEB deployment is not **Execute as: User accessing** | Fix Step 6 and publish a new version |
 | *"Ứng dụng API chưa được triển khai đúng cách"* | The API deployment is not **Execute as: Me** | Fix Step 4 and publish a new version |
+| `Specified permissions are not sufficient to call Session.getEffectiveUser` | Something in `apps/api` is reading a Session identity — it must not | Use the `ADMIN_EMAIL` property instead. Do **not** add the `userinfo.email` scope to the API |
+| `⚠️ Admin seed skipped` | `ADMIN_EMAIL` not set on the API project | Add it in Step 2 and re-run `setupMilestone1` |
 | Employee sees the old UI | Pushed without publishing a version | Manage deployments → Edit → New version |
 
 ## What each project may touch

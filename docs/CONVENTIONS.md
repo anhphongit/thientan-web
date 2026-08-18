@@ -84,6 +84,18 @@ Rules:
   it into a clean message; the client shows it as-is.
 - Log technical detail with `console.error` — never leak it to the UI.
 
+## Scopes are a structural guard, not paperwork
+
+Each project requests the minimum it needs, and the omissions do real work:
+
+| Project | Must NOT have | Because |
+|---------|---------------|---------|
+| `apps/web` | `spreadsheets` | employees would be asked to consent to file access, and the web layer could bypass the API |
+| `apps/api` | `userinfo.email` | it runs as the owner for everyone, so any Session identity it reads is the owner's — the 2026-08-17 escalation bug |
+
+If you hit *"Specified permissions are not sufficient to call Session.getEffectiveUser"*
+in the API, the answer is never "add the scope". Pass the address in explicitly.
+
 ## Never name a helper after a native Sheet method
 
 `SheetsRepo.gs` exposes `appendRecord_` / `updateRecord_` / `deleteRecord_` — not

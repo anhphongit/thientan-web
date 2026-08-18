@@ -21,3 +21,4 @@ export/
 Thumbs.db
 .vscode/settings.json
 node_modules/
+secret
