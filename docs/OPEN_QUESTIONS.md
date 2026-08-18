@@ -8,6 +8,30 @@ Priority: 🔴 blocks a milestone · 🟡 affects design · 🟢 nice to settle
 
 ---
 
+## ▶ Resume here (paused 2026-08-18)
+
+Milestones 0 and 1 are done and deployed. **Milestone 2 is blocked on exactly
+four questions** — they decide the columns of the `Orders` and `OrderLines`
+sheets, which is why those sheets have not been created:
+
+| | Question | One-line version |
+|---|----------|------------------|
+| **Q1** | Deposits | Do cọc / supplier payments get real fields, or stay free text? |
+| **Q3** | Order numbering | Is the `orderNo` / `customerPo` split right? Auto or manual? |
+| **Q4** | Invoice level | Order `26009` had 3 invoice numbers across its lines — per line or per order? |
+| **Q6** | Customers | A `Customers` sheet, or just autocomplete from Config? |
+
+**Q1, Q4** need whoever runs the orders. **Q3, Q6** you can decide as the builder.
+
+Also worth settling early, though it blocks Milestone 4 rather than 2: **Q2** —
+does "doanh số" mean ex-VAT or inc-VAT, and is an order counted by order date or
+invoice date? Several 2026 orders were invoiced 2–3 months after being placed.
+
+Answering these before real orders exist costs a conversation. Answering them
+after costs a data migration.
+
+---
+
 ## 🔴 Q1 — Deposits (cọc) are a real concept, not a status
 
 The reference file records deposits inside the status text:

@@ -8,7 +8,7 @@ Legend: ☐ not started · ◐ in progress · ☑ done
 
 ---
 
-## ☐ Milestone 0 — Setup (Phong)
+## ☑ Milestone 0 — Setup  *(done 2026-08-18)*
 
 Everything in [`SETUP.md`](SETUP.md).
 
@@ -17,11 +17,12 @@ contain the Spreadsheet ID.
 
 ---
 
-## ◐ Milestone 1 — Foundation
+## ☑ Milestone 1 — Foundation  *(done 2026-08-18)*
 
 Auth, permissions, and the app shell. No business features.
 
-Code written 2026-08-15, **not yet verified on a live deployment**.
+Verified on a live deployment 2026-08-18: employees authenticate as themselves,
+permissions and `active` are enforced, and the security gate works end to end.
 
 Scope:
 - `Config.gs`: sheet names, header rows, permission vocabulary, Vietnamese messages
@@ -50,7 +51,15 @@ Scope:
 
 ---
 
-## ☐ Milestone 2 — Order CRUD (multi-line)
+## ☐ Milestone 2 — Order CRUD (multi-line)  ← **NOT STARTED**
+
+**Blocked.** The `Orders` and `OrderLines` sheets do not exist yet, on purpose:
+their columns depend on open questions **Q1, Q3, Q4 and Q6** in
+[`OPEN_QUESTIONS.md`](OPEN_QUESTIONS.md). Creating them before those are answered
+would bake in guesses that are expensive to undo once real orders exist.
+
+Nothing of this milestone is built: `getActions_()` exposes only `getSession`,
+there is no `Orders.gs`, and `ui/ViewsOrders.html` is still a comment-only stub.
 
 Scope:
 - `Orders.gs`: create / get / update / delete, orderId + lineId generation under a lock
@@ -125,6 +134,21 @@ Scope:
 
 ---
 
+## ☑ Unplanned — Identity and security hardening  *(done 2026-08-18)*
+
+Not in the original six. Forced by what live testing found, and worth listing so
+the effort is visible:
+
+- Two-project split (`apps/api` + `apps/web`) so employees authenticate as
+  themselves — see [`IDENTITY.md`](IDENTITY.md)
+- Privilege-escalation bug found and fixed (every visitor was resolving to the owner)
+- Deactivation made immediate (user records are no longer cached)
+- Security gate: key expiry, phone-friendly revocation, fingerprint check,
+  throttled audit log, admin banners — see [`SECURITY.md`](SECURITY.md)
+- Account-switching help rewritten after four dead-end Google redirect schemes
+
+---
+
 ## ☐ Milestone 6 — Hardening and polish
 
 Scope:
@@ -148,6 +172,7 @@ Scope:
 | Date | Milestone | Note |
 |------|-----------|------|
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |
+| 2026-08-18 | 0,1 | **Milestones 0 and 1 signed off** — setup complete, foundation verified live. Milestone 2 not started, blocked on Q1/Q3/Q4/Q6. |
 | 2026-08-18 | 1 | Security layer 2: sheet-backed key expiry (30d), phone-friendly revocation, fingerprint check, throttled audit log, admin banners + optional expiry email. Threat model documented in `SECURITY.md`. |
 | 2026-08-18 | 1 | Account help condensed: one 14-word line + three tappable rows, steps moved behind the tap (max 3 per option). |
 | 2026-08-18 | 1 | Account help reframed as product scope, not a Google limitation. |
