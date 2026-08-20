@@ -64,8 +64,17 @@
     setTimeout(function () { node.remove(); }, 3600);
   }
 
-  window.TT = { call: call, can: can, esc: esc, formatVnd: formatVnd,
-                formatDate: formatDate, toast: toast };
+  /**
+   * The bridge the view modules (ui/Views*.html) use. `config` and `session` are
+   * read through functions, not captured once: a view built before the session
+   * arrived would otherwise hold an empty object forever.
+   */
+  window.TT = {
+    call: call, can: can, esc: esc, formatVnd: formatVnd,
+    formatDate: formatDate, toast: toast,
+    config: function () { return (session && session.config) || {}; },
+    session: function () { return session; }
+  };
 
   /* ---------------- navigation ---------------- */
 
@@ -94,8 +103,31 @@
   function show(viewId) {
     activeView = viewId;
     renderNav();
-    el('main').innerHTML = (viewId === 'home') ? homeHtml() : placeholderHtml(viewId);
+
+    var main = el('main');
+    if (viewId === 'home') { main.innerHTML = homeHtml(); return; }
+
+    // A view module owns its own DOM from here on. If the file is missing, fall
+    // back to the placeholder rather than showing a blank screen.
+    var module = VIEW_MODULES[viewId];
+    if (module && window[module] && typeof window[module].render === 'function') {
+      main.innerHTML = '';
+      // A throw inside a view used to leave whatever it had painted last on
+      // screen — which reads as "stuck loading forever". Say so instead.
+      try {
+        window[module].render(main);
+      } catch (err) {
+        console.error('view ' + viewId + ' failed: ' + (err && err.stack ? err.stack : err));
+        main.innerHTML = '<section class="card"><p class="empty err-text">' +
+          'Không mở được màn hình này. Vui lòng tải lại trang.</p></section>';
+      }
+      return;
+    }
+    main.innerHTML = placeholderHtml(viewId);
   }
+
+  /** viewId → the global a ui/Views*.html file registers itself under. */
+  var VIEW_MODULES = { orders: 'TTOrders' };
 
   /* ---------------- views ---------------- */
 

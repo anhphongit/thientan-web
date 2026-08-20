@@ -90,6 +90,49 @@ function apiGetSession() {
   });
 }
 
+/* =======================================================================
+   Orders (Milestone 2)
+
+   Thin pass-throughs. Every one of them is a PUBLIC endpoint reachable from the
+   browser console, which is exactly why none of them decides anything: the API
+   re-runs identity, permission and ownership on the other side of apiCall_.
+   Nothing here may add an `actor`, a permission flag, or a default that the API
+   would otherwise refuse.
+   ======================================================================= */
+
+/** @param {{limit:number}=} payload */
+function apiListOrders(payload) {
+  return handle_('apiListOrders', function () {
+    return apiCall_('listOrders', payload || {});
+  });
+}
+
+function apiGetOrder(orderId) {
+  return handle_('apiGetOrder', function () {
+    return apiCall_('getOrder', { orderId: orderId });
+  });
+}
+
+/** @param {{order:Object, lines:Object[]}} payload */
+function apiCreateOrder(payload) {
+  return handle_('apiCreateOrder', function () {
+    return apiCall_('createOrder', payload || {});
+  });
+}
+
+/** @param {{orderId:string, order:Object, lines:Object[]}} payload */
+function apiUpdateOrder(payload) {
+  return handle_('apiUpdateOrder', function () {
+    return apiCall_('updateOrder', payload || {});
+  });
+}
+
+function apiDeleteOrder(orderId) {
+  return handle_('apiDeleteOrder', function () {
+    return apiCall_('deleteOrder', { orderId: orderId });
+  });
+}
+
 /**
  * Build strings, for spotting the one real hazard of a two-project setup:
  * pushing one side and forgetting to publish a new version of the other.

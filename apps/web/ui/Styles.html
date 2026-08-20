@@ -305,4 +305,104 @@
     .topbar { padding: 8px 12px; }
     .topbar-right { gap: 6px; }
   }
+
+  /* ---------- Orders (Milestone 2) ----------
+     Mobile-first: one column of cards, inputs at 16px so iOS does not zoom on
+     focus, and 44px tap targets. The two-column grid only appears from 640px. */
+
+  .view-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin: 0 0 12px;
+  }
+  .view-head h2 { font-size: 18px; margin: 0; }
+  .list-count { color: var(--c-muted); font-size: 13px; margin: -4px 0 10px; }
+  .ro-note {
+    background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
+  }
+  .err-text { color: var(--c-danger); }
+
+  .order-list { display: grid; gap: 10px; }
+  .order-card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px; font: inherit; color: inherit;
+  }
+  .order-card:hover { border-color: var(--c-brand); }
+  .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .oc-id { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  .oc-customer { font-weight: 600; margin: 4px 0 2px; }
+  .oc-meta { color: var(--c-muted); font-size: 13px; }
+  .oc-money {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; font-weight: 600;
+  }
+  .oc-money em { font-style: normal; font-weight: 400; color: var(--c-muted); }
+
+  /* ---------- form ---------- */
+
+  .card h3 { font-size: 15px; margin: 0 0 12px; }
+  .form-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-wide { grid-column: 1 / -1; margin-top: 12px; }
+  .field-label { font-size: 12px; color: var(--c-muted); }
+
+  .field input, .field select, .field textarea {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 12px; min-height: 44px; width: 100%;
+  }
+  .field textarea { min-height: 66px; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .field input:disabled, .field select:disabled, .field textarea:disabled {
+    background: var(--c-bg); color: var(--c-muted);
+  }
+  .field input.money { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .lines-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .add-bottom { margin-top: 12px; }
+
+  .line-card {
+    border: 1px solid var(--c-border); border-radius: var(--r);
+    padding: 12px; margin-top: 12px; background: var(--c-bg);
+  }
+  .line-top { display: flex; align-items: center; justify-content: space-between; }
+  .line-no { font-weight: 600; font-size: 13px; color: var(--c-muted); }
+  .line-amount {
+    margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; color: var(--c-muted); text-align: right;
+  }
+  .danger-link { color: var(--c-danger); }
+
+  .totals { display: grid; gap: 8px; }
+  .totals div { display: flex; justify-content: space-between; align-items: baseline; }
+  .totals span { color: var(--c-muted); font-size: 13px; }
+  .totals strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+  .form-actions {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin: 4px 0 28px;
+  }
+  .btn-primary { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .btn-danger { background: transparent; color: var(--c-danger); border-color: var(--c-danger); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .confirm-box {
+    display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #fdecea; border: 1px solid var(--c-danger); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px;
+  }
+
+  @media (min-width: 640px) {
+    .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 960px) {
+    .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .order-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 </style>

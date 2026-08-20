@@ -91,6 +91,27 @@ Session identity: correctly unavailable in the API project.
 Any line starting with ⚠️ means a Script Property is missing — go back to Step 2.
 Running it twice is safe: it never overwrites existing rows.
 
+### Step 3b — The order sheets (Milestone 2)
+
+Once the code for Milestone 2 is pushed, run the second bootstrap the same way.
+
+- [ ] In the API editor, select **`setupMilestone2`** → **Run**
+- [ ] Read the execution log. Expect:
+
+```
+Sheet "Orders": created with 18 columns.
+Sheet "OrderLines": created with 13 columns.
+Sheet "Invoices": created with 7 columns.
+Sheet "StatusHistory": created with 7 columns.
+Config: added 0 default row(s).
+Config.customerList: seeded with 15 name(s).
+Header check: all order sheets match HEADERS in Config.gs.
+```
+
+Also safe to re-run. A sheet that already has data is left exactly as it is, so it
+can never wipe live orders. If the header check reports a missing column, someone
+renamed a header by hand — fix the header, do not rename it in code.
+
 ## Step 4 — Deploy THIENTAN-API
 
 - [x] **Deploy → New deployment → Web app**

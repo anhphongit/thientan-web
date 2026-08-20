@@ -1,7 +1,10 @@
 # Milestones
 
-Build **one milestone at a time**. Each one must be independently testable on a real
-PC and a real phone before starting the next. After each, run its checklist plus the
+Build **one milestone at a time**, and **one task at a time inside it** — a
+milestone is never built in a single conversation. The task split lives in
+[`TASKS.md`](TASKS.md); this file holds the scope and the exit criteria. Each
+milestone must be independently testable on a real PC and a real phone before
+starting the next. After each, run its checklist plus the
 permission checklist in `PERMISSIONS.md`.
 
 Legend: ☐ not started · ◐ in progress · ☑ done
@@ -51,29 +54,43 @@ Scope:
 
 ---
 
-## ☐ Milestone 2 — Order CRUD (multi-line)  ← **NOT STARTED**
+## ◐ Milestone 2 — Order CRUD (multi-line)  ← **BUILT, AWAITING LIVE TEST**
 
-**Blocked.** The `Orders` and `OrderLines` sheets do not exist yet, on purpose:
-their columns depend on open questions **Q1, Q3, Q4 and Q6** in
-[`OPEN_QUESTIONS.md`](OPEN_QUESTIONS.md). Creating them before those are answered
-would bake in guesses that are expensive to undo once real orders exist.
+Unblocked on 2026-08-20: Q1, Q3, Q4 and Q6 were answered, so the schema is
+settled and `Orders`, `OrderLines`, `Invoices` and `StatusHistory` now exist.
+What those answers changed, in one line each:
 
-Nothing of this milestone is built: `getActions_()` exposes only `getSession`,
-there is no `Orders.gs`, and `ui/ViewsOrders.html` is still a comment-only stub.
+- **Q1** — deposits are real fields: `customerDeposit`, `supplierName`, `supplierPaid`
+- **Q3** — no `orderNo` / `customerPo` split. One free-text `po` + `poNote`, and the
+  system reference `DH-2026-0001` is shown to users as *Mã đơn*
+- **Q4** — invoices are their own tab; `OrderLines.invoiceId` points at it, so one
+  invoice can cover several orders and one order can hold several invoices
+- **Q6** — no `Customers` tab; `Config.customerList` autocomplete, self-filling
 
-Scope:
-- `Orders.gs`: create / get / update / delete, orderId + lineId generation under a lock
-- Server-side recomputation of `amountExVat`, `amountIncVat`, order totals
-- `ui/ViewsOrders.html`: create + edit form with add/remove line rows
-- Own-orders scoping applied on every read
+Built:
+- `apps/api/Orders.gs`: create / get / list / update / delete, ids under a lock,
+  server-side VAT and totals, ownership enforced on every path
+- `apps/api/Setup.gs`: `setupMilestone2()` creates the four sheets, idempotent
+- `apps/web/ui/ViewsOrders.html`: card list + multi-line form (add/remove rows,
+  live totals, inline delete confirmation — no blocking browser dialogs)
+- `tools/offline-tests/`: 105 assertions over the money, edit-reconciliation,
+  scoping, validation and view-markup logic. Run all three before pushing —
+  `node tools/offline-tests/orders-crud.test.js` and its two siblings
+
+**Deploy order** (see `SETUP.md`): push **api** first, publish a new version, then
+run `setupMilestone2()` from the API editor, then push **web** and publish.
 
 **Exit criteria**
 
+- [ ] `setupMilestone2()` reports four sheets created and the header check passes
 - [ ] Create an order with 1 line, and another with 8 lines — both land correctly in `Orders` + `OrderLines`
 - [ ] Per-line VAT (8% / 10%) computes correctly; totals match the lines
 - [ ] Edit changes the right rows and does not orphan or duplicate lines
 - [ ] Delete removes the header and all its lines
 - [ ] A user without `view_all_orders` cannot open another user's order, even by URL/ID
+- [ ] Two lines sharing one invoice number create **one** row in `Invoices`
+- [ ] A deposit typed as `47.466.000` is stored as the number 47466000
+- [ ] A new customer name appears in `Config.customerList` afterwards
 - [ ] The multi-line form is usable on a phone
 
 ---
@@ -171,6 +188,8 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-08-20 | 2 | **Milestone 2 built.** Q1/Q3/Q4/Q6 answered and recorded; schema settled; `Orders.gs`, `setupMilestone2()`, order list + multi-line form, 105 offline assertions. Awaiting live verification. |
+| 2026-08-20 | 4 | Q2 answered: revenue shown ex-VAT **and** inc-VAT; month basis switchable (order date / invoice date). |
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |
 | 2026-08-18 | 0,1 | **Milestones 0 and 1 signed off** — setup complete, foundation verified live. Milestone 2 not started, blocked on Q1/Q3/Q4/Q6. |
 | 2026-08-18 | 1 | Security layer 2: sheet-backed key expiry (30d), phone-friendly revocation, fingerprint check, throttled audit log, admin banners + optional expiry email. Threat model documented in `SECURITY.md`. |

@@ -8,82 +8,86 @@ Priority: 🔴 blocks a milestone · 🟡 affects design · 🟢 nice to settle
 
 ---
 
-## ▶ Resume here (paused 2026-08-18)
+## ▶ Resume here (updated 2026-08-20)
 
-Milestones 0 and 1 are done and deployed. **Milestone 2 is blocked on exactly
-four questions** — they decide the columns of the `Orders` and `OrderLines`
-sheets, which is why those sheets have not been created:
+**Milestone 2 is unblocked.** Q1, Q3, Q4 and Q6 were answered on 2026-08-20, and
+Q2 (which blocks Milestone 4) was answered at the same time. `DATA_MODEL.md` has
+been updated to match; `Orders`, `OrderLines` and `Invoices` are created by
+`setupMilestone2()`.
 
-| | Question | One-line version |
-|---|----------|------------------|
-| **Q1** | Deposits | Do cọc / supplier payments get real fields, or stay free text? |
-| **Q3** | Order numbering | Is the `orderNo` / `customerPo` split right? Auto or manual? |
-| **Q4** | Invoice level | Order `26009` had 3 invoice numbers across its lines — per line or per order? |
-| **Q6** | Customers | A `Customers` sheet, or just autocomplete from Config? |
-
-**Q1, Q4** need whoever runs the orders. **Q3, Q6** you can decide as the builder.
-
-Also worth settling early, though it blocks Milestone 4 rather than 2: **Q2** —
-does "doanh số" mean ex-VAT or inc-VAT, and is an order counted by order date or
-invoice date? Several 2026 orders were invoiced 2–3 months after being placed.
-
-Answering these before real orders exist costs a conversation. Answering them
-after costs a data migration.
+Still open, none of them blocking: **Q5** (automatic stock deduction — Milestone 5),
+**Q7** (yearly rollover), **Q8** (petty-cash notes), **Q9** (who may see prices),
+**Q10** (VAT rates beyond 8% / 10%).
 
 ---
 
-## 🔴 Q1 — Deposits (cọc) are a real concept, not a status
+## ✅ Q1 — Deposits (cọc) are a real concept, not a status
+
+**Answered 2026-08-20: explicit fields.**
 
 The reference file records deposits inside the status text:
 
 - `Khách đã cọc 47.466.000đ` (customer paid a deposit)
 - `đã cọc 18.765.000 cho Tâm Thịnh Phát` (deposit paid **to a supplier**)
 - `đã tt đủ NCC Regas` (supplier fully paid)
-- `đã đặt TVP, không cọc`
 
-So there are **two money flows** being tracked: customer→us and us→supplier. The
-instruction document mentions neither.
-
-**Question:** should v1 have explicit fields — `customerDeposit`, `supplierName`,
-`supplierPaid` — or is a free-text `statusNote` enough for now?
-**Impact:** Milestone 2 (order schema). Adding fields later means editing the Sheet.
+Two money flows: customer→us and us→supplier. `Orders` therefore gains
+`customerDeposit`, `supplierName` and `supplierPaid`, all optional, alongside the
+existing free-text `statusNote` for anything that does not fit a number.
 
 ---
 
-## 🔴 Q2 — What exactly does "doanh số" (revenue) mean?
+## ✅ Q2 — What exactly does "doanh số" (revenue) mean?
 
-`DOANH SỐ THÁNG n` totals a column, but the file has two money columns:
-`Thành tiền chưa VAT` (ex-VAT) and `Trị giá hđ` (inc-VAT). Statistics charts need
-one definition.
+**Answered 2026-08-20: show both figures, and make the month basis switchable.**
 
-**Question:** revenue = ex-VAT, inc-VAT, or show both?
-Also: is an order counted in the month of the **order date** or the **invoice date**?
-Several orders in the file were invoiced 2–3 months after they were placed
-(e.g. order `26001` in the January block, invoice dated 23/04/2026).
-**Impact:** Milestone 4. Getting this wrong makes every chart wrong.
+- Revenue is reported **both** ex-VAT (`Thành tiền chưa VAT`) and inc-VAT
+  (`Trị giá hđ`). Neither is "the" number; statistics screens show the pair.
+- The month an order counts in is a **toggle** on the statistics screen: by order
+  date, or by invoice date. Default is invoice date, because that is what the
+  invoice numbers in the file imply; orders with no invoice yet are excluded from
+  the invoice-date view and shown as a separate "chưa xuất hoá đơn" figure.
 
----
-
-## 🟡 Q3 — Two order numbers, which one is primary?
-
-The `PO` column stacks the internal number (`26001`) and the customer's PO
-(`4600041936`), sometimes with a note (`( chTh)`). `DATA_MODEL.md` splits these into
-`orderNo` + `customerPo` + `note`.
-
-**Question:** confirm the split is right. Can one internal order have more than one
-customer PO? Should `orderNo` auto-increment, or does Phong type it?
-**Impact:** Milestone 2.
+**Impact:** Milestone 4. With the toggle, both readings stay available, so no
+chart is silently wrong.
 
 ---
 
-## 🟡 Q4 — Invoice number is per line group, not per order
+## ✅ Q3 — Two order numbers, which one is primary?
 
-In the file, order `26009` has **three different invoice numbers/dates** across its
-lines (50 / 30-03 / 50). So one order can be invoiced in several parts.
+**Answered 2026-08-20: do not split the PO column.**
 
-**Question:** move `invoiceNo` / `invoiceDate` down to `OrderLines`, keep them on
-`Orders`, or support both (order-level default + per-line override)?
-**Impact:** Milestone 2 schema, Milestone 4 export layout.
+The whole `PO` cell is one value — the purchase-order number as the business
+writes it, whatever it contains. It is **not** split into `orderNo` + `customerPo`.
+A second field, `poNote`, holds remarks *about the PO*: that it is temporary, that
+it is a placeholder increasing number until the customer's real PO arrives, that
+it looks wrong, and so on.
+
+Consequence: there is no auto-incrementing business order number. Because a PO can
+be blank, temporary or shared between orders, **the system reference `orderId`
+(`DH-2026-0001`) is shown to users** — on the order screen, in the list and in
+exports — so an order can always be named unambiguously.
+
+`orderId` is written in ASCII (`DH-`, not `ĐH-`) deliberately: it gets typed into
+search boxes and phone keyboards, and an unaccented key is safe everywhere. The UI
+may label it "Mã đơn".
+
+---
+
+## ✅ Q4 — Invoice number is per line group, not per order
+
+**Answered 2026-08-20: invoices are their own entity.**
+
+The business rule, in Phong's words: one invoice can cover several orders, and one
+order can have zero (not yet invoiced) or several invoices. So invoice is neither
+an order field nor a line field — it is a record of its own that lines point at:
+
+- a new **`Invoices`** tab holds each invoice once (`invoiceId`, `invoiceNo`,
+  `invoiceDate`, `customer`, `note`)
+- **`OrderLines.invoiceId`** references it, blank until that line is invoiced
+
+`Orders.invoiceNo` / `Orders.invoiceDate` are gone. Correcting an invoice date is
+one edit in one place, and "which orders are on invoice 50" is one lookup.
 
 ---
 
@@ -99,15 +103,16 @@ reversal rule for cancellations.
 
 ---
 
-## 🟡 Q6 — Customer master list?
+## ✅ Q6 — Customer master list?
 
-19 distinct customers, with inconsistent casing and family groupings
-(`Nhựa Duy Tân` / `Duy Tân Long An` / `Duy Tân Bình Dương`).
+**Answered 2026-08-20: no `Customers` sheet.** `customerList` in `Config` drives
+autocomplete on the order form. It is seeded with the 19 names observed in the
+reference file, and a name typed that is not on the list is appended to it, so the
+list fills itself instead of staying empty until the admin UI exists (Milestone 5).
 
-**Question:** a proper `Customers` sheet (code, name, tax code, address), or just a
-`customerList` in `Config` for autocomplete?
-**Impact:** Milestone 2. A `Customers` sheet would be a 7th tab — cheap now,
-annoying later.
+Trade-off accepted: a typo becomes a new "customer" in the suggestion list. The
+admin can prune the list in `Config`. Revisit if per-customer tax codes or
+addresses are ever needed on exports.
 
 ---
 
@@ -157,3 +162,8 @@ Two rates observed: 8% (438 lines) and 10% (94 lines).
 | 2026-08-15 | Which architecture? | Option C — Apps Script + private Sheets |
 | 2026-08-15 | Import the existing Excel? | No. Reference only; users enter live data |
 | 2026-08-15 | Use clasp? | Yes |
+| 2026-08-20 | Q1 — deposits | Explicit fields: `customerDeposit`, `supplierName`, `supplierPaid` |
+| 2026-08-20 | Q2 — revenue | Show ex-VAT **and** inc-VAT; month basis switchable (order date / invoice date) |
+| 2026-08-20 | Q3 — order numbering | No split: one free-text `po` + `poNote`. System reference `DH-2026-0001` is shown to users |
+| 2026-08-20 | Q4 — invoices | Own `Invoices` tab; `OrderLines.invoiceId` points at it. Many-to-many in practice |
+| 2026-08-20 | Q6 — customers | No `Customers` sheet. `Config.customerList` autocomplete, self-filling |

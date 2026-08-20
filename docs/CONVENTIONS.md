@@ -138,6 +138,14 @@ grep -rnoE '\.[a-zA-Z][A-Za-z0-9]*_\(' src/   # must return nothing
   around the views.
 - Permissions received from the server are a **UI hint only**.
 - No inline `onclick=` attributes — attach listeners in `App.html`.
+- **A view module must not read `window.TT` at load time.** `ui/Index.html`
+  includes `Views*.html` *before* `App.html`, so the bridge does not exist yet
+  while a view file is being parsed. Assign it inside `render()`. Capturing it at
+  the top of the IIFE gives you `undefined` forever, and the failure looks like a
+  screen stuck on its loading text — no error, no console message from the user's
+  point of view. This shipped on 2026-08-20 and cost a deployment cycle;
+  `tools/offline-tests/orders-ui.test.js` now reproduces the real load order so it
+  cannot come back.
 - No `localStorage` for anything security-related.
 - Chart.js from CDN is the only external dependency. Adding another needs a reason.
 
@@ -150,6 +158,10 @@ grep -rnoE '\.[a-zA-Z][A-Za-z0-9]*_\(' src/   # must return nothing
 ## Testing
 
 There is no test framework in Apps Script. Instead:
+- Pure logic (money, ids, validation, scoping) is covered by the Node harness in
+  `tools/offline-tests/`, which loads the real `.gs` files against an in-memory
+  spreadsheet. Run it before every push; it is fast and catches arithmetic and
+  reconciliation bugs that are tedious to reproduce by hand.
 - Each milestone ships a manual checklist in Vietnamese (see `MILESTONES.md`).
 - Test with **two** accounts: the Admin, and a limited employee account.
 - Test on a real phone browser, not just a desktop narrow window.

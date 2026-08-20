@@ -1,10 +1,614 @@
-<!--
-  ViewsOrders.html — order list, order detail, multi-line order form.
+<script>
+/**
+ * ViewsOrders.html — order list and the multi-line order form (Milestone 2).
+ *
+ * Two screens, one module: a list of cards, and a form used for both create and
+ * edit. Everything it decides is cosmetic — which buttons to draw, what to show
+ * as a total while typing. THIENTAN-API recomputes every đồng and re-checks
+ * every permission on save.
+ *
+ * Cards, not a table: the Admin is on a PC but the staff are on phones, and a
+ * seven-column table on a 360px screen is unusable.
+ */
+(function () {
+  'use strict';
 
-  STATUS: stub. No implementation yet. Built in Milestones 2–3.
+  /**
+   * The TT bridge is assigned in render(), NOT here.
+   *
+   * ui/Index.html includes this file BEFORE ui/App.html, so at the moment this
+   * IIFE runs `window.TT` does not exist yet. Capturing it here left T undefined
+   * forever: showList() painted "Đang tải đơn hàng..." and then threw on the very
+   * next line, so the screen hung on the loading text with no error and no
+   * "Tạo đơn hàng" button. Found live on 2026-08-20.
+   *
+   * A view module must not touch window.TT at load time. Read it in render(),
+   * which only runs after the whole page has parsed.
+   */
+  var T = null;
+  var root = null;
+  var state = {
+    orders: [], order: null, lines: [],
+    editing: false, saving: false, hiddenMoney: false, bound: false
+  };
 
-  Notes:
-    - The order form must support adding/removing line items inline; a real
-      order in the reference file has up to ~8 lines.
-    - Status is a dropdown from the Config sheet plus a free-text note field.
--->
+  /* ---------------- config helpers ---------------- */
+
+  function config() { return T.config() || {}; }
+
+  function statusList() {
+    var list = config().statusList;
+    return (list && list.length) ? list : [{ key: 'draft', label: 'Nháp' }];
+  }
+
+  function statusLabel(key) {
+    var found = statusList().filter(function (s) { return s.key === key; })[0];
+    return found ? found.label : (key || '');
+  }
+
+  /**
+   * Mirror of MONEY_FIELDS in the API's Config.gs. Used only to decide whether
+   * to draw price inputs — the server still filters what it sends and refuses
+   * what it must. A mismatch here costs a redundant field, never a leak.
+   */
+  var MONEY_FIELDS = ['unitPrice', 'vatRate', 'amountExVat', 'amountIncVat',
+                      'totalExVat', 'totalIncVat', 'customerDeposit', 'supplierPaid'];
+
+  function seesMoney() {
+    var s = T.session();
+    var allowed = (s && s.permissions && s.permissions.visible_fields) || [];
+    if (allowed.length === 1 && allowed[0] === '*') return true;
+    return MONEY_FIELDS.some(function (f) { return allowed.indexOf(f) >= 0; });
+  }
+
+  function uomList() { return config().uomList || []; }
+  function vatRates() { return config().vatRates || [0.08, 0.1]; }
+  function customerList() { return config().customerList || []; }
+
+  /* ---------------- value helpers ---------------- */
+
+  /** Money arrives from the sheet as a number and from an input as "1.200.000". */
+  function digits(value) {
+    return String(value === null || value === undefined ? '' : value).replace(/[^\d]/g, '');
+  }
+
+  function moneyValue(value) {
+    var d = digits(value);
+    return d ? parseInt(d, 10) : 0;
+  }
+
+  function groupDigits(value) {
+    var d = digits(value);
+    return d ? parseInt(d, 10).toLocaleString('vi-VN') : '';
+  }
+
+  function qtyValue(value) {
+    var parsed = parseFloat(String(value === null || value === undefined ? '' : value)
+      .replace(',', '.'));
+    return isFinite(parsed) ? parsed : 0;
+  }
+
+  /** <input type="date"> wants yyyy-MM-dd; the sheet sends an ISO datetime. */
+  function dateInputValue(value) {
+    if (!value) return '';
+    var d = (value instanceof Date) ? value : new Date(value);
+    if (isNaN(d.getTime())) return '';
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  function today() { return dateInputValue(new Date()); }
+
+  function has(record, field) {
+    return record && Object.prototype.hasOwnProperty.call(record, field);
+  }
+
+  /* =====================================================================
+     List
+     ===================================================================== */
+
+  function render(container) {
+    T = window.TT;
+    root = container;
+    if (!state.bound) {
+      root.addEventListener('click', onClick);
+      root.addEventListener('input', onInput);
+      root.addEventListener('blur', onBlur, true);
+      state.bound = true;
+    }
+    showList();
+  }
+
+  function showList() {
+    state.order = null;
+    root.innerHTML = '<section class="card"><p class="empty">Đang tải đơn hàng...</p></section>';
+
+    T.call('apiListOrders', { limit: 100 })
+      .then(function (data) {
+        state.orders = (data && data.orders) || [];
+        root.innerHTML = listHtml(data || {});
+      })
+      .catch(function (err) {
+        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+          T.esc(err.message) + '</p></section>';
+      });
+  }
+
+  function listHtml(data) {
+    var canCreate = T.can('create_order');
+    var head = '' +
+      '<div class="view-head">' +
+        '<h2>Đơn hàng</h2>' +
+        (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
+      '</div>';
+
+    if (!state.orders.length) {
+      return head + '<section class="card"><p class="empty">' +
+        (canCreate ? 'Chưa có đơn hàng nào. Bấm “Tạo đơn hàng” để bắt đầu.'
+                   : 'Chưa có đơn hàng nào.') +
+        '</p></section>';
+    }
+
+    var count = '<p class="list-count">Hiển thị ' + data.shown + ' / ' + data.total + ' đơn</p>';
+    return head + count + '<div class="order-list">' +
+      state.orders.map(orderCardHtml).join('') + '</div>';
+  }
+
+  function orderCardHtml(o) {
+    var money = has(o, 'totalExVat')
+      ? '<div class="oc-money">' +
+          '<span>' + T.formatVnd(o.totalExVat) + '<em> chưa VAT</em></span>' +
+          '<span>' + T.formatVnd(o.totalIncVat) + '<em> có VAT</em></span>' +
+        '</div>'
+      : '';
+
+    var meta = [
+      T.formatDate(o.orderDate),
+      o.po ? 'PO ' + T.esc(o.po) : '',
+      o.lineCount + ' dòng'
+    ].filter(Boolean).join(' · ');
+
+    return '' +
+      '<button type="button" class="order-card" data-open="' + T.esc(o.orderId) + '">' +
+        '<div class="oc-top">' +
+          '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
+          '<span class="badge">' + T.esc(statusLabel(o.status)) + '</span>' +
+        '</div>' +
+        '<div class="oc-customer">' + T.esc(o.customer) + '</div>' +
+        '<div class="oc-meta">' + meta + '</div>' +
+        money +
+      '</button>';
+  }
+
+  /* =====================================================================
+     Form — create and edit share one screen
+     ===================================================================== */
+
+  function openForm(orderId) {
+    if (!orderId) {
+      var money = seesMoney();
+      state.order = {
+        orderId: '', po: '', poNote: '', customer: '', orderDate: today(),
+        status: statusList()[0].key, statusNote: '',
+        supplierName: '',
+        canEdit: true, canDelete: false, canChangeStatus: true
+      };
+      if (money) {
+        state.order.customerDeposit = '';
+        state.order.supplierPaid = '';
+      }
+      state.lines = [blankLine()];
+      state.editing = true;
+      state.hiddenMoney = !money;
+      paintForm();
+      return;
+    }
+
+    root.innerHTML = '<section class="card"><p class="empty">Đang mở đơn hàng...</p></section>';
+    T.call('apiGetOrder', orderId)
+      .then(function (data) {
+        state.order = data.order;
+        state.lines = (data.lines || []).map(normalizeLine);
+        if (!state.lines.length) state.lines = [blankLine()];
+        state.hiddenMoney = !!data.hiddenMoney;
+        state.editing = !!data.order.canEdit;
+        paintForm();
+      })
+      .catch(function (err) {
+        T.toast(err.message, true);
+        showList();
+      });
+  }
+
+  function blankLine() {
+    return {
+      lineId: '', productCode: '', description: '', unitPrice: '', qty: '',
+      uom: uomList()[0] || '', vatRate: vatRates()[0], invoiceNo: '', invoiceDate: '', note: ''
+    };
+  }
+
+  function normalizeLine(line) {
+    return {
+      lineId: line.lineId || '',
+      productCode: line.productCode || '',
+      description: line.description || '',
+      unitPrice: has(line, 'unitPrice') ? line.unitPrice : '',
+      qty: has(line, 'qty') ? line.qty : '',
+      uom: line.uom || '',
+      vatRate: has(line, 'vatRate') ? line.vatRate : vatRates()[0],
+      invoiceNo: line.invoiceNo || '',
+      invoiceDate: dateInputValue(line.invoiceDate),
+      note: line.note || ''
+    };
+  }
+
+  function paintForm() {
+    var o = state.order;
+    var isNew = !o.orderId;
+    var ro = !state.editing;
+
+    root.innerHTML = '' +
+      '<div class="view-head">' +
+        '<h2>' + (isNew ? 'Tạo đơn hàng' : 'Mã đơn ' + T.esc(o.orderId)) + '</h2>' +
+        '<button type="button" class="link-btn" data-act="back">← Danh sách</button>' +
+      '</div>' +
+      (ro ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
+      headerCardHtml(o, ro) +
+      linesCardHtml(ro) +
+      totalsHtml() +
+      actionsHtml(isNew, ro) +
+      customerDatalistHtml();
+
+    recalc();
+  }
+
+  function headerCardHtml(o, ro) {
+    var d = ro ? ' disabled' : '';
+    // Status is locked on an existing order for someone without change_status:
+    // the server refuses it anyway, and a control that always errors is a trap.
+    var statusDisabled = (ro || (o.orderId && !o.canChangeStatus)) ? ' disabled' : '';
+
+    return '' +
+      '<section class="card">' +
+        '<h3>Thông tin đơn</h3>' +
+        '<div class="form-grid">' +
+          field('Khách hàng *',
+            '<input id="f-customer" list="customer-options" autocomplete="off" value="' +
+            T.esc(o.customer) + '"' + d + '>') +
+          field('Ngày đặt hàng *',
+            '<input id="f-orderDate" type="date" value="' +
+            T.esc(dateInputValue(o.orderDate) || today()) + '"' + d + '>') +
+          field('Số PO',
+            // One free-text value, not a split field (Q3). It may hold several
+            // numbers stacked on separate lines, as the reference workbook does.
+            '<textarea id="f-po" rows="2" placeholder="Ví dụ: 4600041936"' + d + '>' +
+            T.esc(o.po) + '</textarea>') +
+          field('Ghi chú về PO',
+            '<input id="f-poNote" value="' + T.esc(o.poNote) +
+            '" placeholder="PO tạm, chờ PO thật..."' + d + '>') +
+          field('Trạng thái',
+            '<select id="f-status"' + statusDisabled + '>' +
+              statusList().map(function (s) {
+                return '<option value="' + T.esc(s.key) + '"' +
+                  (s.key === o.status ? ' selected' : '') + '>' + T.esc(s.label) + '</option>';
+              }).join('') +
+            '</select>') +
+          field('Ghi chú trạng thái',
+            '<input id="f-statusNote" value="' + T.esc(o.statusNote) +
+            '" placeholder="Hẹn giao 22/09..."' + d + '>') +
+          (has(o, 'customerDeposit')
+            ? field('Khách đã cọc (VNĐ)',
+                '<input id="f-customerDeposit" inputmode="numeric" class="money" value="' +
+                T.esc(groupDigits(o.customerDeposit)) + '"' + d + '>') : '') +
+          field('Nhà cung cấp',
+            '<input id="f-supplierName" value="' + T.esc(o.supplierName) + '"' + d + '>') +
+          (has(o, 'supplierPaid')
+            ? field('Đã trả nhà cung cấp (VNĐ)',
+                '<input id="f-supplierPaid" inputmode="numeric" class="money" value="' +
+                T.esc(groupDigits(o.supplierPaid)) + '"' + d + '>') : '') +
+        '</div>' +
+      '</section>';
+  }
+
+  function field(label, control) {
+    return '<label class="field"><span class="field-label">' + label + '</span>' +
+           control + '</label>';
+  }
+
+  function linesCardHtml(ro) {
+    return '' +
+      '<section class="card">' +
+        '<div class="lines-head">' +
+          '<h3>Dòng hàng</h3>' +
+          (ro ? '' : '<button type="button" class="btn-mini" data-act="add-line">+ Thêm dòng</button>') +
+        '</div>' +
+        '<div id="lines">' + state.lines.map(function (line, i) {
+          return lineHtml(line, i, ro);
+        }).join('') + '</div>' +
+        (ro ? '' : '<button type="button" class="btn-mini add-bottom" data-act="add-line">+ Thêm dòng</button>') +
+      '</section>';
+  }
+
+  function lineHtml(line, index, ro) {
+    var d = ro ? ' disabled' : '';
+    var showMoney = !state.hiddenMoney;
+
+    var money = showMoney
+      ? field('Đơn giá (VNĐ)',
+          '<input class="money l-unitPrice" inputmode="numeric" value="' +
+          T.esc(groupDigits(line.unitPrice)) + '"' + d + '>') +
+        field('VAT',
+          '<select class="l-vatRate"' + d + '>' +
+            vatRates().map(function (r) {
+              return '<option value="' + r + '"' +
+                (Number(line.vatRate) === Number(r) ? ' selected' : '') + '>' +
+                Math.round(r * 100) + '%</option>';
+            }).join('') +
+          '</select>')
+      : '';
+
+    return '' +
+      '<div class="line-card" data-index="' + index + '">' +
+        '<div class="line-top">' +
+          '<span class="line-no">Dòng ' + (index + 1) + '</span>' +
+          (ro ? '' : '<button type="button" class="link-btn danger-link" data-act="del-line">Xoá dòng</button>') +
+        '</div>' +
+        '<label class="field field-wide"><span class="field-label">Nội dung hàng hoá *</span>' +
+          '<textarea class="l-description" rows="2"' + d + '>' + T.esc(line.description) +
+          '</textarea></label>' +
+        '<div class="form-grid">' +
+          field('Mã hàng', '<input class="l-productCode" value="' + T.esc(line.productCode) + '"' + d + '>') +
+          field('Số lượng *', '<input class="l-qty" inputmode="decimal" value="' + T.esc(line.qty) + '"' + d + '>') +
+          field('ĐVT',
+            '<select class="l-uom"' + d + '>' +
+              ['<option value=""></option>'].concat(uomList().map(function (u) {
+                return '<option value="' + T.esc(u) + '"' +
+                  (u === line.uom ? ' selected' : '') + '>' + T.esc(u) + '</option>';
+              })).join('') +
+            '</select>') +
+          money +
+          field('Số hoá đơn',
+            '<input class="l-invoiceNo" value="' + T.esc(line.invoiceNo) + '" placeholder="98"' + d + '>') +
+          field('Ngày hoá đơn',
+            '<input class="l-invoiceDate" type="date" value="' + T.esc(line.invoiceDate) + '"' + d + '>') +
+        '</div>' +
+        '<label class="field field-wide"><span class="field-label">Ghi chú dòng</span>' +
+          '<input class="l-note" value="' + T.esc(line.note) + '"' + d + '></label>' +
+        (showMoney ? '<div class="line-amount" data-role="amount"></div>' : '') +
+      '</div>';
+  }
+
+  function totalsHtml() {
+    if (state.hiddenMoney) return '';
+    return '' +
+      '<section class="card totals">' +
+        '<div><span>Tổng chưa VAT</span><strong id="t-ex">0 ₫</strong></div>' +
+        '<div><span>Tổng có VAT</span><strong id="t-inc">0 ₫</strong></div>' +
+      '</section>';
+  }
+
+  function actionsHtml(isNew, ro) {
+    if (ro) return '';
+
+    var save = (isNew && !T.can('create_order')) ? '' :
+      '<button type="button" class="btn btn-primary" data-act="save">' +
+      (isNew ? 'Lưu đơn hàng' : 'Lưu thay đổi') + '</button>';
+
+    var del = (!isNew && state.order.canDelete)
+      ? '<button type="button" class="btn btn-danger" data-act="ask-delete">Xoá đơn hàng</button>' +
+        '<span class="confirm-box hidden" data-role="confirm">' +
+          '<span>Xoá hẳn đơn này?</span>' +
+          '<button type="button" class="btn-mini danger-link" data-act="do-delete">Xoá</button>' +
+          '<button type="button" class="btn-mini" data-act="cancel-delete">Không</button>' +
+        '</span>'
+      : '';
+
+    return '<div class="form-actions">' + save +
+      '<button type="button" class="btn" data-act="back">Huỷ</button>' + del + '</div>';
+  }
+
+  function customerDatalistHtml() {
+    return '<datalist id="customer-options">' +
+      customerList().map(function (c) {
+        return '<option value="' + T.esc(c) + '"></option>';
+      }).join('') + '</datalist>';
+  }
+
+  /* =====================================================================
+     Behaviour — one delegated listener per event, bound once in render()
+     ===================================================================== */
+
+  function onClick(e) {
+    var target = e.target.closest ? e.target.closest('[data-act], [data-open]') : null;
+    if (!target) return;
+
+    var open = target.getAttribute('data-open');
+    if (open) { openForm(open); return; }
+
+    switch (target.getAttribute('data-act')) {
+      case 'new':
+        openForm(null);
+        break;
+      case 'back':
+        showList();
+        break;
+      case 'add-line':
+        collect();
+        state.lines.push(blankLine());
+        paintForm();
+        focusLast();
+        break;
+      case 'del-line':
+        collect();
+        state.lines.splice(Number(target.closest('.line-card').getAttribute('data-index')), 1);
+        if (!state.lines.length) state.lines = [blankLine()];
+        paintForm();
+        break;
+      case 'ask-delete':
+        toggleConfirm(true);
+        break;
+      case 'cancel-delete':
+        toggleConfirm(false);
+        break;
+      case 'do-delete':
+        doDelete();
+        break;
+      case 'save':
+        save();
+        break;
+    }
+  }
+
+  /** No window.confirm: a native dialog blocks the whole Apps Script iframe. */
+  function toggleConfirm(show) {
+    var box = root.querySelector('[data-role="confirm"]');
+    if (box) box.classList.toggle('hidden', !show);
+  }
+
+  function focusLast() {
+    var cards = root.querySelectorAll('.line-card');
+    var last = cards[cards.length - 1];
+    if (last) {
+      var input = last.querySelector('.l-description');
+      if (input) input.focus();
+    }
+  }
+
+  function onInput(e) {
+    var cls = e.target.classList;
+    if (!cls) return;
+    if (cls.contains('money') || cls.contains('l-qty') || cls.contains('l-vatRate')) recalc();
+  }
+
+  /** Reformat money on the way out of a field, so 1200000 reads as 1.200.000. */
+  function onBlur(e) {
+    if (e.target.classList && e.target.classList.contains('money')) {
+      e.target.value = groupDigits(e.target.value);
+      recalc();
+    }
+  }
+
+  /** Read the DOM back into state, so a repaint never loses what was typed. */
+  function collect() {
+    if (!state.order) return;
+    var o = state.order;
+    var get = function (sel) { var n = root.querySelector(sel); return n ? n.value : ''; };
+
+    o.customer = get('#f-customer');
+    o.orderDate = get('#f-orderDate');
+    o.po = get('#f-po');
+    o.poNote = get('#f-poNote');
+    o.status = get('#f-status') || o.status;
+    o.statusNote = get('#f-statusNote');
+    o.supplierName = get('#f-supplierName');
+    if (has(o, 'customerDeposit')) o.customerDeposit = get('#f-customerDeposit');
+    if (has(o, 'supplierPaid')) o.supplierPaid = get('#f-supplierPaid');
+
+    state.lines = Array.prototype.map.call(root.querySelectorAll('.line-card'),
+      function (card, i) {
+        var pick = function (sel) { var n = card.querySelector(sel); return n ? n.value : ''; };
+        var previous = state.lines[i] || blankLine();
+        return {
+          // lineId comes from what the server sent, never from the DOM.
+          lineId: previous.lineId || '',
+          productCode: pick('.l-productCode'),
+          description: pick('.l-description'),
+          unitPrice: state.hiddenMoney ? previous.unitPrice : pick('.l-unitPrice'),
+          qty: pick('.l-qty'),
+          uom: pick('.l-uom'),
+          vatRate: state.hiddenMoney ? previous.vatRate : pick('.l-vatRate'),
+          invoiceNo: pick('.l-invoiceNo'),
+          invoiceDate: pick('.l-invoiceDate'),
+          note: pick('.l-note')
+        };
+      });
+  }
+
+  /**
+   * Live totals, for reassurance while typing. The saved figures are the ones
+   * the API computes from the same formula; these are never sent anywhere.
+   */
+  function recalc() {
+    if (state.hiddenMoney || !state.order) return;
+    var totalEx = 0, totalInc = 0;
+
+    Array.prototype.forEach.call(root.querySelectorAll('.line-card'), function (card) {
+      var priceInput = card.querySelector('.l-unitPrice');
+      var qtyInput = card.querySelector('.l-qty');
+      var vatInput = card.querySelector('.l-vatRate');
+
+      var ex = Math.round(moneyValue(priceInput ? priceInput.value : 0) *
+                          qtyValue(qtyInput ? qtyInput.value : 0));
+      var inc = Math.round(ex * (1 + Number(vatInput ? vatInput.value : 0)));
+      totalEx += ex;
+      totalInc += inc;
+
+      var slot = card.querySelector('[data-role="amount"]');
+      if (slot) {
+        slot.innerHTML = ex
+          ? 'Thành tiền: <strong>' + T.formatVnd(ex) + '</strong> · có VAT: <strong>' +
+            T.formatVnd(inc) + '</strong>'
+          : '';
+      }
+    });
+
+    var ex = root.querySelector('#t-ex');
+    var inc = root.querySelector('#t-inc');
+    if (ex) ex.textContent = T.formatVnd(totalEx);
+    if (inc) inc.textContent = T.formatVnd(totalInc);
+  }
+
+  /* ---------------- save / delete ---------------- */
+
+  function save() {
+    if (state.saving) return;
+    collect();
+
+    var isNew = !state.order.orderId;
+    var payload = { order: state.order, lines: state.lines };
+    if (!isNew) payload.orderId = state.order.orderId;
+
+    setSaving(true);
+    T.call(isNew ? 'apiCreateOrder' : 'apiUpdateOrder', payload)
+      .then(function (data) {
+        state.order = data.order;
+        state.lines = (data.lines || []).map(normalizeLine);
+        state.hiddenMoney = !!data.hiddenMoney;
+        state.editing = !!data.order.canEdit;
+        state.saving = false;
+        T.toast(isNew ? 'Đã tạo đơn ' + data.order.orderId : 'Đã lưu thay đổi.');
+        paintForm();
+      })
+      .catch(function (err) {
+        setSaving(false);
+        T.toast(err.message, true);
+      });
+  }
+
+  function doDelete() {
+    if (state.saving) return;
+    setSaving(true);
+    T.call('apiDeleteOrder', state.order.orderId)
+      .then(function () {
+        state.saving = false;
+        T.toast('Đã xoá đơn hàng.');
+        showList();
+      })
+      .catch(function (err) {
+        setSaving(false);
+        T.toast(err.message, true);
+      });
+  }
+
+  function setSaving(on) {
+    state.saving = on;
+    var btn = root.querySelector('[data-act="save"]');
+    if (!btn) return;
+    btn.disabled = on;
+    btn.textContent = on ? 'Đang lưu...'
+                         : (state.order.orderId ? 'Lưu thay đổi' : 'Lưu đơn hàng');
+  }
+
+  window.TTOrders = { render: render };
+})();
+</script>

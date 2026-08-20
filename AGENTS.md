@@ -1,8 +1,8 @@
 # AGENTS.md — Project Context for AI Agents
 
 **Project:** THIENTAN — Local Order & Inventory Management Website
-**Status:** Initialized (scaffold only — **no implementation yet**)
-**Last updated:** 2026-08-15
+**Status:** Milestones 0–1 signed off. Milestone 2 (order CRUD) built, awaiting live test.
+**Last updated:** 2026-08-20
 
 Read this file first. Then read `PROJECT_INSTRUCTION.md` (requirements, authoritative)
 and `DETAILED_PLANS_OPTION_B_AND_C.md` (architecture alternatives).
@@ -90,7 +90,7 @@ THIENTAN/
 ├── apps/
 │   ├── api/          THIENTAN-API — Execute as: Me. All data access.
 │   │   ├── appsscript.json  Config.gs  SheetsRepo.gs  Auth.gs
-│   │   ├── Permissions.gs   Router.gs  Setup.gs
+│   │   ├── Permissions.gs   Router.gs  Setup.gs  Orders.gs
 │   └── web/          THIENTAN-WEB — Execute as: User accessing. Knows the visitor.
 │       ├── appsscript.json  Config.gs  Auth.gs  ApiClient.gs  Main.gs
 │       └── ui/       Index · Styles · App · Views*
@@ -100,14 +100,17 @@ THIENTAN/
     ├── IDENTITY.md         why there are two projects
     ├── DATA_MODEL.md · PERMISSIONS.md · EXCEL_REFERENCE.md
     ├── GLOSSARY_VI.md · CONVENTIONS.md · MILESTONES.md · OPEN_QUESTIONS.md
+    ├── TASKS.md            milestone split into per-conversation tasks — read with MILESTONES.md
+    └── CHECKLIST_M2_VI.md  Vietnamese acceptance checklist for Milestone 2
 ```
 
 Each app is its own clasp project with its own `.clasp.json` and `rootDir: "."`.
 Run clasp from **inside** `apps/api` or `apps/web`.
 
-**Milestone 1 is implemented**: `Config.gs`, `SheetsRepo.gs`, `Auth.gs`,
-`Permissions.gs`, `Main.gs`, `Setup.gs`, and the UI shell (`Index`, `Styles`, `App`).
-The remaining `.gs` and view `.html` files are still comment-only stubs.
+**Milestones 1 and 2 are implemented.** Milestone 1: `Config.gs`, `SheetsRepo.gs`,
+`Auth.gs`, `Permissions.gs`, `Main.gs`, `Setup.gs`, UI shell. Milestone 2:
+`apps/api/Orders.gs`, `setupMilestone2()`, and `apps/web/ui/ViewsOrders.html`.
+`ViewsStats`, `ViewsInventory` and `ViewsAdmin` are still comment-only stubs.
 
 ---
 
@@ -123,7 +126,8 @@ The remaining `.gs` and view `.html` files are still comment-only stubs.
 | `Permissions.gs` | `hasPermission_`, `requirePermission_`, ownership, field filtering |
 | `Router.gs` | `doPost`, three guards in order, action registry, `readPublicConfig_` |
 | `Security.gs` | Gate, fingerprint, rotate/revoke, audit log, expiry reminder |
-| `Setup.gs` | `setupMilestone1()` bootstrap |
+| `Orders.gs` | Order CRUD, line reconciliation, VAT + totals, id allocation, invoice upsert |
+| `Setup.gs` | `setupMilestone1()` / `setupMilestone2()` bootstrap |
 
 **apps/web** (runs as the employee)
 
@@ -133,7 +137,10 @@ The remaining `.gs` and view `.html` files are still comment-only stubs.
 | `Auth.gs` | `resolveActiveEmail_()` — the ONE place identity is read |
 | `ApiClient.gs` | `apiCall_(action, payload)` — the only file that talks to the API |
 | `Main.gs` | `doGet`, `apiGetSession`, build stamp, account links |
-| `ui/*.html` | Vietnamese responsive shell |
+| `ui/*.html` | Vietnamese responsive shell; `ViewsOrders.html` owns the order screens |
+
+A view file registers itself on `window` (`TTOrders`) and is routed to by
+`VIEW_MODULES` in `App.html`. It talks to the server only through `window.TT`.
 
 Rules:
 - Business logic never calls `SpreadsheetApp` directly — always via `SheetsRepo.gs`.
@@ -171,6 +178,28 @@ grep -n 'spreadsheets' apps/web/appsscript.json   # must return nothing
   the source of truth. Do not re-open settled decisions.
 - Work **one milestone at a time** (`docs/MILESTONES.md`). After each milestone,
   produce a short Vietnamese-testable checklist so Phong can verify on real devices.
+
+### Never build a whole milestone in one conversation
+
+**Rule set by Phong on 2026-08-20. It applies to every agent, every milestone.**
+
+A milestone built in a single sitting is hard to test, hard to review, and any
+mistake inside it is expensive to find. So:
+
+1. When a milestone starts, **split it into small tasks first** and write them into
+   [`docs/TASKS.md`](docs/TASKS.md). Do not write feature code in that same
+   conversation beyond what the split needs.
+2. Each task must be small enough to finish, test and verify on its own — roughly
+   one file or one behaviour, with its own way of being checked.
+3. Then **stop and wait.** Phong says which task to do next, one per conversation.
+   Do not run ahead into the next task because it looks easy or related.
+4. At the end of a task: update its status in `docs/TASKS.md`, say plainly what can
+   now be tested, and stop.
+5. If a task turns out to be bigger than it looked, do not push through — split it
+   again in `docs/TASKS.md` and ask which half to do.
+
+Exception: a task that is meaningless alone (a constant its only consumer needs)
+may be folded into the task that uses it. Say so when you do.
 - Prefer simple, readable code. YAGNI / KISS. No clever abstractions.
 - If a requirement is missing or ambiguous, check `docs/OPEN_QUESTIONS.md` first,
   then **ask Phong** — do not guess and do not silently invent business rules.
@@ -198,10 +227,15 @@ worse than no fallback.
 
 ## 9. Current state
 
-**Milestone 1 code is written and partly verified live. It is NOT signed off:**
-employee sign-in does not yet work — see `docs/IDENTITY.md`.
-Next action: Phong completes `docs/SETUP.md`, runs `setupMilestone1()` from the
-editor, then works through the Milestone 1 checklist in `docs/MILESTONES.md`.
+Milestones 0 and 1 are **signed off** (verified live 2026-08-18).
 
-Orders / OrderLines / Products tabs are deliberately **not** created yet — their
-schema depends on open questions Q1, Q3, Q4 and Q6.
+Milestone 2 is **written and offline-tested, not yet verified live**. Next action:
+push `apps/api`, publish a new API version, run `setupMilestone2()` from the API
+editor, push `apps/web`, publish, then work through the Milestone 2 checklist in
+`docs/MILESTONES.md` — with two accounts, one of them on a phone.
+
+The order schema is settled: Q1, Q3, Q4 and Q6 were answered on 2026-08-20 and are
+recorded in `docs/OPEN_QUESTIONS.md`. **Do not reopen them**, and in particular do
+not reintroduce `orderNo` / `customerPo` (Q3) or an order-level `invoiceNo` (Q4).
+
+`Products` is still deliberately absent — it belongs to Milestone 5.

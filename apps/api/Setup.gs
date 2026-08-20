@@ -1,9 +1,11 @@
 /**
  * Setup.gs — one-time bootstrap, run manually from the API editor.
  *
- * Creates the sheets whose schema is settled and seeds you as first admin.
- * Orders / OrderLines / Products / StatusHistory are NOT created: their columns
- * depend on open questions Q1, Q3, Q4, Q6 in docs/OPEN_QUESTIONS.md.
+ * `setupMilestone1()` creates Users / Config / Security and seeds the first admin.
+ * `setupMilestone2()` creates Orders / OrderLines / Invoices / StatusHistory,
+ * whose columns were settled on 2026-08-20 (Q1, Q3, Q4, Q6 in
+ * docs/OPEN_QUESTIONS.md). Both are idempotent: re-running them never overwrites
+ * data that already exists.
  *
  * HOW TO RUN
  *   1. Set SPREADSHEET_ID, SHARED_SECRET and ADMIN_EMAIL in Script Properties.
@@ -48,7 +50,7 @@ function setupMilestone1() {
 function guardSetup_() {
   // Editor-only maintenance functions lack a trailing underscore so they appear
   // in the Run dropdown. None may ever become reachable over HTTP.
-  var editorOnly = ['setupMilestone1', 'rotateSecret', 'revokeSecret',
+  var editorOnly = ['setupMilestone1', 'setupMilestone2', 'rotateSecret', 'revokeSecret',
                     'securityStatus', 'installExpiryReminder', 'checkSecretExpiry'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
@@ -165,4 +167,77 @@ function checkNoSessionUse_() {
   } catch (err) {
     return 'Session identity: correctly unavailable in the API project.';
   }
+}
+
+/**
+ * setupMilestone2 — create the order sheets.
+ *
+ * Run once, from the API editor, after setupMilestone1. Safe to re-run: a sheet
+ * that already has data is left exactly as it is.
+ *
+ * Products is deliberately absent — it belongs to Milestone 5, and an empty tab
+ * invites someone to start typing into a schema nobody has reviewed yet.
+ */
+function setupMilestone2() {
+  guardSetup_();
+
+  var ss = getSpreadsheet_();
+  var log = [];
+
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.ORDERS, HEADERS.Orders));
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.ORDER_LINES, HEADERS.OrderLines));
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.INVOICES, HEADERS.Invoices));
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.STATUS_HISTORY, HEADERS.StatusHistory));
+  log.push(seedConfigDefaults_(ss));
+  log.push(seedCustomerListIfEmpty_());
+  log.push(checkOrderHeaders_());
+
+  var summary = log.join('\n');
+  console.log(summary);
+  return summary;
+}
+
+/**
+ * Milestone 1 seeded `customerList` as an empty array, so the defaults in
+ * CONFIG_DEFAULTS would never be applied — seedConfigDefaults_ only adds keys
+ * that are missing. Fill it here if it is still empty.
+ */
+function seedCustomerListIfEmpty_() {
+  var rows = readAll_(SHEETS.CONFIG);
+  var row = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].key).trim() === 'customerList') { row = rows[i]; break; }
+  }
+  if (!row) return 'Config.customerList: key missing, nothing seeded.';
+
+  var current = [];
+  try { current = JSON.parse(row.value) || []; } catch (err) { current = []; }
+  if (Array.isArray(current) && current.length) {
+    return 'Config.customerList: already has ' + current.length + ' name(s), left untouched.';
+  }
+
+  updateRecord_(SHEETS.CONFIG, row._row, { value: JSON.stringify(CUSTOMER_SEED) });
+  invalidateConfigCache_();
+  return 'Config.customerList: seeded with ' + CUSTOMER_SEED.length + ' name(s).';
+}
+
+/**
+ * A column renamed by hand in the Sheet breaks every read silently — code
+ * resolves columns by header name. Report any drift rather than discovering it
+ * when an order saves half its fields.
+ */
+function checkOrderHeaders_() {
+  var problems = [];
+  [[SHEETS.ORDERS, HEADERS.Orders],
+   [SHEETS.ORDER_LINES, HEADERS.OrderLines],
+   [SHEETS.INVOICES, HEADERS.Invoices],
+   [SHEETS.STATUS_HISTORY, HEADERS.StatusHistory]].forEach(function (pair) {
+    var actual = readHeaders_(getSheet_(pair[0]));
+    var missing = pair[1].filter(function (h) { return actual.indexOf(h) < 0; });
+    if (missing.length) problems.push(pair[0] + ' thiếu cột: ' + missing.join(', '));
+  });
+
+  return problems.length
+    ? '\u26a0\ufe0f  Header check: ' + problems.join(' | ')
+    : 'Header check: all order sheets match HEADERS in Config.gs.';
 }

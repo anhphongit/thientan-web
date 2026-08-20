@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-17-1';
+var BUILD = 'api-2026-08-20-1';
 
 /** Script Property keys. */
 var PROP = {
@@ -32,21 +32,46 @@ var SHEETS = {
   SECURITY_LOG: 'SecurityLog',
   ORDERS: 'Orders',
   ORDER_LINES: 'OrderLines',
+  INVOICES: 'Invoices',
   PRODUCTS: 'Products',
   STATUS_HISTORY: 'StatusHistory',
   CONFIG: 'Config'
 };
 
 /**
- * Header rows used by Setup.gs.
- * Orders / OrderLines / Products are absent on purpose — their columns depend on
- * open questions Q1, Q3, Q4, Q6 in docs/OPEN_QUESTIONS.md.
+ * Header rows used by Setup.gs. These ARE the schema — docs/DATA_MODEL.md
+ * describes them, this decides them. Columns are always addressed by name.
+ *
+ * Orders carries no invoiceNo/invoiceDate and no orderNo/customerPo: see
+ * docs/OPEN_QUESTIONS.md Q3 and Q4, answered 2026-08-20.
  */
 var HEADERS = {
   Users: ['email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'createdBy', 'note'],
   Config: ['key', 'value', 'description'],
   Security: ['key', 'value', 'description'],
-  SecurityLog: ['timestamp', 'event', 'detail']
+  SecurityLog: ['timestamp', 'event', 'detail'],
+
+  Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
+           'customerDeposit', 'supplierName', 'supplierPaid',
+           'totalExVat', 'totalIncVat',
+           'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt'],
+
+  OrderLines: ['lineId', 'orderId', 'lineNo', 'productCode', 'description',
+               'unitPrice', 'qty', 'uom', 'vatRate', 'amountExVat', 'amountIncVat',
+               'invoiceId', 'note'],
+
+  Invoices: ['invoiceId', 'invoiceNo', 'invoiceDate', 'customer', 'note',
+             'createdBy', 'createdAt'],
+
+  StatusHistory: ['historyId', 'orderId', 'oldStatus', 'newStatus', 'note',
+                  'changedBy', 'changedAt']
+};
+
+/** Order/line limits. A cap keeps one bad request from writing 10,000 rows. */
+var ORDER_LIMITS = {
+  MAX_LINES: 50,
+  MAX_TEXT: 2000,
+  MAX_MONEY: 1e12
 };
 
 /**
@@ -75,10 +100,20 @@ var PERMISSION_KEYS = [
   'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'
 ];
 
-/** Used when `visible_fields` is missing or empty. Deny by default: no money columns. */
+/**
+ * Used when `visible_fields` is missing or empty. Deny by default: no money
+ * columns, no deposits, no supplier payments.
+ */
 var DEFAULT_VISIBLE_FIELDS = [
-  'orderNo', 'customerPo', 'customer', 'orderDate',
-  'description', 'qty', 'uom', 'status', 'statusNote'
+  'orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
+  'supplierName', 'lineId', 'lineNo', 'productCode', 'description', 'qty', 'uom',
+  'invoiceId', 'invoiceNo', 'invoiceDate', 'note'
+];
+
+/** Money-ish columns, listed so the UI can explain what a user is not seeing. */
+var MONEY_FIELDS = [
+  'unitPrice', 'vatRate', 'amountExVat', 'amountIncVat',
+  'totalExVat', 'totalIncVat', 'customerDeposit', 'supplierPaid'
 ];
 
 /**
@@ -100,6 +135,16 @@ var CACHE = {
   CONFIG_KEY: 'config:all'
 };
 
+/**
+ * Customers observed in the reference workbook. Seeded so autocomplete is useful
+ * on day one; the list then fills itself as new names are entered (Q6).
+ */
+var CUSTOMER_SEED = [
+  'Nhựa Duy Tân', 'Duy Tân Long An', 'Duy Tân Bình Dương', 'Yamato', 'PCVN', 'THP',
+  'NUMBER ONE CHU LAI', 'NUMBER ONE HÀ NAM', 'NUMBER ONE HẬU GIANG', 'Hibex',
+  'KỸ THUẬT HUY MINH', 'ACCREDO ASIA', 'Núi Tiên', 'ALOEFIELD', 'anh Hảo'
+];
+
 var CONFIG_DEFAULTS = [
   ['statusList',
     JSON.stringify([
@@ -117,7 +162,8 @@ var CONFIG_DEFAULTS = [
     'Đơn vị tính'],
   ['vatRates', JSON.stringify([0.08, 0.1]),
     'Các mức thuế VAT. Mức đầu tiên là mặc định.'],
-  ['customerList', JSON.stringify([]), 'Danh sách khách hàng dùng cho gợi ý khi nhập đơn'],
+  ['customerList', JSON.stringify(CUSTOMER_SEED),
+    'Danh sách khách hàng dùng cho gợi ý khi nhập đơn. Tên mới sẽ được thêm tự động.'],
   ['currency', 'VND', 'Đơn vị tiền tệ']
 ];
 
@@ -135,6 +181,24 @@ var MSG = {
   UNKNOWN_ACTION: 'Không hỗ trợ thao tác: ',
   DEPLOY_MISCONFIGURED: 'Ứng dụng API chưa được triển khai đúng cách. ' +
     'Mục "Execute as" phải chọn "Me". Vui lòng liên hệ quản trị viên.',
+
+  /* ---- orders (Milestone 2) ---- */
+  ORDER_NOT_FOUND: 'Không tìm thấy đơn hàng.',
+  ORDER_NO_CUSTOMER: 'Vui lòng nhập tên khách hàng.',
+  ORDER_BAD_DATE: 'Ngày đặt hàng không hợp lệ.',
+  ORDER_BAD_STATUS: 'Trạng thái không hợp lệ.',
+  ORDER_NO_LINES: 'Đơn hàng phải có ít nhất một dòng hàng.',
+  ORDER_TOO_MANY_LINES: 'Một đơn hàng tối đa ' + ORDER_LIMITS.MAX_LINES + ' dòng hàng.',
+  ORDER_BAD_DEPOSIT: 'Số tiền cọc không hợp lệ.',
+  ORDER_BAD_SUPPLIER_PAID: 'Số tiền đã trả nhà cung cấp không hợp lệ.',
+  LINE_PREFIX: 'Dòng ',
+  LINE_NO_DESCRIPTION: ': vui lòng nhập nội dung hàng hoá.',
+  LINE_BAD_QTY: ': số lượng phải lớn hơn 0.',
+  LINE_BAD_PRICE: ': đơn giá không hợp lệ.',
+  LINE_BAD_VAT: ': mức thuế VAT không hợp lệ.',
+  LINE_INVOICE_NO_DATE: ': đã nhập số hoá đơn thì phải nhập ngày hoá đơn.',
+  LINE_INVOICE_BAD_DATE: ': ngày hoá đơn không hợp lệ.',
+  ORDER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
 
   /* ---- security gate: what a normal employee sees ---- */
   LOCKED_USER: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',
