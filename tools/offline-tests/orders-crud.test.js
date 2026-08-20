@@ -120,4 +120,43 @@ console.log('\n4. Delete removes the header and every line');
          () => env.actionGetOrder_(admin, { orderId: 'DH-2026-0001' }), 'Không tìm thấy');
 }
 
+/* ---------- 9. Milestone 2.5 / P4 — pagination ---------- */
+console.log('\n9. Pagination: 25 orders, page 1 and page 2');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+
+  // Distinct orderDate per order (not the shared wall-clock createdAt tie-
+  // breaker) so newest-first order is deterministic regardless of how fast
+  // this loop runs.
+  for (let i = 1; i <= 25; i++) {
+    env.actionCreateOrder_(admin, {
+      order: order({ orderDate: '2026-08-' + String(i).padStart(2, '0') }),
+      lines: [line()]
+    });
+  }
+
+  const p1 = env.actionListOrders_(admin, { page: 1, pageSize: 20 });
+  eq('page 1 has 20 rows', p1.orders.length, 20);
+  eq('page 1 total is 25', p1.total, 25);
+  eq('page 1 hasMore', p1.hasMore, true);
+  eq('page 1 is newest first', p1.orders[0].orderId, 'DH-2026-0025');
+  eq('page 1 last row', p1.orders[19].orderId, 'DH-2026-0006');
+
+  const p2 = env.actionListOrders_(admin, { page: 2, pageSize: 20 });
+  eq('page 2 has the remaining 5 rows', p2.orders.length, 5);
+  eq('page 2 hasMore is false', p2.hasMore, false);
+  eq('page 2 picks up where page 1 stopped', p2.orders[0].orderId, 'DH-2026-0005');
+  eq('page 2 last row is the oldest order', p2.orders[4].orderId, 'DH-2026-0001');
+
+  const noParams = env.actionListOrders_(admin, {});
+  eq('default pageSize is 20', noParams.pageSize, 20);
+  eq('default page is 1', noParams.page, 1);
+
+  const oversized = env.actionListOrders_(admin, { pageSize: 9999 });
+  eq('pageSize is capped at LIST_PAGE_SIZE_MAX, not what the client asked for',
+     oversized.pageSize, 100);
+  eq('capped pageSize still only returns the 25 that exist', oversized.orders.length, 25);
+}
+
 H.done();

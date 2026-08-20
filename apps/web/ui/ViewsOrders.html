@@ -29,16 +29,23 @@
   var root = null;
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
+    ordersPage: 0, ordersHasMore: false, loadingMore: false,
     order: null, lines: [],
     editing: false, saving: false, hiddenMoney: false, bound: false
   };
 
+  /** Milestone 2.5 / P4 — mirrors LIST_PAGE_SIZE_DEFAULT in the API's Config.gs. */
+  var PAGE_SIZE = 20;
+
   /**
-   * Milestone 2.5 / P2 — the in-flight apiListOrders promise, shared so a
-   * background revalidation, a manual refresh and the P3 boot prefetch never
-   * fire three overlapping requests for the same data.
+   * Milestone 2.5 / P2 — the in-flight page-1 apiListOrders promise, shared so
+   * a background revalidation, a manual refresh and the P3 boot prefetch never
+   * fire three overlapping requests for the same data. "Xem thêm" (P4) is a
+   * separate, independently-guarded request — see loadMorePromise below —
+   * since appending page 2 is a different operation from replacing page 1.
    */
   var loadingPromise = null;
+  var loadMorePromise = null;
 
   /* ---------------- config helpers ---------------- */
 
@@ -173,15 +180,20 @@
       });
   }
 
-  /** The one place apiListOrders is actually called. Shared via
-   *  `loadingPromise` so overlapping callers (prefetch, silent refresh, the
-   *  manual "Làm mới" button) never fire duplicate requests. */
+  /**
+   * The one place apiListOrders is called for PAGE 1. Shared via
+   * `loadingPromise` so overlapping callers (prefetch, silent refresh, the
+   * manual "Làm mới" button) never fire duplicate requests. Always replaces
+   * `state.orders` from the top — see loadMore() for appending page 2+.
+   */
   function fetchOrders() {
     if (loadingPromise) return loadingPromise;
-    loadingPromise = T.call('apiListOrders', { limit: 100 }).then(
+    loadingPromise = T.call('apiListOrders', { page: 1, pageSize: PAGE_SIZE }).then(
       function (data) {
         state.orders = (data && data.orders) || [];
-        state.ordersMeta = { shown: (data && data.shown) || 0, total: (data && data.total) || 0 };
+        state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
+        state.ordersPage = 1;
+        state.ordersHasMore = !!(data && data.hasMore);
         state.ordersLoadedAt = Date.now();
         loadingPromise = null;
         return data;
@@ -192,14 +204,57 @@
   }
 
   /**
+   * Milestone 2.5 / P4 — "Xem thêm": fetch the next page and append it.
+   * Independent of fetchOrders()/loadingPromise (a page-1 replace is a
+   * different operation from a page-N append) but mutually exclusive with
+   * it in practice — see the guards in silentRefresh()/manualRefresh() below
+   * — so a background refresh can never land mid-append and interleave two
+   * different views of the list.
+   */
+  function loadMore() {
+    if (loadMorePromise || loadingPromise || !state.ordersHasMore) return;
+    state.loadingMore = true;
+    paintList();
+
+    var nextPage = state.ordersPage + 1;
+    loadMorePromise = T.call('apiListOrders', { page: nextPage, pageSize: PAGE_SIZE })
+      .then(function (data) {
+        var seen = {};
+        state.orders.forEach(function (o) { seen[o.orderId] = true; });
+        ((data && data.orders) || []).forEach(function (o) {
+          if (!seen[o.orderId]) state.orders.push(o); // a save/delete may have shifted the page boundary
+        });
+        state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
+        state.ordersPage = nextPage;
+        state.ordersHasMore = !!(data && data.hasMore);
+        state.loadingMore = false;
+        loadMorePromise = null;
+        paintList();
+      })
+      .catch(function (err) {
+        state.loadingMore = false;
+        loadMorePromise = null;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  /**
    * Background revalidation for returning to an already-loaded list. Never
    * blanks the screen. Failure is silent on purpose: the cached list on
    * screen is still the last good one, and "Làm mới" remains available for
    * a deliberate retry — an unprompted error toast for a refresh nobody
    * asked for would just be noise.
+   *
+   * Skipped once more than one page is loaded, and while "Xem thêm" is in
+   * flight: a silent background refresh only re-fetches page 1, so running
+   * it against a deeper view would quietly truncate pages the user
+   * deliberately loaded. A deliberate "Làm mới" click is allowed to do that
+   * — see manualRefresh() — but a background one that nobody asked for
+   * should never surprise like that.
    */
   function silentRefresh() {
-    if (state.refreshing) return;
+    if (state.refreshing || state.loadingMore || state.ordersPage > 1) return;
     state.refreshing = true;
     fetchOrders()
       .then(function () { state.refreshing = false; if (!state.order) paintList(); })
@@ -207,9 +262,11 @@
   }
 
   /** The visible "Làm mới" button: spins in place, old list stays on screen,
-   *  and a failure here IS reported — this one the user asked for. */
+   *  and a failure here IS reported — this one the user asked for. Resets to
+   *  page 1, same as any "refresh" control — a deliberate click, so the
+   *  surprise silentRefresh() avoids is acceptable here. */
   function manualRefresh() {
-    if (state.refreshing) return;
+    if (state.refreshing || state.loadingMore) return;
     state.refreshing = true;
     paintList();
     fetchOrders()
@@ -251,8 +308,15 @@
         '</button>' +
       '</p>';
 
+    var loadMoreBtn = state.ordersHasMore
+      ? '<button type="button" class="btn btn-block" data-act="load-more"' +
+          (state.loadingMore ? ' disabled' : '') + '>' +
+          (state.loadingMore ? 'Đang tải thêm…' : 'Xem thêm') +
+        '</button>'
+      : '';
+
     return head + count + '<div class="order-list">' +
-      state.orders.map(orderCardHtml).join('') + '</div>';
+      state.orders.map(orderCardHtml).join('') + '</div>' + loadMoreBtn;
   }
 
   function updatedLabel() {
@@ -615,6 +679,9 @@
         break;
       case 'refresh-list':
         manualRefresh();
+        break;
+      case 'load-more':
+        loadMore();
         break;
     }
   }

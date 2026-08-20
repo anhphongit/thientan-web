@@ -177,4 +177,43 @@ console.log('\n8. Validation refuses what the sheet should never hold');
   eq('client createdBy ignored', forged.order.createdBy, 'admin@x.com');
 }
 
+/* ---------- 10. Milestone 2.5 / P4 — the list only sends card fields ---------- */
+console.log('\n10. List cards are slimmed to LIST_CARD_FIELDS, even for an admin');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, {
+    order: order({ poNote: 'PO tạm, chờ PO thật', statusNote: 'Hẹn giao 22/09',
+                   supplierName: 'ACME', customerDeposit: '1.000.000',
+                   supplierPaid: '500.000' }),
+    lines: [line()]
+  });
+
+  const list = env.actionListOrders_(admin, {});
+  const card = list.orders[0];
+  ['poNote', 'statusNote', 'supplierName', 'customerDeposit', 'supplierPaid',
+   'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt']
+    .forEach(f => check('an admin\'s list card still omits ' + f, !(f in card)));
+  check('list card keeps po', 'po' in card);
+  check('list card keeps customer', 'customer' in card);
+  check('list card keeps orderDate', 'orderDate' in card);
+  check('list card keeps status', 'status' in card);
+  check('an admin still sees totalExVat on the list', 'totalExVat' in card);
+  check('an admin still sees totalIncVat on the list', 'totalIncVat' in card);
+  check('detail (buildOrderResponse_) is NOT slimmed the same way',
+        'poNote' in env.actionGetOrder_(admin, { orderId: card.orderId }).order);
+
+  // Money-blindness (Checklist F) must hold on the list too, not only on detail.
+  const warehouse = user('kho@x.com', {
+    visible_fields: ['orderId', 'po', 'customer', 'orderDate', 'status']
+  });
+  const blindCard = env.actionListOrders_(warehouse, {}).orders[0];
+  check('a money-blind role gets no totalExVat on the list either',
+        !('totalExVat' in blindCard));
+  check('a money-blind role gets no totalIncVat on the list either',
+        !('totalIncVat' in blindCard));
+  check('a money-blind role still sees customer on the list', 'customer' in blindCard);
+  check('a money-blind role still gets lineCount on the list', 'lineCount' in blindCard);
+}
+
 H.done();

@@ -20,30 +20,61 @@
    ======================================================================= */
 
 /**
- * List orders the user may see, newest first.
- * Filtering and pagination arrive in Milestone 3; this returns the most recent
- * `limit` rows so the list stays fast on a phone.
+ * List orders the user may see, newest first, one page at a time.
+ *
+ * Milestone 2.5 / P4: `pageSize` is capped at LIST_PAGE_SIZE_MAX regardless of
+ * what the client asks for, and every card is trimmed to LIST_CARD_FIELDS —
+ * filtering and search by month/customer/status are still Milestone 3
+ * (3.2–3.4); this task is 3.1, "server-side pagination", absorbed here so it
+ * is not built twice. Free-text search across line `description` (3.4) needs
+ * OrderLines too and stays out of scope for the same reason.
  */
 function actionListOrders_(user, payload) {
   requirePermission_(user, 'view_orders');
 
-  var limit = Math.min(Math.max(parseInt(payload && payload.limit, 10) || 100, 1), 500);
+  var pageSize = Math.min(Math.max(parseInt(payload && payload.pageSize, 10) ||
+                                    LIST_PAGE_SIZE_DEFAULT, 1), LIST_PAGE_SIZE_MAX);
+  var page = Math.max(parseInt(payload && payload.page, 10) || 1, 1);
+
   var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
+  orders.sort(compareOrdersNewestFirst_);
+
+  var total = orders.length;
+  var start = (page - 1) * pageSize;
+  var slice = orders.slice(start, start + pageSize);
   var lineCounts = countLinesByOrder_();
 
-  orders.sort(compareOrdersNewestFirst_);
-  var page = orders.slice(0, limit);
-
-  var out = page.map(function (row) {
-    var view = filterVisibleFields_(user, row);
-    view.orderId = row.orderId;                       // always identifiable
-    view.lineCount = lineCounts[row.orderId] || 0;
-    view.canEdit = mayAct_(user, row, 'edit_order');
-    view.canDelete = mayAct_(user, row, 'delete_order');
-    return view;
+  var out = slice.map(function (row) {
+    return listCardView_(user, row, lineCounts[row.orderId] || 0);
   });
 
-  return { orders: out, total: orders.length, shown: out.length };
+  return {
+    orders: out,
+    total: total,
+    shown: out.length,
+    page: page,
+    pageSize: pageSize,
+    hasMore: start + out.length < total
+  };
+}
+
+/**
+ * One order row, trimmed to what the list card actually draws — see
+ * LIST_CARD_FIELDS. `buildOrderResponse_` is the one that returns everything
+ * for the detail screen; this is deliberately narrower.
+ */
+function listCardView_(user, row, lineCount) {
+  var slim = {};
+  LIST_CARD_FIELDS.forEach(function (f) {
+    if (Object.prototype.hasOwnProperty.call(row, f)) slim[f] = row[f];
+  });
+
+  var view = filterVisibleFields_(user, slim);
+  view.orderId = row.orderId;                       // always identifiable
+  view.lineCount = lineCount;
+  view.canEdit = mayAct_(user, row, 'edit_order');
+  view.canDelete = mayAct_(user, row, 'delete_order');
+  return view;
 }
 
 /** One order with its lines. */

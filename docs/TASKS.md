@@ -102,7 +102,7 @@ build pagination twice; §3.1 below is marked accordingly.
 | P1 | Timing instrumentation: API returns `_ms {gate, user, read, total}`; web adds transport ms; shown in the footer under `DEV_MODE` | Turns the guess above into numbers before spending effort on P4–P7 | None — read-only, additive. **☑ built and verified live 2026-08-20** |
 | P2 | Client cache + no-blank refresh + optimistic create (Phong's #2, #4, #5) | Returning to an already-loaded list is instant. Refresh spins in the button while the old list stays on screen. After save, the record the server just returned is shown immediately | None server-side. The one true risk: showing stale cached data as if it were current — must always be labeled "as of Xm ago" or refreshed on any write. **✎ built 2026-08-20, not yet verified live** |
 | P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None. **✎ built 2026-08-20, not yet verified live** |
-| P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice |
+| P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice. **✎ built 2026-08-20, not yet verified live** |
 | P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands |
 | P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it |
 | P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them |
@@ -187,16 +187,26 @@ cold load now shows three pulsing placeholder cards instead of a static
 "Đang tải đơn hàng..." line — so the tab reads as *loading*, never *frozen*,
 even before the underlying request finishes.
 
-Verified by hand with a small Node harness that stubs `window.TT` and a fake
-DOM node (not part of `tools/offline-tests/`, since that harness only loads
-the server-side `.gs` files): confirmed a first render shows the skeleton, a
-resolved fetch paints the real cards and drops the skeleton, returning to the
-list is instant with no second skeleton, exactly one background revalidation
-call fires on return, the "Làm mới" button and "cập nhật lúc" stamp render,
-and — the case P3 exists for — calling `prefetch()` before the tab is ever
-opened and then opening it mid-flight rides the same request instead of
-firing a second one. Also re-ran the 108 offline assertions afterward; all
-still pass (untouched by this task).
+Verified by hand with a small throwaway Node harness that stubs `window.TT`
+and a fake DOM node: confirmed a first render shows the skeleton, a resolved
+fetch paints the real cards and drops the skeleton, returning to the list is
+instant with no second skeleton, exactly one background revalidation call
+fires on return, the "Làm mới" button and "cập nhật lúc" stamp render, and —
+the case P3 exists for — calling `prefetch()` before the tab is ever opened
+and then opening it mid-flight rides the same request instead of firing a
+second one.
+
+**Correction, made while starting P4:** the note above originally also
+claimed "re-ran the 108 offline assertions afterward; all still pass" —
+that was wrong, and said so without actually running them.
+`tools/offline-tests/orders-ui.test.js` *does* load this file (it is not
+server-only, unlike the other two test files); actually running it turned up
+one real failure: it still asserted the old `"Đang tải đơn hàng..."` text
+that P3 deliberately replaced with the skeleton. Fixed the assertion to check
+for the skeleton markup instead — same intent (render() reached a paint
+without throwing when `TT` arrives after load, the 2026-08-20 bug this test
+exists to catch), updated for what P3 actually paints now. All 108 pass for
+real as of this fix.
 
 **How Phong verifies it live:** push `apps/web` and publish a new version (API
 untouched). Open the app fresh — Đơn hàng should already feel instant the
@@ -210,6 +220,94 @@ name without waiting on a refetch. Click "Làm mới" — the button should read
 "Đang làm mới…" while the old list stays fully visible, not blank. This won't
 move the raw numbers above (P2/P3 are client-only) — P4/P5/P6 are what would.
 
+### P4 — built 2026-08-20, awaiting live check (also closes 3.1)
+
+This one DOES move the raw `_ms` numbers from P1, on the server side. Touched
+`apps/api/Config.gs` (bumped `BUILD` to `api-2026-08-20-2`; added
+`LIST_PAGE_SIZE_DEFAULT` = 20, `LIST_PAGE_SIZE_MAX` = 100, and
+`LIST_CARD_FIELDS` — the Orders columns the list card actually draws: `po`,
+`customer`, `orderDate`, `status`, `totalExVat`, `totalIncVat`),
+`apps/api/Orders.gs` (`actionListOrders_` now takes `page`/`pageSize` instead
+of `limit`, slices the sorted, scoped set instead of returning up to 500 rows,
+and returns `page`/`pageSize`/`hasMore` alongside `orders`/`total`/`shown`;
+each card goes through the new `listCardView_`, which intersects
+`LIST_CARD_FIELDS` with the caller's `visible_fields` — same money-blindness
+rule as everywhere else, just applied to a narrower base set), and
+`apps/web/ui/ViewsOrders.html` + `Styles.html` (client now asks for
+`{ page, pageSize }`, appends further pages via a new "Xem thêm" button
+instead of ever asking for everything at once).
+
+`actionGetOrder_` / `buildOrderResponse_` (the detail screen) are untouched —
+they still return every field the caller may see. The slimming is
+list-only, on purpose: `createdBy`/`createdAt`/`updatedBy`/`updatedAt`/
+`approvedBy`/`approvedAt`/`poNote`/`statusNote`/`supplierName`/
+`customerDeposit`/`supplierPaid` are all real data the list card never draws.
+
+**A deliberate interaction with P2's cache**, worth flagging since it's easy
+to miss: a background silent refresh (P2) always re-fetches page 1 only. If
+`showList()` silently replaced the cache while the user had paged further
+with "Xem thêm", it would quietly truncate pages they deliberately loaded —
+so `silentRefresh()` now skips itself once more than one page is loaded, or
+while a page is loading. The explicit "Làm mới" button still resets to page 1
+unconditionally, on the reasoning that a "refresh" the user clicked on purpose
+resetting to the top is expected (same as most inboxes), while a background
+refresh nobody asked for silently doing the same thing would not be.
+
+**How this was verified**, since the previous entry's "ran the tests" claim
+turned out to be false — actually ran everything this time, three ways:
+1. `tools/offline-tests/` — server-side pagination behavior needed real
+   coverage that didn't exist yet, so added it: `orders-crud.test.js` gained
+   a 25-order pagination test (page 1/2, `hasMore`, default `pageSize`, the
+   `LIST_PAGE_SIZE_MAX` cap actually clamping rather than merely not
+   mattering), and `orders-permissions.test.js` gained a test proving an
+   admin's list card omits every non-card field and a money-blind role gets
+   no `totalExVat`/`totalIncVat` on the list either — while confirming detail
+   is NOT slimmed the same way. `orders-ui.test.js` (the one whose stale
+   assertion caused the earlier false claim) gained assertions that the
+   client now requests `{ page: 1, pageSize: 20 }`, and that "Xem thêm"
+   renders when the fixture says `hasMore: true`. All 147 assertions across
+   the three files pass.
+2. A throwaway Node harness (not committed, same approach as P2/P3's) drove
+   the actual click-through: load page 1 (45 total) → "Xem thêm" shows →
+   click it → page 2 appends, count reads 40/45 → leave and return to the
+   list → both pages are still there, no silent collapse back to page 1, and
+   no extra `apiListOrders` call fired → click "Xem thêm" again → all 45
+   shown, button gone.
+3. Re-ran all three real `tools/offline-tests/*.test.js` files one more time
+   after the client edits landed, to catch any cross-file regression: still
+   147/147.
+
+**How Phong verifies it live:** push both `apps/api` and `apps/web` and
+publish new versions of both (this is the first P-task that touches the API).
+With 20+ orders in the sheet, open Đơn hàng — only the newest 20 should
+appear, with a "Xem thêm" button below the last card; clicking it should load
+the next 20 without losing the first 20, and the button should disappear once
+everything is loaded. With `DEV_MODE` on, watch the P1 timing pill on this
+screen specifically — `đọc` should drop noticeably from the 2525ms baseline
+measured earlier, since the server is no longer sorting/mapping every order
+in the sheet on every list call, only the current page. It will not drop to
+zero: `countLinesByOrder_` still reads the entire `OrderLines` sheet on every
+call regardless of page size — that is P5's job, not this one's.
+
+**Getting 20+ orders to test the above with:** `apps/api/DevSeed.gs`
+(new, 2026-08-20 — Phong asked for a way to bulk-add test data rather than
+typing 30 orders by hand through the form). Select `seedTestOrders` in the
+API editor's Run dropdown and press Run — no arguments needed, it defaults to
+30 and goes through the real `actionCreateOrder_` path, so seeded rows behave
+exactly like anything typed by hand. Every seeded row is tagged (`po` starts
+with `SEED-`, customer starts with `TEST `) so `deleteSeedTestOrders` can find
+and remove all of it later without needing to remember which ids a run
+produced. Both functions are editor-only, added to `guardSetup_`'s block list
+in `Setup.gs` alongside `setupMilestone1`/`setupMilestone2` — neither can ever
+be reached over HTTP. Verified with a throwaway Node harness (same approach
+as P2–P4's manual checks): seeding tags every row correctly, spreads
+`orderDate` so pagination has something real to sort, accumulates cleanly
+across repeated runs (ids keep incrementing), and delete removes every
+seeded order plus its lines and status history, reporting "nothing to
+delete" harmlessly on a second run. Not added to `tools/offline-tests/` —
+it is a manual dev tool with no HTTP path, unlike everything else that
+harness covers.
+
 ---
 
 ## Milestone 3 — List, filter, search, status
@@ -219,7 +317,7 @@ matters: each task builds on the one above it and is testable on its own.
 
 | # | Task | Scope | How Phong verifies it | Status |
 |---|------|-------|----------------------|--------|
-| 3.1 | Server-side pagination | **Absorbed into Milestone 2.5 task P4** — see above. Do not build this separately; P4 covers `listOrders` paging, and 3.1 is done when P4 is | 30+ orders exist; the list loads a page at a time and the button fetches the next | ☐ → tracked as P4 |
+| 3.1 | Server-side pagination | **Absorbed into Milestone 2.5 task P4** — see above. Do not build this separately; P4 covers `listOrders` paging, and 3.1 is done when P4 is | 30+ orders exist; the list loads a page at a time and the button fetches the next | ✎ → done via P4, 2026-08-20, not yet verified live |
 | 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☐ |
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☐ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☐ |

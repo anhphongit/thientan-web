@@ -44,14 +44,19 @@ function setupMilestone1() {
  * doGet (plain text) and doPost (which dispatches through getActions_(), where
  * setup is deliberately absent).
  *
- * Safety therefore comes from idempotency, not from an identity check: every step
- * below refuses to overwrite data that already exists.
+ * Safety for setupMilestone1/2 comes from idempotency: every step below
+ * refuses to overwrite data that already exists. `seedTestOrders` and
+ * `deleteSeedTestOrders` (DevSeed.gs) are deliberately NOT idempotent — one
+ * adds rows, the other deletes them — so for those two, safety comes from
+ * this same guard instead: neither may ever be reachable over HTTP, only run
+ * by hand from the editor.
  */
 function guardSetup_() {
   // Editor-only maintenance functions lack a trailing underscore so they appear
   // in the Run dropdown. None may ever become reachable over HTTP.
   var editorOnly = ['setupMilestone1', 'setupMilestone2', 'rotateSecret', 'revokeSecret',
-                    'securityStatus', 'installExpiryReminder', 'checkSecretExpiry'];
+                    'securityStatus', 'installExpiryReminder', 'checkSecretExpiry',
+                    'seedTestOrders', 'deleteSeedTestOrders'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

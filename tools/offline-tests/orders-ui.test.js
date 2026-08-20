@@ -58,7 +58,9 @@ sandbox.window.TT = TT_BRIDGE;
 
 function fixture(fn) {
   if (fn === 'apiListOrders') {
-    return { total: 2, shown: 2, orders: [
+    // Milestone 2.5 / P4: total (25) is bigger than shown (2, this fixture's
+    // page), with hasMore true — exercises the "Xem thêm" button below.
+    return { total: 25, shown: 2, page: 1, pageSize: 20, hasMore: true, orders: [
       { orderId: 'DH-2026-0001', customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
         po: '4600041936', status: 'draft', lineCount: 3,
         totalExVat: 2400000, totalIncVat: 2592000, canEdit: true, canDelete: true },
@@ -97,7 +99,11 @@ console.log('\nUI smoke — list');
 ok('module registered itself', typeof sandbox.window.TTOrders === 'object');
 ok('render is a function', typeof sandbox.window.TTOrders.render === 'function');
 sandbox.window.TTOrders.render(root);
-ok('render survived TT arriving after load', painted.indexOf('Đang tải') >= 0);
+// Milestone 2.5 / P3 replaced the "Đang tải đơn hàng..." text with skeleton
+// cards on a cold load — this still proves the same thing the original
+// assertion did: render() reached a paint at all instead of throwing when TT
+// arrived after load (the 2026-08-20 bug this test exists to catch).
+ok('render survived TT arriving after load', painted.indexOf('skeleton') >= 0);
 setTimeout(() => {
   const list = painted;
   ok('list markup is balanced', balanced(list) === null, balanced(list));
@@ -108,6 +114,14 @@ setTimeout(() => {
   ok('escapes a hostile customer name',
      !/<script>/.test(list.replace(/&lt;script&gt;/g, '')), 'raw <script> reached the DOM');
   ok('asks the server for the list', lastCall.fn === 'apiListOrders');
+  ok('Milestone 2.5 / P4: asks page 1 at PAGE_SIZE, not the old { limit }',
+     lastCall.arg && lastCall.arg.page === 1 && lastCall.arg.pageSize === 20,
+     JSON.stringify(lastCall.arg));
+  ok('shows "Xem thêm" when the server says hasMore',
+     /data-act="load-more"/.test(list) && /Xem thêm/.test(list));
+  ok('shows the running count against the server total (2 shown / 25 total)',
+     /Hiển thị 2 \/ 25 đơn/.test(list), list.match(/Hiển thị[^<]*/));
+  ok('shows a "Làm mới" control', /data-act="refresh-list"/.test(list));
 
   console.log('\nUI smoke — blank form');
   const rows = list.match(/data-open="/g) || [];

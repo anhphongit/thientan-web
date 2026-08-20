@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-20-1';
+var BUILD = 'api-2026-08-20-2';
 
 /** Script Property keys. */
 var PROP = {
@@ -73,6 +73,28 @@ var ORDER_LIMITS = {
   MAX_TEXT: 2000,
   MAX_MONEY: 1e12
 };
+
+/**
+ * Milestone 2.5 / P4 — server-side pagination for the order list.
+ * DEFAULT is what the client asks for; MAX caps what any single request (a
+ * stale client, a bug, a curious dev poking the endpoint) can pull at once —
+ * the whole point of paging is that nobody, ever, reads the full sheet again.
+ */
+var LIST_PAGE_SIZE_DEFAULT = 20;
+var LIST_PAGE_SIZE_MAX = 100;
+
+/**
+ * Fields the order LIST screen actually draws on a card (see orderCardHtml in
+ * ViewsOrders.html: id, status, customer, date, po, line count, two totals).
+ * Everything else on an Orders row — poNote, statusNote, supplierName,
+ * customerDeposit, supplierPaid, and every createdBy/At, updatedBy/At,
+ * approvedBy/At column — is real data actionGetOrder_ still returns in full
+ * for the detail screen, but is dead weight on every list page forever.
+ * Intersected with the caller's visible_fields same as any other field, so
+ * money-blindness still applies: this narrows what's offered, it does not
+ * widen it.
+ */
+var LIST_CARD_FIELDS = ['po', 'customer', 'orderDate', 'status', 'totalExVat', 'totalIncVat'];
 
 /**
  * Security sheet defaults. Deliberately a SHEET, not Script Properties: the admin
