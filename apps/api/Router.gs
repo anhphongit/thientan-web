@@ -14,6 +14,10 @@
  */
 
 function doPost(e) {
+  // Milestone 2.5 / P1: raw numbers before guessing where the slowness is.
+  // Read-only and purely additive — nothing below decides on `t0` or `_ms`.
+  var t0 = Date.now();
+
   var req;
   try {
     req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -32,7 +36,9 @@ function doPost(e) {
   }
 
   /* ---- Guard 2: is that secret still blessed and unexpired? ---- */
+  var tGate = Date.now();
   var gate = securityGate_();
+  var msGate = Date.now() - tGate;
 
   if (!gate.ok) {
     // The secret matched, so this really is our web app; safe to resolve the
@@ -70,10 +76,19 @@ function doPost(e) {
 
   /* ---- Guard 3: who is this, and may they do it? ---- */
   try {
+    var tUser = Date.now();
     var user = loadUser_(req.actor);
+    var msUser = Date.now() - tUser;
+
+    var tRead = Date.now();
     var data = handler(user, req.payload || {});
+    var msRead = Date.now() - tRead;
+
     if (data && typeof data === 'object') {
       data.security = securityPayload_(gate, hasPermission_(user, 'manage_users'));
+      // {gate, user, read, total} — total includes body parsing and both guards
+      // above, so it should roughly equal gate + user + read + a small remainder.
+      data._ms = { gate: msGate, user: msUser, read: msRead, total: Date.now() - t0 };
     }
     return json_({ ok: true, data: data, build: BUILD });
   } catch (err) {

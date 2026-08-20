@@ -28,9 +28,17 @@
   var T = null;
   var root = null;
   var state = {
-    orders: [], order: null, lines: [],
+    orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
+    order: null, lines: [],
     editing: false, saving: false, hiddenMoney: false, bound: false
   };
+
+  /**
+   * Milestone 2.5 / P2 — the in-flight apiListOrders promise, shared so a
+   * background revalidation, a manual refresh and the P3 boot prefetch never
+   * fire three overlapping requests for the same data.
+   */
+  var loadingPromise = null;
 
   /* ---------------- config helpers ---------------- */
 
@@ -119,22 +127,105 @@
     showList();
   }
 
+  /**
+   * Milestone 2.5 / P3 — called once from App.html right after the session
+   * loads, before the user has ever opened "Đơn hàng". Warms `state.orders`
+   * so the tab is already instant the first time it's actually clicked.
+   *
+   * Safe to call whether or not render() has ever run: it only touches
+   * `state` and `T`, never the DOM. Silent on failure — showList() will just
+   * try again (and can show the real error) when the tab is opened for real.
+   */
+  function prefetch() {
+    if (!window.TT || !window.TT.can('view_orders')) return;
+    if (!T) T = window.TT;
+    if (state.orders.length || loadingPromise) return;
+    fetchOrders().catch(function () {});
+  }
+
+  /**
+   * Milestone 2.5 / P2 + P3.
+   *
+   *   - cache warm (a prior visit, or the P3 boot prefetch already landed):
+   *     paint immediately from it, then silently revalidate in the
+   *     background — the screen never blocks on a round trip the user has
+   *     effectively already paid for.
+   *   - a fetch is already in flight (prefetch racing a fast click): show
+   *     the skeleton and ride that same promise instead of firing a second
+   *     request.
+   *   - nothing yet: show the skeleton and start the fetch.
+   */
   function showList() {
     state.order = null;
-    root.innerHTML = '<section class="card"><p class="empty">Đang tải đơn hàng...</p></section>';
 
-    T.call('apiListOrders', { limit: 100 })
-      .then(function (data) {
-        state.orders = (data && data.orders) || [];
-        root.innerHTML = listHtml(data || {});
-      })
+    if (state.orders.length) {
+      paintList();
+      silentRefresh();
+      return;
+    }
+
+    root.innerHTML = skeletonHtml();
+    (loadingPromise || fetchOrders())
+      .then(function () { if (!state.order) paintList(); })
       .catch(function (err) {
         root.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
   }
 
-  function listHtml(data) {
+  /** The one place apiListOrders is actually called. Shared via
+   *  `loadingPromise` so overlapping callers (prefetch, silent refresh, the
+   *  manual "Làm mới" button) never fire duplicate requests. */
+  function fetchOrders() {
+    if (loadingPromise) return loadingPromise;
+    loadingPromise = T.call('apiListOrders', { limit: 100 }).then(
+      function (data) {
+        state.orders = (data && data.orders) || [];
+        state.ordersMeta = { shown: (data && data.shown) || 0, total: (data && data.total) || 0 };
+        state.ordersLoadedAt = Date.now();
+        loadingPromise = null;
+        return data;
+      },
+      function (err) { loadingPromise = null; throw err; }
+    );
+    return loadingPromise;
+  }
+
+  /**
+   * Background revalidation for returning to an already-loaded list. Never
+   * blanks the screen. Failure is silent on purpose: the cached list on
+   * screen is still the last good one, and "Làm mới" remains available for
+   * a deliberate retry — an unprompted error toast for a refresh nobody
+   * asked for would just be noise.
+   */
+  function silentRefresh() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    fetchOrders()
+      .then(function () { state.refreshing = false; if (!state.order) paintList(); })
+      .catch(function () { state.refreshing = false; });
+  }
+
+  /** The visible "Làm mới" button: spins in place, old list stays on screen,
+   *  and a failure here IS reported — this one the user asked for. */
+  function manualRefresh() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    paintList();
+    fetchOrders()
+      .then(function () { state.refreshing = false; paintList(); })
+      .catch(function (err) {
+        state.refreshing = false;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  function paintList() {
+    root.innerHTML = listHtml();
+  }
+
+  function listHtml() {
     var canCreate = T.can('create_order');
     var head = '' +
       '<div class="view-head">' +
@@ -149,9 +240,75 @@
         '</p></section>';
     }
 
-    var count = '<p class="list-count">Hiển thị ' + data.shown + ' / ' + data.total + ' đơn</p>';
+    var meta = state.ordersMeta || { shown: state.orders.length, total: state.orders.length };
+    var count = '' +
+      '<p class="list-count">' +
+        'Hiển thị ' + meta.shown + ' / ' + meta.total + ' đơn' +
+        (updatedLabel() ? ' · ' + updatedLabel() : '') + ' · ' +
+        '<button type="button" class="link-btn" data-act="refresh-list"' +
+          (state.refreshing ? ' disabled' : '') + '>' +
+          (state.refreshing ? 'Đang làm mới…' : 'Làm mới') +
+        '</button>' +
+      '</p>';
+
     return head + count + '<div class="order-list">' +
       state.orders.map(orderCardHtml).join('') + '</div>';
+  }
+
+  function updatedLabel() {
+    if (!state.ordersLoadedAt) return '';
+    var d = new Date(state.ordersLoadedAt);
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return 'cập nhật lúc ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  /** Milestone 2.5 / P3 — placeholder cards for a genuine first load, so it
+   *  reads as "loading" instead of a frozen blank screen. */
+  function skeletonHtml() {
+    var card = '' +
+      '<div class="order-card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w50"></div>' +
+      '</div>';
+    return '' +
+      '<div class="view-head"><h2>Đơn hàng</h2></div>' +
+      '<div class="order-list">' + card + card + card + '</div>';
+  }
+
+  /**
+   * Milestone 2.5 / P2 — write-through cache update after a create/edit, so
+   * the next "← Danh sách" is instant AND already correct: no waiting on a
+   * network round trip just to see your own save. A no-op before any list
+   * has ever loaded — nothing cached yet to keep in sync.
+   */
+  function upsertCachedOrder(order, lineCount) {
+    if (!state.ordersLoadedAt) return;
+    var card = {};
+    Object.keys(order).forEach(function (k) { card[k] = order[k]; });
+    card.lineCount = lineCount;
+
+    var i = -1;
+    for (var j = 0; j < state.orders.length; j++) {
+      if (state.orders[j].orderId === order.orderId) { i = j; break; }
+    }
+    if (i >= 0) state.orders[i] = card;
+    else state.orders.unshift(card);
+
+    if (state.ordersMeta) {
+      if (i < 0) state.ordersMeta.total += 1;
+      state.ordersMeta.shown = state.orders.length;
+    }
+  }
+
+  /** Milestone 2.5 / P2 — same idea, for delete. */
+  function removeCachedOrder(orderId) {
+    var before = state.orders.length;
+    state.orders = state.orders.filter(function (o) { return o.orderId !== orderId; });
+    if (state.ordersMeta && state.orders.length !== before) {
+      state.ordersMeta.total = Math.max(0, state.ordersMeta.total - 1);
+      state.ordersMeta.shown = state.orders.length;
+    }
   }
 
   function orderCardHtml(o) {
@@ -456,6 +613,9 @@
       case 'save':
         save();
         break;
+      case 'refresh-list':
+        manualRefresh();
+        break;
     }
   }
 
@@ -576,6 +736,7 @@
         state.hiddenMoney = !!data.hiddenMoney;
         state.editing = !!data.order.canEdit;
         state.saving = false;
+        upsertCachedOrder(data.order, state.lines.length);
         T.toast(isNew ? 'Đã tạo đơn ' + data.order.orderId : 'Đã lưu thay đổi.');
         paintForm();
       })
@@ -591,6 +752,7 @@
     T.call('apiDeleteOrder', state.order.orderId)
       .then(function () {
         state.saving = false;
+        removeCachedOrder(state.order.orderId);
         T.toast('Đã xoá đơn hàng.');
         showList();
       })
@@ -609,6 +771,6 @@
                          : (state.order.orderId ? 'Lưu thay đổi' : 'Lưu đơn hàng');
   }
 
-  window.TTOrders = { render: render };
+  window.TTOrders = { render: render, prefetch: prefetch };
 })();
 </script>

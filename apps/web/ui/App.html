@@ -17,10 +17,20 @@
 
   function call(fnName) {
     var args = Array.prototype.slice.call(arguments, 1);
+    var tCall = Date.now();
     return new Promise(function (resolve, reject) {
       google.script.run
         .withSuccessHandler(function (res) {
-          if (res && res.ok) resolve(res.data);
+          if (res && res.ok) {
+            // Milestone 2.5 / P1: closes the loop on the browser ⇄ google.script.run
+            // leg, which the server-side numbers below can't see on their own.
+            if (res.data && res.data._ms) {
+              res.data._ms.script = Math.max(0, Date.now() - tCall -
+                (res.data._ms.total || 0) - (res.data._ms.transport || 0));
+              renderTiming(res.data._ms);
+            }
+            resolve(res.data);
+          }
           else reject(new Error((res && res.error) || 'Đã xảy ra lỗi. Vui lòng thử lại.'));
         })
         .withFailureHandler(function (err) {
@@ -188,6 +198,27 @@
     node.classList.toggle('drift', !!apiDate && !!webDate && apiDate !== webDate);
   }
 
+  /**
+   * Milestone 2.5 / P1 — per-call latency, DEV_MODE only (same signal as
+   * renderBuild: `session.build` is null outside DEV_MODE, see buildStamp_ in
+   * Main.gs). Overwritten on every server round trip, so it always reflects the
+   * most recent action — most usefully right after "Đơn hàng" loads.
+   *
+   * gate/user/đọc = inside the API (Router.gs); mạng = the WEB → API HTTP hop
+   * (ApiClient.gs); script = browser ⇄ google.script.run overhead (this file).
+   */
+  function renderTiming(ms) {
+    var node = el('timing-stamp');
+    if (!node) return;
+    if (!ms || !session || !session.build) { node.classList.add('hidden'); return; }
+
+    var total = (ms.total || 0) + (ms.transport || 0) + (ms.script || 0);
+    node.textContent = 'gate ' + ms.gate + 'ms · user ' + ms.user + 'ms · đọc ' + ms.read +
+      'ms · mạng ' + (ms.transport || 0) + 'ms · script ' + (ms.script || 0) +
+      'ms · tổng ' + total + 'ms';
+    node.classList.remove('hidden');
+  }
+
   /* ---------------- boot ---------------- */
 
   function denied(info) {
@@ -248,6 +279,13 @@
     el('boot').classList.add('hidden');
     el('app').classList.remove('hidden');
     show('home');
+
+    // Milestone 2.5 / P3 — warm the orders cache now, before the user has
+    // opened the tab. can('view_orders') mirrors the same check the nav uses
+    // to decide whether to show "Đơn hàng" at all.
+    if (can('view_orders') && window.TTOrders && typeof window.TTOrders.prefetch === 'function') {
+      window.TTOrders.prefetch();
+    }
   }
 
   function start() {

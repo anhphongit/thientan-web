@@ -99,9 +99,9 @@ build pagination twice; §3.1 below is marked accordingly.
 
 | # | Task | Wins | Risk / notes |
 |---|------|------|--------------|
-| P1 | Timing instrumentation: API returns `_ms {gate, user, read, total}`; web adds transport ms; shown in the footer under `DEV_MODE` | Turns the guess above into numbers before spending effort on P4–P7 | None — read-only, additive |
-| P2 | Client cache + no-blank refresh + optimistic create (Phong's #2, #4, #5) | Returning to an already-loaded list is instant. Refresh spins in the button while the old list stays on screen. After save, the record the server just returned is shown immediately | None server-side. The one true risk: showing stale cached data as if it were current — must always be labeled "as of Xm ago" or refreshed on any write |
-| P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None |
+| P1 | Timing instrumentation: API returns `_ms {gate, user, read, total}`; web adds transport ms; shown in the footer under `DEV_MODE` | Turns the guess above into numbers before spending effort on P4–P7 | None — read-only, additive. **☑ built and verified live 2026-08-20** |
+| P2 | Client cache + no-blank refresh + optimistic create (Phong's #2, #4, #5) | Returning to an already-loaded list is instant. Refresh spins in the button while the old list stays on screen. After save, the record the server just returned is shown immediately | None server-side. The one true risk: showing stale cached data as if it were current — must always be labeled "as of Xm ago" or refreshed on any write. **✎ built 2026-08-20, not yet verified live** |
+| P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None. **✎ built 2026-08-20, not yet verified live** |
 | P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice |
 | P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands |
 | P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it |
@@ -109,6 +109,106 @@ build pagination twice; §3.1 below is marked accordingly.
 
 P1's numbers decide whether P4–P7 are worth doing at all, or whether P2+P3 already
 make the app feel fixed.
+
+### P1 — built 2026-08-20, awaiting live check
+
+Touched: `apps/api/Router.gs` (`doPost` times the security gate, `loadUser_`, and
+the action handler, and attaches `_ms {gate, user, read, total}` to any object
+response), `apps/web/ApiClient.gs` (times the whole `UrlFetchApp.fetch` call and
+subtracts the API's own `total` to isolate `_ms.transport` — the WEB→API network
+hop), and `apps/web/ui/App.html` (`call()` derives `_ms.script`, the
+browser⇄`google.script.run` leg, and repaints a new footer pill). `Index.html`
+gained the `#timing-stamp` element next to the existing build stamp.
+
+Nothing here changes what any action returns or does — every new field is
+additive on the response object, gated the same way the existing build stamp
+already is (`session.build` is only non-null under `DEV_MODE`). The 108
+offline assertions in `tools/offline-tests/` don't touch `Router.gs` or the web
+layer at all, so they were unaffected; ran them after the edit as a sanity check
+and all 108 still pass.
+
+**How Phong verifies it:** with `DEV_MODE` on, push `apps/api` and `apps/web`
+and publish new versions of both, open the app, and click into Đơn hàng. A
+second pill should appear under the existing build stamp reading something like
+`gate 180ms · user 210ms · đọc 640ms · mạng 900ms · script 250ms · tổng 2180ms`.
+Numbers will vary — the point is that they show up at all, and that `mạng`
+(the WEB→API hop) is the largest one, matching the diagram above. Once real
+numbers are in hand, the next task to pick is one of P2–P7 depending on which
+number actually dominates.
+
+**Real numbers, measured live 2026-08-20:**
+
+```
+Load list:   gate 1043ms · user  240ms · đọc 2525ms · mạng 1193ms · script 902ms · tổng 5918ms
+Load detail: gate  495ms · user  282ms · đọc  718ms · mạng 1082ms · script 950ms · tổng 3571ms
+```
+
+Server-side work (gate+user+đọc) is 64% of the list's total — bigger than
+network and script.run combined. `đọc` on the list (2525ms) is over 3× `đọc`
+on detail (718ms) even though detail touches one more sheet (Invoices) —
+consistent with `countLinesByOrder_` reading all of `OrderLines` just for a
+per-card count, exactly what P5 targets. `gate` itself swung from 495ms to
+1043ms for the same fixed-size Security-sheet read, more consistent with
+`SpreadsheetApp.openById()` cold-start variance (what P6 removes) than with
+the request itself. These are real, not just a UX-perception problem — but
+Phong chose to still do P2+P3 next rather than jump straight to the riskier
+server-side tasks; P4/P5/P6 remain the next move once P2+P3's effect is seen.
+
+### P2 + P3 — built 2026-08-20, awaiting live check
+
+Both landed together in one conversation at Phong's request (normally one task
+per conversation — noted here since it's a deviation from the usual rule).
+Everything is confined to `apps/web/ui/ViewsOrders.html`, `App.html` and
+`Styles.html`; nothing server-side changed, so no API push or
+`setupMilestone2()` re-run is needed for this one.
+
+**P2 — cache, no-blank refresh, optimistic writes** (`ViewsOrders.html`):
+`state.orders` is now kept across visits instead of being thrown away on every
+`showList()`. Returning to the list (e.g. "← Danh sách" from a form) paints
+the cached list immediately, then fires a silent background `apiListOrders`
+call to revalidate — a failure there is swallowed, since the list on screen is
+still the last good one. A visible **"Làm mới"** button next to the count line
+does the same fetch but spins in place and reports a failure, since that one
+was asked for. Every fetch also stamps `state.ordersLoadedAt`, shown as
+"cập nhật lúc HH:mm" — the staleness label the risk note in the P2 row asked
+for. `save()` and `doDelete()` now write straight into the cached list
+(`upsertCachedOrder` / `removeCachedOrder`) with the record the server just
+returned, so the next "← Danh sách" is instant *and* already correct, not
+waiting on a network round trip to see your own change. All requests share one
+`loadingPromise` so a background refresh, a manual refresh and the P3 prefetch
+below can never fire overlapping requests for the same data.
+
+**P3 — boot prefetch + skeleton** (`App.html` calls `TTOrders.prefetch()` right
+after `apiGetSession` succeeds, gated on `can('view_orders')`; `ViewsOrders.html`
+exposes `prefetch()` and a `skeletonHtml()` used whenever there's no cache and
+no fetch already in flight): the orders cache starts warming the moment the
+app finishes loading, before "Đơn hàng" is ever clicked, and a genuine
+cold load now shows three pulsing placeholder cards instead of a static
+"Đang tải đơn hàng..." line — so the tab reads as *loading*, never *frozen*,
+even before the underlying request finishes.
+
+Verified by hand with a small Node harness that stubs `window.TT` and a fake
+DOM node (not part of `tools/offline-tests/`, since that harness only loads
+the server-side `.gs` files): confirmed a first render shows the skeleton, a
+resolved fetch paints the real cards and drops the skeleton, returning to the
+list is instant with no second skeleton, exactly one background revalidation
+call fires on return, the "Làm mới" button and "cập nhật lúc" stamp render,
+and — the case P3 exists for — calling `prefetch()` before the tab is ever
+opened and then opening it mid-flight rides the same request instead of
+firing a second one. Also re-ran the 108 offline assertions afterward; all
+still pass (untouched by this task).
+
+**How Phong verifies it live:** push `apps/web` and publish a new version (API
+untouched). Open the app fresh — Đơn hàng should already feel instant the
+first time it's clicked, since the boot prefetch had a head start; on a slow
+connection you may briefly see three grey pulsing cards instead of "Đang tải
+đơn hàng...". Open an order, hit "← Danh sách" — the list should reappear with
+no loading flash at all, and shortly after, the "cập nhật lúc" time should
+tick forward as the silent background refresh lands. Edit an order's customer
+name, save, then go back to the list — the card should already show the new
+name without waiting on a refetch. Click "Làm mới" — the button should read
+"Đang làm mới…" while the old list stays fully visible, not blank. This won't
+move the raw numbers above (P2/P3 are client-only) — P4/P5/P6 are what would.
 
 ---
 

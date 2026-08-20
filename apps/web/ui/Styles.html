@@ -315,7 +315,12 @@
     gap: 12px; flex-wrap: wrap; margin: 0 0 12px;
   }
   .view-head h2 { font-size: 18px; margin: 0; }
-  .list-count { color: var(--c-muted); font-size: 13px; margin: -4px 0 10px; }
+  .list-count {
+    color: var(--c-muted); font-size: 13px; margin: -4px 0 10px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .list-count .link-btn { font-size: 13px; }
+  .list-count .link-btn[disabled] { color: var(--c-muted); cursor: default; text-decoration: none; }
   .ro-note {
     background: var(--c-brand-soft); color: var(--c-brand);
     border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
@@ -340,6 +345,28 @@
     font-size: 13px; font-weight: 600;
   }
   .oc-money em { font-style: normal; font-weight: 400; color: var(--c-muted); }
+
+  /* Milestone 2.5 / P3 — skeleton cards for a genuine first load, so it reads
+     as "loading" instead of a frozen blank screen. */
+  .order-card.skeleton { cursor: default; }
+  .order-card.skeleton:hover { border-color: var(--c-border); }
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 8px 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-line:first-child { margin-top: 0; }
+  .sk-w40 { width: 40%; }
+  .sk-w50 { width: 50%; }
+  .sk-w70 { width: 70%; }
+  @keyframes sk-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-line { animation: none; background: var(--c-border); }
+  }
 
   /* ---------- form ---------- */
 

@@ -24,6 +24,10 @@ function apiCall_(action, payload) {
     throw new Error(MSG.NOT_CONFIGURED);
   }
 
+  // Milestone 2.5 / P1: this fetch IS the cross-project hop the perf notes in
+  // docs/MILESTONES.md point at. tFetch covers the whole round trip, including
+  // the API's own processing — msTransport below subtracts that out below.
+  var tFetch = Date.now();
   var response;
   try {
     response = UrlFetchApp.fetch(url, {
@@ -42,6 +46,7 @@ function apiCall_(action, payload) {
     console.error('apiCall_(' + action + '): fetch failed: ' + err);
     throw new Error(MSG.API_UNREACHABLE);
   }
+  var msFetch = Date.now() - tFetch;
 
   var code = response.getResponseCode();
   var text = response.getContentText();
@@ -64,6 +69,17 @@ function apiCall_(action, payload) {
   lastApiBuild_ = body.build || '';
 
   if (!body.ok) throw new Error(body.error || MSG.GENERIC);
+
+  // Net cost of the WEB → API hop, isolated from the API's own gate/user/read
+  // work (already reported in body.data._ms.total from Router.gs). Defensive:
+  // an API build from before this lands would have no _ms at all yet.
+  if (body.data && typeof body.data === 'object') {
+    var apiTotal = (body.data._ms && typeof body.data._ms.total === 'number')
+      ? body.data._ms.total : 0;
+    body.data._ms = body.data._ms || {};
+    body.data._ms.transport = Math.max(0, msFetch - apiTotal);
+  }
+
   return body.data;
 }
 
