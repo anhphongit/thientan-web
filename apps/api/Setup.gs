@@ -52,12 +52,47 @@ function setupMilestone1() {
  * five), safety also comes from this same guard: none may ever be reachable
  * over HTTP, only run by hand from the editor.
  */
+
+
+/**
+ * Create the DevLog sheet (headers only). Run once from the API editor when
+ * enabling DEV_MODE diagnostics. Idempotent: leaves an existing sheet alone.
+ *
+ * Also requires Script Property DEV_MODE = "on" on the API project, or
+ * logDevEvent_ will no-op even after the sheet exists.
+ *
+ * HOW TO RUN
+ *   1. API project → Project Settings → Script properties → DEV_MODE = on
+ *   2. Select setupDevLog in the Run dropdown → Run
+ *   3. Open the spreadsheet — tab DevLog should exist with a header row
+ */
+function setupDevLog() {
+  guardSetup_();
+
+  var ss = getSpreadsheet_();
+  var log = [];
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.DEV_LOG, HEADERS.DevLog));
+  // SecurityLog is useful alongside DevLog while debugging auth/gate issues
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.SECURITY_LOG, HEADERS.SecurityLog));
+
+  var devMode = PropertiesService.getScriptProperties().getProperty(PROP.DEV_MODE);
+  if (devMode === 'on') {
+    log.push('DEV_MODE is on — logDevEvent_ will write rows.');
+  } else {
+    log.push('WARNING: DEV_MODE is not "on" on this API project. Sheet created, but logging is disabled until you set Script Property DEV_MODE=on.');
+  }
+
+  var summary = log.join('\n');
+  console.log(summary);
+  return summary;
+}
+
 function guardSetup_() {
   // Editor-only maintenance functions lack a trailing underscore so they appear
   // in the Run dropdown. None may ever become reachable over HTTP.
   var editorOnly = ['setupMilestone1', 'setupMilestone2', 'rotateSecret', 'revokeSecret',
                     'securityStatus', 'installExpiryReminder', 'checkSecretExpiry',
-                    'seedTestOrders', 'deleteSeedTestOrders', 'migrateAddLineCount'];
+                    'seedTestOrders', 'deleteSeedTestOrders', 'migrateAddLineCount', 'setupDevLog'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

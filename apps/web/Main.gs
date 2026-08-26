@@ -133,6 +133,14 @@ function apiDeleteOrder(orderId) {
   });
 }
 
+/** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
+function apiDevLog(payload) {
+  return handle_('apiDevLog', function () {
+    if (!isDevMode_()) return { logged: false };
+    return apiCall_('logDev', payload || {});
+  });
+}
+
 /**
  * Build strings, for spotting the one real hazard of a two-project setup:
  * pushing one side and forgetting to publish a new version of the other.

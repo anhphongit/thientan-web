@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-20-3';
+var BUILD = 'api-2026-08-26-3';
 
 /** Script Property keys. */
 var PROP = {
@@ -23,13 +23,15 @@ var PROP = {
   SHARED_SECRET: 'SHARED_SECRET',
   ADMIN_EMAIL: 'ADMIN_EMAIL',
   ORDER_SEQ_YEAR: 'ORDER_SEQ_YEAR',
-  ORDER_SEQ_NEXT: 'ORDER_SEQ_NEXT'
+  ORDER_SEQ_NEXT: 'ORDER_SEQ_NEXT',
+  DEV_MODE: 'DEV_MODE'
 };
 
 var SHEETS = {
   USERS: 'Users',
   SECURITY: 'Security',
   SECURITY_LOG: 'SecurityLog',
+  DEV_LOG: 'DevLog',
   ORDERS: 'Orders',
   ORDER_LINES: 'OrderLines',
   INVOICES: 'Invoices',
@@ -50,6 +52,7 @@ var HEADERS = {
   Config: ['key', 'value', 'description'],
   Security: ['key', 'value', 'description'],
   SecurityLog: ['timestamp', 'event', 'detail'],
+  DevLog: ['timestamp', 'level', 'source', 'actor', 'message', 'detail'],
 
   // lineCount: Milestone 2.5 / P5 — maintained by actionCreateOrder_ /
   // actionUpdateOrder_ on every save so actionListOrders_ never has to read
@@ -122,6 +125,9 @@ var ACTIONS_ALLOWED_WHEN_LOCKED = ['getSession'];
 
 /** Cap on SecurityLog rows, so an anonymous flood cannot grow the sheet forever. */
 var SECURITY_LOG_MAX_ROWS = 500;
+
+/** Cap on DevLog rows (DEV_MODE diagnostics only). */
+var DEV_LOG_MAX_ROWS = 300;
 
 var PERMISSION_KEYS = [
   'view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',

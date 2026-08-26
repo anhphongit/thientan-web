@@ -38,6 +38,15 @@
   var PAGE_SIZE = 20;
 
   /**
+   * Milestone 2.5b / L1 — how long a successful list fetch stays "fresh".
+   * While fresh, showList() paints from cache and does NOT call the API
+   * (no silentRefresh). "Làm mới" always forces a fetch. Create/edit/delete
+   * reset the timestamp via upsert/remove so the user's own writes stay
+   * visible without a round trip.
+   */
+  var LIST_CACHE_TTL_MS = 60000;
+
+  /**
    * Milestone 2.5 / P2 — the in-flight page-1 apiListOrders promise, shared so
    * a background revalidation, a manual refresh and the P3 boot prefetch never
    * fire three overlapping requests for the same data. "Xem thêm" (P4) is a
@@ -46,6 +55,16 @@
    */
   var loadingPromise = null;
   var loadMorePromise = null;
+
+  /**
+   * Milestone 2.5b / L2 — only-latest-wins.
+   * Bumped on every navigation that changes what should be on screen
+   * (showList, openForm). Async callbacks capture the seq at start; if it no
+   * longer matches when they resolve, they discard the result and do not
+   * paint. Network calls are not aborted (UrlFetchApp cannot cancel); only
+   * the UI effect is ignored.
+   */
+  var viewSeq = 0;
 
   /* ---------------- config helpers ---------------- */
 
@@ -146,35 +165,52 @@
   function prefetch() {
     if (!window.TT || !window.TT.can('view_orders')) return;
     if (!T) T = window.TT;
-    if (state.orders.length || loadingPromise) return;
+    // L3: never stack a prefetch on top of an in-flight list fetch, a warm
+    // cache, or a user who already opened the tab (render sets bound).
+    if (state.orders.length || loadingPromise || state.refreshing) return;
+    if (state.bound && root && state.order === null && root.innerHTML) return;
     fetchOrders().catch(function () {});
   }
 
+  /** True when we have list data and it is still within LIST_CACHE_TTL_MS. */
+  function cacheIsFresh() {
+    return !!(state.orders.length && state.ordersLoadedAt &&
+      (Date.now() - state.ordersLoadedAt) < LIST_CACHE_TTL_MS);
+  }
+
   /**
-   * Milestone 2.5 / P2 + P3.
+   * Milestone 2.5 / P2 + P3 + L1 + L2.
    *
-   *   - cache warm (a prior visit, or the P3 boot prefetch already landed):
-   *     paint immediately from it, then silently revalidate in the
-   *     background — the screen never blocks on a round trip the user has
-   *     effectively already paid for.
+   *   - cache warm AND still within LIST_CACHE_TTL_MS (L1):
+   *     paint immediately, do NOT call the API.
+   *   - cache warm but stale: paint immediately, then silentRefresh.
    *   - a fetch is already in flight (prefetch racing a fast click): show
    *     the skeleton and ride that same promise instead of firing a second
    *     request.
    *   - nothing yet: show the skeleton and start the fetch.
+   *
+   * L2: bumps viewSeq so any in-flight detail response is discarded.
    */
   function showList() {
+    var seq = ++viewSeq;
     state.order = null;
 
     if (state.orders.length) {
       paintList();
-      silentRefresh();
+      // L1: only revalidate when the cache has gone stale. Fresh cache =
+      // paint only, zero API calls. "Làm mới" still forces a fetch.
+      if (!cacheIsFresh()) silentRefresh(seq);
       return;
     }
 
     root.innerHTML = skeletonHtml();
     (loadingPromise || fetchOrders())
-      .then(function () { if (!state.order) paintList(); })
+      .then(function () {
+        if (seq !== viewSeq) return;
+        paintList();
+      })
       .catch(function (err) {
+        if (seq !== viewSeq) return;
         root.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
@@ -213,12 +249,18 @@
    */
   function loadMore() {
     if (loadMorePromise || loadingPromise || !state.ordersHasMore) return;
+    var seq = viewSeq; // do not bump — still on list; but ignore if user leaves
     state.loadingMore = true;
     paintList();
 
     var nextPage = state.ordersPage + 1;
     loadMorePromise = T.call('apiListOrders', { page: nextPage, pageSize: PAGE_SIZE })
       .then(function (data) {
+        if (seq !== viewSeq) {
+          state.loadingMore = false;
+          loadMorePromise = null;
+          return;
+        }
         var seen = {};
         state.orders.forEach(function (o) { seen[o.orderId] = true; });
         ((data && data.orders) || []).forEach(function (o) {
@@ -234,6 +276,7 @@
       .catch(function (err) {
         state.loadingMore = false;
         loadMorePromise = null;
+        if (seq !== viewSeq) return;
         paintList();
         T.toast(err.message, true);
       });
@@ -253,11 +296,19 @@
    * — see manualRefresh() — but a background one that nobody asked for
    * should never surprise like that.
    */
-  function silentRefresh() {
+  function silentRefresh(seq) {
+    // L3: one background revalidation at a time; never against a multi-page view
     if (state.refreshing || state.loadingMore || state.ordersPage > 1) return;
+    if (seq == null) seq = viewSeq;
     state.refreshing = true;
+    // rides loadingPromise when prefetch or another caller is already mid-flight
     fetchOrders()
-      .then(function () { state.refreshing = false; if (!state.order) paintList(); })
+      .then(function () {
+        state.refreshing = false;
+        if (seq !== viewSeq) return;
+        if (state.order) return; // user opened a detail while we were refreshing
+        paintList();
+      })
       .catch(function () { state.refreshing = false; });
   }
 
@@ -267,12 +318,19 @@
    *  surprise silentRefresh() avoids is acceptable here. */
   function manualRefresh() {
     if (state.refreshing || state.loadingMore) return;
+    var seq = viewSeq; // stay on list; ignore result only if user navigated away
     state.refreshing = true;
     paintList();
+    // L3: fetchOrders() coalesces with any in-flight page-1 request
     fetchOrders()
-      .then(function () { state.refreshing = false; paintList(); })
+      .then(function () {
+        state.refreshing = false;
+        if (seq !== viewSeq) return;
+        paintList();
+      })
       .catch(function (err) {
         state.refreshing = false;
+        if (seq !== viewSeq) return;
         paintList();
         T.toast(err.message, true);
       });
@@ -363,6 +421,9 @@
       if (i < 0) state.ordersMeta.total += 1;
       state.ordersMeta.shown = state.orders.length;
     }
+    // L1: own write keeps the cache "fresh" so the next back-navigation
+    // does not immediately trigger a silentRefresh.
+    state.ordersLoadedAt = Date.now();
   }
 
   /** Milestone 2.5 / P2 — same idea, for delete. */
@@ -373,6 +434,7 @@
       state.ordersMeta.total = Math.max(0, state.ordersMeta.total - 1);
       state.ordersMeta.shown = state.orders.length;
     }
+    if (state.ordersLoadedAt) state.ordersLoadedAt = Date.now();
   }
 
   function orderCardHtml(o) {
@@ -406,6 +468,9 @@
      ===================================================================== */
 
   function openForm(orderId) {
+    // L2: any in-flight list response must not yank the user back to the list.
+    var seq = ++viewSeq;
+
     if (!orderId) {
       var money = seesMoney();
       state.order = {
@@ -428,6 +493,7 @@
     root.innerHTML = '<section class="card"><p class="empty">Đang mở đơn hàng...</p></section>';
     T.call('apiGetOrder', orderId)
       .then(function (data) {
+        if (seq !== viewSeq) return; // user went back or opened another order
         state.order = data.order;
         state.lines = (data.lines || []).map(normalizeLine);
         if (!state.lines.length) state.lines = [blankLine()];
@@ -436,6 +502,7 @@
         paintForm();
       })
       .catch(function (err) {
+        if (seq !== viewSeq) return;
         T.toast(err.message, true);
         showList();
       });
@@ -794,20 +861,24 @@
     var isNew = !state.order.orderId;
     var payload = { order: state.order, lines: state.lines };
     if (!isNew) payload.orderId = state.order.orderId;
+    var seq = viewSeq;
 
     setSaving(true);
     T.call(isNew ? 'apiCreateOrder' : 'apiUpdateOrder', payload)
       .then(function (data) {
+        // Always keep the list cache in sync — even if the user left the form.
+        upsertCachedOrder(data.order, (data.lines || []).length);
+        if (seq !== viewSeq) return;
         state.order = data.order;
         state.lines = (data.lines || []).map(normalizeLine);
         state.hiddenMoney = !!data.hiddenMoney;
         state.editing = !!data.order.canEdit;
         state.saving = false;
-        upsertCachedOrder(data.order, state.lines.length);
         T.toast(isNew ? 'Đã tạo đơn ' + data.order.orderId : 'Đã lưu thay đổi.');
         paintForm();
       })
       .catch(function (err) {
+        if (seq !== viewSeq) return;
         setSaving(false);
         T.toast(err.message, true);
       });
@@ -815,15 +886,19 @@
 
   function doDelete() {
     if (state.saving) return;
+    var seq = viewSeq;
+    var deletedId = state.order.orderId;
     setSaving(true);
-    T.call('apiDeleteOrder', state.order.orderId)
+    T.call('apiDeleteOrder', deletedId)
       .then(function () {
+        removeCachedOrder(deletedId);
+        if (seq !== viewSeq) return;
         state.saving = false;
-        removeCachedOrder(state.order.orderId);
         T.toast('Đã xoá đơn hàng.');
         showList();
       })
       .catch(function (err) {
+        if (seq !== viewSeq) return;
         setSaving(false);
         T.toast(err.message, true);
       });

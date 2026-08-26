@@ -122,7 +122,11 @@ function securityPayload_(gate, isAdmin) {
 /**
  * The API is deployed with anonymous access so THIENTAN-WEB can POST to it
  * without the OAuth-redirect problems that break Authorization headers.
- * A GET therefore reveals nothing.
+ * A GET therefore reveals nothing — only the static string below.
+ *
+ * If WEB ever logs: non-JSON response: THIENTAN API
+ * that means UrlFetchApp followed a redirect as GET and hit this function
+ * instead of doPost. Fixed in apps/web/ApiClient.gs (postJsonKeepMethod_).
  */
 function doGet() {
   return ContentService.createTextOutput('THIENTAN API').setMimeType(ContentService.MimeType.TEXT);
@@ -142,7 +146,9 @@ function getActions_() {
     getOrder: actionGetOrder_,
     createOrder: actionCreateOrder_,
     updateOrder: actionUpdateOrder_,
-    deleteOrder: actionDeleteOrder_
+    deleteOrder: actionDeleteOrder_,
+
+    logDev: actionLogDev_
   };
 }
 

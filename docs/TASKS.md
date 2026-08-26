@@ -104,8 +104,8 @@ build pagination twice; §3.1 below is marked accordingly.
 | P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None. **☑ built and verified live 2026-08-26** |
 | P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice. **☑ built and verified live 2026-08-26** |
 | P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands. **☑ built and verified live 2026-08-26 (migration run confirmed)** |
-| P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it |
-| P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them |
+| P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it. **✎ built 2026-08-26 (in p6-changes/), offline-tested, awaiting push + live verification** |
+| P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them. **☐ deferred** — does not fix the dominant `mạng` cost; revisit only after L1–L2 |
 
 P1's numbers decide whether P4–P7 are worth doing at all, or whether P2+P3 already
 make the app feel fixed.
@@ -412,6 +412,97 @@ narrows it like P4 did for Orders.
 
 ---
 
+## Milestone 2.5b — Loading-time & race fixes
+**Live verification (2026-08-26):** L1 + L2 + L3 confirmed working by Phong.
+  *(raised 2026-08-26)*
+
+Live testing after P2–P5 showed the remaining pain is **not** sheet-read cost
+inside the API. It is:
+
+1. The list API is still called every time the user opens the Order tab or
+   returns from detail (`silentRefresh` always fires).
+2. Rapid navigation (list ↔ detail, tab switching) lets **old** responses
+   update the UI, causing flicker and wrong screens.
+3. The WEB → API hop (`mạng`) is slow / intermittent under concurrency;
+   reducing the number of calls is the main lever we control.
+
+P6 (per-request sheet memo) and P7 (CacheService) do not address (1) or (2).
+These tasks do. Order: **L1 → L2 → L3**.
+
+| # | Task | Wins | Risk / notes | Status |
+|---|------|------|--------------|--------|
+| L1 | Real list cache with TTL — skip API when cache is still fresh | Opening Order tab / back from detail does **not** call the API if data is younger than TTL. "Làm mới" still forces a fetch. | Stale data window = TTL. Default 60s. Must still update cache on create/edit/delete. | ☑ verified live 2026-08-26 |
+| L2 | Request generation / only-latest-wins | Rapid clicks cannot let an old list or detail response paint the wrong screen | Must cover both list and detail fetches. Ignore stale responses completely. | ☑ verified live 2026-08-26 |
+| L3 | Reduce concurrent pressure (optional) | Fewer overlapping WEB→API calls; optional short timeout + one retry on `API_UNREACHABLE` | Only after L1+L2 are measured live. Do not add retries that multiply load. | ☑ verified live 2026-08-26 |
+
+### L1 — Real list cache with TTL
+
+**Rules (to implement):**
+- Keep existing `state.orders` + `state.ordersLoadedAt`.
+- Add `LIST_CACHE_TTL_MS = 60000` (60 seconds) at the top of the module.
+- `showList()`:
+  - Cache warm **and** `Date.now() - ordersLoadedAt < LIST_CACHE_TTL_MS` → paint only. **No** `silentRefresh()`, **no** API call.
+  - Cache warm **and** age ≥ TTL → paint immediately, then `silentRefresh()` (current behaviour).
+  - Cache empty → skeleton + fetch (current).
+- "Làm mới" → always force fetch (current `manualRefresh`).
+- After successful create / edit / delete → update cache from the response and set `ordersLoadedAt = Date.now()` (already partially done via upsert/remove).
+- Prefetch still allowed when cache is empty.
+
+**How Phong verifies:**
+1. Open Đơn hàng, wait for list.
+2. Open a detail, press ← Danh sách within 60s → list appears instantly, **no** new network call in the timing pill / no spinner.
+3. Wait > 60s (or change TTL temporarily for test), go back → silent refresh runs.
+4. Click "Làm mới" → always fetches.
+5. Create/edit/delete an order → list reflects the change without a full reload.
+
+**Touches only:** `apps/web/ui/ViewsOrders.html` (and optionally a one-line note in `docs/TASKS.md`). No API change.
+
+---
+
+### L2 — Request generation / only-latest-wins
+
+**Rules (to implement after L1):**
+- Module-level `var requestGen = 0`.
+- Every list fetch and every detail fetch does `var myGen = ++requestGen` at start.
+- On resolve: if `myGen !== requestGen` → discard response (do not touch `state` or DOM).
+- Opening detail while a list request is in flight must not let the list response call `paintList()` or clear the detail.
+- Same for the reverse.
+
+**How Phong verifies:** Rapidly click Order tab → an order → back → another order. UI must never flash the wrong screen. No "list appears then jumps to detail" from late responses.
+
+---
+
+### L3 — Reduce concurrent pressure (later)
+
+Only after L1+L2 are live and measured. Options then:
+- Skip prefetch if user is already on the list.
+- Explicit shorter `UrlFetchApp` timeout + single retry on `API_UNREACHABLE` with clear message.
+- Do **not** add aggressive retries that increase load under congestion.
+
+---
+
+
+### L3 — Reduce concurrent pressure — built 2026-08-26
+
+Touched: `apps/web/ApiClient.gs`, `apps/web/ui/App.html`, `apps/web/ui/ViewsOrders.html`.
+
+1. **ApiClient** — at most **one** retry, only when:
+   - `UrlFetchApp.fetch` throws, or
+   - HTTP status is 5xx  
+   Never retries 4xx / 405 / non-JSON (except the existing single retry inside
+   `postJsonToApi_` for the `THIENTAN API` doGet body).
+2. **App.html** — prefetch runs after **400ms** so it does not stack on the
+   just-completed `getSession` hop.
+3. **ViewsOrders** — prefetch skips when cache warm, fetch in flight, or the
+   list view is already bound/open; silent/manual refresh still coalesce on
+   `loadingPromise`.
+
+**How Phong verifies:**
+1. Cold open app → getSession succeeds → ~0.4s later one listOrders (not two).
+2. Kill network briefly → one retry then clear Vietnamese error (not a storm).
+3. Spam Order tab / Làm mới → still a single in-flight page-1 request.
+
+---
 ## Milestone 3 — List, filter, search, status
 
 Not started. Split now so it can be worked one task per conversation. Order

@@ -264,3 +264,59 @@ function checkSecretExpiry() {
     '  3. Mở project API, chạy hàm rotateSecret()\n\n' +
     'Khoá ngay lập tức khi cần: mở sheet Security, đặt status = revoked.');
 }
+
+/* ------------------------------------------------------------------ */
+/* DevLog — DEV_MODE diagnostics written to a sheet                    */
+/* ------------------------------------------------------------------ */
+
+function isApiDevMode_() {
+  return PropertiesService.getScriptProperties().getProperty(PROP.DEV_MODE) === 'on';
+}
+
+/**
+ * Append one row to DevLog. No-op unless API DEV_MODE is on.
+ * Creates the sheet + header row on first write if setupDevLog was not run.
+ * Never throws to callers.
+ */
+function logDevEvent_(level, source, message, detail, actor) {
+  if (!isApiDevMode_()) return;
+  try {
+    var ss = getSpreadsheet_();
+    var sheet = ss.getSheetByName(SHEETS.DEV_LOG);
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEETS.DEV_LOG);
+      sheet.getRange(1, 1, 1, HEADERS.DevLog.length).setValues([HEADERS.DevLog]);
+      sheet.getRange(1, 1, 1, HEADERS.DevLog.length).setFontWeight('bold');
+      sheet.setFrozenRows(1);
+    } else if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, HEADERS.DevLog.length).setValues([HEADERS.DevLog]);
+      sheet.getRange(1, 1, 1, HEADERS.DevLog.length).setFontWeight('bold');
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([
+      new Date(),
+      String(level || 'info').substring(0, 20),
+      String(source || '').substring(0, 40),
+      String(actor || '').substring(0, 80),
+      String(message || '').substring(0, 200),
+      String(detail || '').substring(0, 1500)
+    ]);
+    var rows = sheet.getLastRow() - 1;
+    if (rows > DEV_LOG_MAX_ROWS + 50) {
+      sheet.deleteRows(2, rows - DEV_LOG_MAX_ROWS);
+    }
+  } catch (err) {
+    console.error('logDevEvent_ failed: ' + err);
+  }
+}
+
+function actionLogDev_(user, payload) {
+  logDevEvent_(
+    (payload && payload.level) || 'info',
+    (payload && payload.source) || 'web',
+    (payload && payload.message) || '',
+    (payload && payload.detail) || '',
+    user.email
+  );
+  return { logged: isApiDevMode_() };
+}

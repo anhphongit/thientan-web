@@ -280,11 +280,13 @@
     el('app').classList.remove('hidden');
     show('home');
 
-    // Milestone 2.5 / P3 — warm the orders cache now, before the user has
-    // opened the tab. can('view_orders') mirrors the same check the nav uses
-    // to decide whether to show "Đơn hàng" at all.
+    // Milestone 2.5 / P3 + L3 — warm the orders cache after a short delay so
+    // this listOrders hop does not compete with the just-finished getSession
+    // under a cold API. can('view_orders') mirrors the nav visibility check.
     if (can('view_orders') && window.TTOrders && typeof window.TTOrders.prefetch === 'function') {
-      window.TTOrders.prefetch();
+      setTimeout(function () {
+        try { window.TTOrders.prefetch(); } catch (e) { /* ignore */ }
+      }, 400);
     }
   }
 
