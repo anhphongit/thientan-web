@@ -31,9 +31,16 @@
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
     order: null, lines: [],
-    editing: false, saving: false, hiddenMoney: false, bound: false,
-    orderReloading: false
+    editing: false, hiddenMoney: false, bound: false,
+    // Milestone 2.5c follow-up — one order-detail mutation in flight at a
+    // time: null | 'saving' | 'deleting' | 'reloading'. Everything that can
+    // change this order (save, delete, force-reload) checks isBusy() first,
+    // and the whole form is rendered locked while it is set — see
+    // paintForm()/isBusy() below.
+    busyAction: null
   };
+
+  function isBusy() { return !!state.busyAction; }
 
   /** Milestone 2.5 / P4 — mirrors LIST_PAGE_SIZE_DEFAULT in the API's Config.gs. */
   var PAGE_SIZE = 20;
@@ -111,6 +118,25 @@
     var allowed = (s && s.permissions && s.permissions.visible_fields) || [];
     if (allowed.length === 1 && allowed[0] === '*') return true;
     return MONEY_FIELDS.some(function (f) { return allowed.indexOf(f) >= 0; });
+  }
+
+  /**
+   * Per-field visible_fields check, mirroring fieldVisible_() in the API's
+   * Orders.gs. Money fields keep their own coarser seesMoney() (any money
+   * field visible → draw all price inputs); this is for the other optional
+   * fields (po, poNote, statusNote, supplierName, and per-line productCode /
+   * uom / invoiceNo+invoiceDate / note): a field this user cannot see must
+   * not be drawn on the form at all, not merely left to render blank. Only
+   * used when there is no server response yet to read has(o, field) from —
+   * i.e. building a brand new order/line. Once real data exists, has(o,
+   * field) is the source of truth (the server already applied this same
+   * rule when it decided what to include in the response).
+   */
+  function fieldAllowed_(field) {
+    var s = T.session();
+    var allowed = (s && s.permissions && s.permissions.visible_fields) || [];
+    if (allowed.length === 1 && allowed[0] === '*') return true;
+    return allowed.indexOf(field) >= 0;
   }
 
   function uomList() { return config().uomList || []; }
@@ -507,12 +533,21 @@
 
     if (!orderId) {
       var money = seesMoney();
+      // customer / orderDate / status are the minimum needed to identify and
+      // save an order at all, so they're always present regardless of
+      // visible_fields (same as the server's validateOrderPayload_, which
+      // always requires them). Everything else here is optional and gated
+      // by fieldAllowed_ — a role missing e.g. po from visible_fields must
+      // not even see a blank PO box on a brand new order.
       state.order = {
-        orderId: '', po: '', poNote: '', customer: '', orderDate: today(),
-        status: statusList()[0].key, statusNote: '',
-        supplierName: '',
+        orderId: '', customer: '', orderDate: today(),
+        status: statusList()[0].key,
         canEdit: true, canDelete: false, canChangeStatus: true
       };
+      if (fieldAllowed_('po')) state.order.po = '';
+      if (fieldAllowed_('poNote')) state.order.poNote = '';
+      if (fieldAllowed_('statusNote')) state.order.statusNote = '';
+      if (fieldAllowed_('supplierName')) state.order.supplierName = '';
       if (money) {
         state.order.customerDeposit = '';
         state.order.supplierPaid = '';
@@ -564,52 +599,91 @@
     });
   }
 
+  /**
+   * Bug fix, Milestone 2.5c follow-up: this used to assign `data.order`
+   * directly into state, which meant state.order and the object cached in
+   * orderCache[orderId].data.order were the SAME object. Since collect()
+   * mutates state.order in place (`o.po = get('#f-po')`, etc.) on every
+   * add-line / del-line / save, that mutation silently corrupted the cache
+   * entry too — including for fields the DOM stub or a render race left
+   * empty for a moment. A shallow copy here is what actually makes the
+   * cache read-only from the form's point of view.
+   */
   function applyOrderData(data) {
-    state.order = data.order;
+    state.order = shallowCopy(data.order);
     state.lines = (data.lines || []).map(normalizeLine);
     if (!state.lines.length) state.lines = [blankLine()];
     state.hiddenMoney = !!data.hiddenMoney;
     state.editing = !!data.order.canEdit;
   }
 
-  function blankLine() {
-    return {
-      lineId: '', productCode: '', description: '', unitPrice: '', qty: '',
-      uom: uomList()[0] || '', vatRate: vatRates()[0], invoiceNo: '', invoiceDate: '', note: ''
-    };
+  function shallowCopy(obj) {
+    var out = {};
+    if (obj) Object.keys(obj).forEach(function (k) { out[k] = obj[k]; });
+    return out;
   }
 
+  // description / qty are always required (validateLine_ rejects a line
+  // without them), so they're unconditional here, same reasoning as
+  // customer/orderDate/status on the order itself. Everything else is
+  // optional and gated by fieldAllowed_ so a role missing e.g. productCode
+  // from visible_fields never sees a blank "Mã hàng" box on a new line.
+  function blankLine() {
+    var l = { lineId: '', description: '', qty: '' };
+    if (fieldAllowed_('productCode')) l.productCode = '';
+    if (fieldAllowed_('uom')) l.uom = uomList()[0] || '';
+    if (!state.hiddenMoney) { l.unitPrice = ''; l.vatRate = vatRates()[0]; }
+    if (fieldAllowed_('invoiceNo')) { l.invoiceNo = ''; l.invoiceDate = ''; }
+    if (fieldAllowed_('note')) l.note = '';
+    return l;
+  }
+
+  /**
+   * Preserves whether the SERVER included a field at all (has(line, field)),
+   * rather than always manufacturing every key with a '' fallback — the old
+   * version did that, which erased the difference between "blank" and
+   * "this role never received this field", so lineHtml() had nothing to
+   * gate visibility on. Only lineId/description/qty/unitPrice/vatRate are
+   * unconditional (required, or already governed by state.hiddenMoney).
+   */
   function normalizeLine(line) {
-    return {
+    var out = {
       lineId: line.lineId || '',
-      productCode: line.productCode || '',
       description: line.description || '',
-      unitPrice: has(line, 'unitPrice') ? line.unitPrice : '',
-      qty: has(line, 'qty') ? line.qty : '',
-      uom: line.uom || '',
-      vatRate: has(line, 'vatRate') ? line.vatRate : vatRates()[0],
-      invoiceNo: line.invoiceNo || '',
-      invoiceDate: dateInputValue(line.invoiceDate),
-      note: line.note || ''
+      qty: has(line, 'qty') ? line.qty : ''
     };
+    if (has(line, 'productCode')) out.productCode = line.productCode || '';
+    if (has(line, 'uom')) out.uom = line.uom || '';
+    if (has(line, 'unitPrice')) out.unitPrice = line.unitPrice;
+    if (has(line, 'vatRate')) out.vatRate = line.vatRate;
+    else if (!state.hiddenMoney) out.vatRate = vatRates()[0];
+    if (has(line, 'invoiceNo')) {
+      out.invoiceNo = line.invoiceNo || '';
+      out.invoiceDate = dateInputValue(line.invoiceDate);
+    }
+    if (has(line, 'note')) out.note = line.note || '';
+    return out;
   }
 
   function paintForm() {
     var o = state.order;
     var isNew = !o.orderId;
-    var ro = !state.editing;
+    var permRo = !state.editing;          // server says: this user cannot edit at all
+    var busy = isBusy();                  // save/delete/reload in flight right now
+    var fieldsLocked = permRo || busy;    // either reason locks every input the same way
 
     root.innerHTML = '' +
       '<div class="view-head">' +
         '<h2>' + (isNew ? 'Tạo đơn hàng' : 'Mã đơn ' + T.esc(o.orderId)) + '</h2>' +
-        '<button type="button" class="link-btn" data-act="back">← Danh sách</button>' +
+        '<button type="button" class="link-btn" data-act="back"' +
+          (busy ? ' disabled' : '') + '>← Danh sách</button>' +
       '</div>' +
-      (isNew ? '' : detailFreshHtml()) +
-      (ro ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
-      headerCardHtml(o, ro) +
-      linesCardHtml(ro) +
+      (isNew ? '' : detailFreshHtml(busy)) +
+      (permRo ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
+      headerCardHtml(o, fieldsLocked) +
+      linesCardHtml(fieldsLocked) +
       totalsHtml() +
-      actionsHtml(isNew, ro) +
+      actionsHtml(isNew, permRo, busy) +
       customerDatalistHtml();
 
     recalc();
@@ -622,20 +696,26 @@
    * fetch). "Tải lại" bypasses the cache entirely — for when another user
    * changed this order while it sat cached or the form was left open, which
    * D1 accepted as an acceptable, bounded risk but should not leave silent.
+   *
+   * `busy` disables the button (and its confirm) while ANY order action is
+   * in flight, not only a reload — see isBusy()/onClick()'s guard.
    */
-  function detailFreshHtml() {
+  function detailFreshHtml(busy) {
+    var reloadingNow = state.busyAction === 'reloading';
     return '' +
       '<p class="list-count">' +
         (detailFreshLabel() ? detailFreshLabel() + ' · ' : '') +
         '<button type="button" class="link-btn" data-act="reload-order"' +
-          (state.orderReloading ? ' disabled' : '') + '>' +
-          (state.orderReloading ? 'Đang tải lại…' : 'Tải lại') +
+          (busy ? ' disabled' : '') + '>' +
+          (reloadingNow ? 'Đang tải lại…' : 'Tải lại') +
         '</button>' +
       '</p>' +
       '<span class="confirm-box hidden" data-role="confirm-reload">' +
         '<span>Bỏ thay đổi chưa lưu trên màn hình và tải bản mới nhất?</span>' +
-        '<button type="button" class="btn-mini danger-link" data-act="do-reload">Tải lại</button>' +
-        '<button type="button" class="btn-mini" data-act="cancel-reload">Không</button>' +
+        '<button type="button" class="btn-mini danger-link" data-act="do-reload"' +
+          (busy ? ' disabled' : '') + '>Tải lại</button>' +
+        '<button type="button" class="btn-mini" data-act="cancel-reload"' +
+          (busy ? ' disabled' : '') + '>Không</button>' +
       '</span>';
   }
 
@@ -663,14 +743,17 @@
           field('Ngày đặt hàng *',
             '<input id="f-orderDate" type="date" value="' +
             T.esc(dateInputValue(o.orderDate) || today()) + '"' + d + '>') +
-          field('Số PO',
-            // One free-text value, not a split field (Q3). It may hold several
-            // numbers stacked on separate lines, as the reference workbook does.
-            '<textarea id="f-po" rows="2" placeholder="Ví dụ: 4600041936"' + d + '>' +
-            T.esc(o.po) + '</textarea>') +
-          field('Ghi chú về PO',
-            '<input id="f-poNote" value="' + T.esc(o.poNote) +
-            '" placeholder="PO tạm, chờ PO thật..."' + d + '>') +
+          (has(o, 'po')
+            ? field('Số PO',
+                // One free-text value, not a split field (Q3). It may hold
+                // several numbers stacked on separate lines, as the reference
+                // workbook does.
+                '<textarea id="f-po" rows="2" placeholder="Ví dụ: 4600041936"' + d + '>' +
+                T.esc(o.po) + '</textarea>') : '') +
+          (has(o, 'poNote')
+            ? field('Ghi chú về PO',
+                '<input id="f-poNote" value="' + T.esc(o.poNote) +
+                '" placeholder="PO tạm, chờ PO thật..."' + d + '>') : '') +
           field('Trạng thái',
             '<select id="f-status"' + statusDisabled + '>' +
               statusList().map(function (s) {
@@ -678,15 +761,17 @@
                   (s.key === o.status ? ' selected' : '') + '>' + T.esc(s.label) + '</option>';
               }).join('') +
             '</select>') +
-          field('Ghi chú trạng thái',
-            '<input id="f-statusNote" value="' + T.esc(o.statusNote) +
-            '" placeholder="Hẹn giao 22/09..."' + d + '>') +
+          (has(o, 'statusNote')
+            ? field('Ghi chú trạng thái',
+                '<input id="f-statusNote" value="' + T.esc(o.statusNote) +
+                '" placeholder="Hẹn giao 22/09..."' + d + '>') : '') +
           (has(o, 'customerDeposit')
             ? field('Khách đã cọc (VNĐ)',
                 '<input id="f-customerDeposit" inputmode="numeric" class="money" value="' +
                 T.esc(groupDigits(o.customerDeposit)) + '"' + d + '>') : '') +
-          field('Nhà cung cấp',
-            '<input id="f-supplierName" value="' + T.esc(o.supplierName) + '"' + d + '>') +
+          (has(o, 'supplierName')
+            ? field('Nhà cung cấp',
+                '<input id="f-supplierName" value="' + T.esc(o.supplierName) + '"' + d + '>') : '') +
           (has(o, 'supplierPaid')
             ? field('Đã trả nhà cung cấp (VNĐ)',
                 '<input id="f-supplierPaid" inputmode="numeric" class="money" value="' +
@@ -732,6 +817,13 @@
           '</select>')
       : '';
 
+    var invoiceFields = has(line, 'invoiceNo')
+      ? field('Số hoá đơn',
+          '<input class="l-invoiceNo" value="' + T.esc(line.invoiceNo) + '" placeholder="98"' + d + '>') +
+        field('Ngày hoá đơn',
+          '<input class="l-invoiceDate" type="date" value="' + T.esc(line.invoiceDate) + '"' + d + '>')
+      : '';
+
     return '' +
       '<div class="line-card" data-index="' + index + '">' +
         '<div class="line-top">' +
@@ -742,23 +834,26 @@
           '<textarea class="l-description" rows="2"' + d + '>' + T.esc(line.description) +
           '</textarea></label>' +
         '<div class="form-grid">' +
-          field('Mã hàng', '<input class="l-productCode" value="' + T.esc(line.productCode) + '"' + d + '>') +
+          (has(line, 'productCode')
+            ? field('Mã hàng', '<input class="l-productCode" value="' + T.esc(line.productCode) + '"' + d + '>')
+            : '') +
           field('Số lượng *', '<input class="l-qty" inputmode="decimal" value="' + T.esc(line.qty) + '"' + d + '>') +
-          field('ĐVT',
-            '<select class="l-uom"' + d + '>' +
-              ['<option value=""></option>'].concat(uomList().map(function (u) {
-                return '<option value="' + T.esc(u) + '"' +
-                  (u === line.uom ? ' selected' : '') + '>' + T.esc(u) + '</option>';
-              })).join('') +
-            '</select>') +
+          (has(line, 'uom')
+            ? field('ĐVT',
+                '<select class="l-uom"' + d + '>' +
+                  ['<option value=""></option>'].concat(uomList().map(function (u) {
+                    return '<option value="' + T.esc(u) + '"' +
+                      (u === line.uom ? ' selected' : '') + '>' + T.esc(u) + '</option>';
+                  })).join('') +
+                '</select>')
+            : '') +
           money +
-          field('Số hoá đơn',
-            '<input class="l-invoiceNo" value="' + T.esc(line.invoiceNo) + '" placeholder="98"' + d + '>') +
-          field('Ngày hoá đơn',
-            '<input class="l-invoiceDate" type="date" value="' + T.esc(line.invoiceDate) + '"' + d + '>') +
+          invoiceFields +
         '</div>' +
-        '<label class="field field-wide"><span class="field-label">Ghi chú dòng</span>' +
-          '<input class="l-note" value="' + T.esc(line.note) + '"' + d + '></label>' +
+        (has(line, 'note')
+          ? '<label class="field field-wide"><span class="field-label">Ghi chú dòng</span>' +
+            '<input class="l-note" value="' + T.esc(line.note) + '"' + d + '></label>'
+          : '') +
         (showMoney ? '<div class="line-amount" data-role="amount"></div>' : '') +
       '</div>';
   }
@@ -772,24 +867,41 @@
       '</section>';
   }
 
-  function actionsHtml(isNew, ro) {
-    if (ro) return '';
+  /**
+   * `permRo` = the server says this user cannot edit at all (no buttons,
+   * unchanged from before). `busy` = a save/delete/reload is in flight for
+   * THIS order right now: the buttons stay on screen (so the one driving
+   * the action can show its progress label) but every one of them is
+   * disabled — save while deleting, delete while saving, and a second click
+   * on the same button are all blocked the same way. See isBusy() and the
+   * guard at the top of onClick().
+   */
+  function actionsHtml(isNew, permRo, busy) {
+    if (permRo) return '';
 
+    var savingNow = state.busyAction === 'saving';
     var save = (isNew && !T.can('create_order')) ? '' :
-      '<button type="button" class="btn btn-primary" data-act="save">' +
-      (isNew ? 'Lưu đơn hàng' : 'Lưu thay đổi') + '</button>';
+      '<button type="button" class="btn btn-primary" data-act="save"' +
+      (busy ? ' disabled' : '') + '>' +
+      (savingNow ? 'Đang lưu...' : (isNew ? 'Lưu đơn hàng' : 'Lưu thay đổi')) + '</button>';
 
+    var deletingNow = state.busyAction === 'deleting';
     var del = (!isNew && state.order.canDelete)
-      ? '<button type="button" class="btn btn-danger" data-act="ask-delete">Xoá đơn hàng</button>' +
+      ? '<button type="button" class="btn btn-danger" data-act="ask-delete"' +
+          (busy ? ' disabled' : '') + '>' +
+          (deletingNow ? 'Đang xoá...' : 'Xoá đơn hàng') + '</button>' +
         '<span class="confirm-box hidden" data-role="confirm">' +
           '<span>Xoá hẳn đơn này?</span>' +
-          '<button type="button" class="btn-mini danger-link" data-act="do-delete">Xoá</button>' +
-          '<button type="button" class="btn-mini" data-act="cancel-delete">Không</button>' +
+          '<button type="button" class="btn-mini danger-link" data-act="do-delete"' +
+            (busy ? ' disabled' : '') + '>Xoá</button>' +
+          '<button type="button" class="btn-mini" data-act="cancel-delete"' +
+            (busy ? ' disabled' : '') + '>Không</button>' +
         '</span>'
       : '';
 
     return '<div class="form-actions">' + save +
-      '<button type="button" class="btn" data-act="back">Huỷ</button>' + del + '</div>';
+      '<button type="button" class="btn" data-act="back"' +
+      (busy ? ' disabled' : '') + '>Huỷ</button>' + del + '</div>';
   }
 
   function customerDatalistHtml() {
@@ -806,6 +918,11 @@
   function onClick(e) {
     var target = e.target.closest ? e.target.closest('[data-act], [data-open]') : null;
     if (!target) return;
+    // Milestone 2.5c follow-up: one order-detail action (save/delete/reload)
+    // at a time. The disabled attribute already stops most clicks; this is
+    // the second layer for anything that slips through (double-click before
+    // the disabled repaint lands, Enter-to-submit, etc).
+    if (isBusy()) return;
 
     var open = target.getAttribute('data-open');
     if (open) { openForm(open); return; }
@@ -881,22 +998,22 @@
    * while it sat cached, or this form has just been open a while.
    */
   function reloadOrder() {
-    if (state.orderReloading || !state.order || !state.order.orderId) return;
+    if (isBusy() || !state.order || !state.order.orderId) return;
     toggleReloadConfirm(false);
     var orderId = state.order.orderId;
     var seq = viewSeq; // still viewing this order; ignore only if navigated away
-    state.orderReloading = true;
+    state.busyAction = 'reloading';
     paintForm();
     fetchOrder(orderId)
       .then(function (data) {
-        state.orderReloading = false;
+        state.busyAction = null;
         if (seq !== viewSeq) return; // left this order while reloading
         applyOrderData(data);
         paintForm();
         T.toast('Đã tải dữ liệu mới nhất.');
       })
       .catch(function (err) {
-        state.orderReloading = false;
+        state.busyAction = null;
         if (seq !== viewSeq) return;
         paintForm();
         T.toast(err.message, true);
@@ -932,13 +1049,21 @@
     var o = state.order;
     var get = function (sel) { var n = root.querySelector(sel); return n ? n.value : ''; };
 
+    // Required, always rendered, always collected.
     o.customer = get('#f-customer');
     o.orderDate = get('#f-orderDate');
-    o.po = get('#f-po');
-    o.poNote = get('#f-poNote');
     o.status = get('#f-status') || o.status;
-    o.statusNote = get('#f-statusNote');
-    o.supplierName = get('#f-supplierName');
+    // Everything below is optional and only exists on `o` (and therefore
+    // only rendered by headerCardHtml) when has(o, field) was true — i.e.
+    // this role's visible_fields includes it. Only touch what was actually
+    // drawn, so a field this role can't see is never even attempted; the
+    // server preserves it either way (fieldVisible_), but there is no
+    // reason for the client to send a value for an input that was never on
+    // screen.
+    if (has(o, 'po')) o.po = get('#f-po');
+    if (has(o, 'poNote')) o.poNote = get('#f-poNote');
+    if (has(o, 'statusNote')) o.statusNote = get('#f-statusNote');
+    if (has(o, 'supplierName')) o.supplierName = get('#f-supplierName');
     if (has(o, 'customerDeposit')) o.customerDeposit = get('#f-customerDeposit');
     if (has(o, 'supplierPaid')) o.supplierPaid = get('#f-supplierPaid');
 
@@ -946,19 +1071,22 @@
       function (card, i) {
         var pick = function (sel) { var n = card.querySelector(sel); return n ? n.value : ''; };
         var previous = state.lines[i] || blankLine();
-        return {
+        var line = {
           // lineId comes from what the server sent, never from the DOM.
           lineId: previous.lineId || '',
-          productCode: pick('.l-productCode'),
           description: pick('.l-description'),
-          unitPrice: state.hiddenMoney ? previous.unitPrice : pick('.l-unitPrice'),
-          qty: pick('.l-qty'),
-          uom: pick('.l-uom'),
-          vatRate: state.hiddenMoney ? previous.vatRate : pick('.l-vatRate'),
-          invoiceNo: pick('.l-invoiceNo'),
-          invoiceDate: pick('.l-invoiceDate'),
-          note: pick('.l-note')
+          qty: pick('.l-qty')
         };
+        if (has(previous, 'productCode')) line.productCode = pick('.l-productCode');
+        if (has(previous, 'uom')) line.uom = pick('.l-uom');
+        line.unitPrice = state.hiddenMoney ? previous.unitPrice : pick('.l-unitPrice');
+        line.vatRate = state.hiddenMoney ? previous.vatRate : pick('.l-vatRate');
+        if (has(previous, 'invoiceNo')) {
+          line.invoiceNo = pick('.l-invoiceNo');
+          line.invoiceDate = pick('.l-invoiceDate');
+        }
+        if (has(previous, 'note')) line.note = pick('.l-note');
+        return line;
       });
   }
 
@@ -999,7 +1127,7 @@
   /* ---------------- save / delete ---------------- */
 
   function save() {
-    if (state.saving) return;
+    if (isBusy()) return;
     collect();
 
     var isNew = !state.order.orderId;
@@ -1007,61 +1135,56 @@
     if (!isNew) payload.orderId = state.order.orderId;
     var seq = viewSeq;
 
-    setSaving(true);
+    state.busyAction = 'saving';
+    paintForm(); // locks every field + button until this resolves (issue: "disable all while saving")
     T.call(isNew ? 'apiCreateOrder' : 'apiUpdateOrder', payload)
       .then(function (data) {
         // Always keep the list cache in sync — even if the user left the form.
         upsertCachedOrder(data.order, (data.lines || []).length);
         // D1: and the detail cache, so reopening this order right after saving
         // doesn't pay a network round trip for what the server just returned.
+        // Cloned (not the raw response object) so nothing else that later
+        // holds a reference to `data.order` can mutate this cache entry —
+        // same reasoning as applyOrderData's shallowCopy.
         orderCache[data.order.orderId] = {
-          data: { order: data.order, lines: data.lines, hiddenMoney: data.hiddenMoney },
+          data: { order: shallowCopy(data.order), lines: data.lines, hiddenMoney: data.hiddenMoney },
           loadedAt: Date.now()
         };
+        state.busyAction = null; // reset unconditionally — a stale busyAction would lock every future save
         if (seq !== viewSeq) return;
-        state.order = data.order;
-        state.lines = (data.lines || []).map(normalizeLine);
-        state.hiddenMoney = !!data.hiddenMoney;
-        state.editing = !!data.order.canEdit;
-        state.saving = false;
+        applyOrderData(data);
         T.toast(isNew ? 'Đã tạo đơn ' + data.order.orderId : 'Đã lưu thay đổi.');
         paintForm();
       })
       .catch(function (err) {
+        state.busyAction = null;
         if (seq !== viewSeq) return;
-        setSaving(false);
+        paintForm();
         T.toast(err.message, true);
       });
   }
 
   function doDelete() {
-    if (state.saving) return;
+    if (isBusy()) return;
     var seq = viewSeq;
     var deletedId = state.order.orderId;
-    setSaving(true);
+    state.busyAction = 'deleting';
+    paintForm();
     T.call('apiDeleteOrder', deletedId)
       .then(function () {
         removeCachedOrder(deletedId);
         delete orderCache[deletedId];
+        state.busyAction = null;
         if (seq !== viewSeq) return;
-        state.saving = false;
         T.toast('Đã xoá đơn hàng.');
         showList();
       })
       .catch(function (err) {
+        state.busyAction = null;
         if (seq !== viewSeq) return;
-        setSaving(false);
+        paintForm();
         T.toast(err.message, true);
       });
-  }
-
-  function setSaving(on) {
-    state.saving = on;
-    var btn = root.querySelector('[data-act="save"]');
-    if (!btn) return;
-    btn.disabled = on;
-    btn.textContent = on ? 'Đang lưu...'
-                         : (state.order.orderId ? 'Lưu thay đổi' : 'Lưu đơn hàng');
   }
 
   window.TTOrders = { render: render, prefetch: prefetch };

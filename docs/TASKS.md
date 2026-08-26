@@ -99,6 +99,30 @@ assertions across the three files); `apps/web/Config.gs` `BUILD` is
 
 ---
 
+## Bugfixes found while verifying Milestone 2 (2026-08-26)
+
+Four issues Phong hit while walking Milestone 2's checklist, before it could
+be signed off. All are in `apps/api/Orders.gs` and
+`apps/web/ui/ViewsOrders.html`; `BUILD` is `api-2026-08-26-fieldguard2` /
+`web-2026-08-26-6`. 230 offline assertions pass across the three test files
+(54 + 95 + 81).
+
+| # | Issue | Root cause | Fix |
+|---|-------|-----------|-----|
+| B1 | Editing an order could send an empty PO, wiping the real one on save | `docs/PERMISSIONS.md`'s own `visible_fields` examples still said `orderNo` — the field name Q3 replaced with `po` — so a role configured from that example never receives `po`, its form never shows it, and the empty value it posts back was trusted and written | Server: `fieldVisible_(user, field)` generalizes the existing money-blindness pattern to `po`/`poNote`/`statusNote`/`supplierName` — a field outside the caller's `visible_fields` now keeps its stored value on update instead of being overwritten. Docs: `PERMISSIONS.md`'s examples corrected to current field names |
+| B2 | Save/delete left the rest of the form fully interactive while the request was in flight | `setSaving()` only toggled the Save button itself; every other input, and the delete button, stayed live | All header/line inputs and every action button now render `disabled` for the duration of a save, delete, or reload — one shared `state.busyAction` (`'saving' \| 'deleting' \| 'reloading' \| null`) drives it |
+| B3 | Nothing stopped a second action (save while deleting, delete while saving, etc.) from firing | No mutual exclusion between save/delete/reload | `isBusy()` gate at the top of `onClick()` — no click does anything while `state.busyAction` is set, in addition to the disabled attributes from B2 |
+| B4 | A role restricted by `visible_fields` still saw a blank, editable input for a field it has no permission to see — on both a brand-new order and an existing one. B1's fix only stopped the value from being overwritten on save, not from being shown as an empty field to fill in. Also: on the line level, a blind role's blank `productCode`/`uom`/`note`/`invoiceNo` submission would have silently wiped an existing line's stored value the same way B1's PO bug did | `headerCardHtml`/`lineHtml` render every optional field unconditionally; the client never checked `visible_fields` before drawing an input, only the server checked it before trusting one back | Server: `fieldVisible_` extended to the line loop in `actionUpdateOrder_` (new `lineFieldsHidden`) so `productCode`/`uom`/`note`/`invoiceNo`→`invoiceId` are preserved, not just the order-level fields. Client: new `fieldAllowed_(field)` helper plus `has(o, field)` guards already used for money extended to `po`/`poNote`/`statusNote`/`supplierName`/`productCode`/`uom`/`invoiceNo`+`invoiceDate`/`note` in `headerCardHtml`, `lineHtml`, `blankLine()`, `normalizeLine()`, `openForm(null)`, and `collect()` — a field outside `visible_fields` is absent from the form entirely, not rendered blank |
+
+Also fixed in the same pass, found while tracing B1/B2: `applyOrderData()` used
+to assign the server response's `order` object straight into `state.order`,
+so it was the same object reference as what D1 stores in `orderCache`. Editing
+the form (`collect()`, called on every add-line/del-line/save) mutated the
+cache too. Now a shallow copy — the cache is read-only from the form's point
+of view.
+
+---
+
 ## Milestone 3 — List, filter, search, status
 
 Not started. Split so it can be worked one task per conversation. Order matters:

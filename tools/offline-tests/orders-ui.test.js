@@ -22,6 +22,7 @@ const session = {
 };
 
 let lastCall = null;
+let lastToast = null;
 const callCounts = {};
 const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -49,7 +50,7 @@ const TT_BRIDGE = {
   esc: esc,
   formatVnd: n => Math.round(Number(n) || 0).toLocaleString('vi-VN') + ' ₫',
   formatDate: v => v ? '20/08/2026' : '',
-  toast() {},
+  toast(msg) { lastToast = msg; },
   config: () => session.config,
   session: () => session
 };
@@ -73,6 +74,7 @@ function fixture(fn, arg) {
         po: '', status: 'paid', lineCount: 1, totalExVat: 100, totalIncVat: 108 }
     ] };
   }
+  if (fn === 'apiGetOrder' && arg === 'DH-RESTRICTED') return fixtureRestrictedOrder(arg);
   if (fn === 'apiGetOrder') {
     // Milestone 2.5c / D1 fixture — one order with one line, enough to
     // exercise the detail cache without dragging in the whole form fixture.
@@ -87,7 +89,36 @@ function fixture(fn, arg) {
           qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '' }
       ] };
   }
+  if (fn === 'apiUpdateOrder' || fn === 'apiCreateOrder') {
+    return { hiddenMoney: false, order: {
+        orderId: 'DH-2026-0001', customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
+        po: '4600041936', poNote: '', status: 'draft', statusNote: '',
+        customerDeposit: 0, supplierName: '', supplierPaid: 0,
+        totalExVat: 2400000, totalIncVat: 2592000,
+        canEdit: true, canDelete: true, canChangeStatus: true
+      }, lines: [
+        { lineId: 'L1', productCode: '', description: 'Ống nhựa PVC', unitPrice: 2400000,
+          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '' }
+      ] };
+  }
+  if (fn === 'apiDeleteOrder') return {};
   return {};
+}
+
+// Fix, 2026-08-26: simulates what filterVisibleFields_ actually does on the
+// server for a role missing po/poNote/statusNote/supplierName (order) and
+// productCode/uom/invoiceNo/invoiceDate/note (lines) — those keys are absent
+// from the response entirely, not present-but-blank. has(o, field) in
+// headerCardHtml/lineHtml must key off that absence to hide the input.
+function fixtureRestrictedOrder(arg) {
+  return { hiddenMoney: false, order: {
+      orderId: arg, customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
+      status: 'draft', customerDeposit: 0, supplierPaid: 0,
+      totalExVat: 2400000, totalIncVat: 2592000,
+      canEdit: true, canDelete: true, canChangeStatus: true
+    }, lines: [
+      { lineId: 'L1', description: 'Ống nhựa PVC', unitPrice: 2400000, qty: 1, vatRate: 0.08 }
+    ] };
 }
 
 /* ---- assertions ---- */
@@ -171,7 +202,36 @@ setTimeout(() => {
     ok('no inline onclick attributes', !/onclick=/i.test(form));
     ok('datalist carries the customer list', /<datalist id="customer-options">/.test(form));
 
-    console.log('\n' + 'UI smoke — order detail (Milestone 2.5c / D1 cache)');
+    console.log('\n' + 'UI smoke — field-hiding for a visible_fields-restricted role (blank form)');
+    // Fix, 2026-08-26: a role whose visible_fields excludes a field used to
+    // still get a blank, editable input for it (only writes were protected,
+    // via fieldVisible_/seesMoney server-side). openForm(null)/blankLine()
+    // now consult fieldAllowed_() before including a key on the fresh
+    // client-side object at all, so headerCardHtml/lineHtml's has(o, field)
+    // guards make the input disappear entirely, not just start out empty.
+    const fullFields = session.permissions.visible_fields;
+    session.permissions.visible_fields =
+      ['customer', 'orderDate', 'status', 'description', 'qty', 'unitPrice', 'vatRate'];
+    sandbox.window.TTOrders.render(root);
+    setTimeout(() => {
+      captured.click({ target: { closest: sel => sel.indexOf('data-act') >= 0
+        ? { getAttribute: a => (a === 'data-act' ? 'new' : null) } : null } });
+      const restrictedForm = painted;
+      ok('restricted blank form: PO input is gone, not just empty', !/f-po/.test(restrictedForm));
+      ok('restricted blank form: poNote input is gone', !/f-poNote/.test(restrictedForm));
+      ok('restricted blank form: statusNote input is gone', !/f-statusNote/.test(restrictedForm));
+      ok('restricted blank form: supplierName input is gone', !/f-supplierName/.test(restrictedForm));
+      ok('restricted blank form: line productCode input is gone', !/l-productCode/.test(restrictedForm));
+      ok('restricted blank form: line uom select is gone', !/l-uom/.test(restrictedForm));
+      ok('restricted blank form: line invoice fields are gone',
+         !/l-invoiceNo/.test(restrictedForm) && !/l-invoiceDate/.test(restrictedForm));
+      ok('restricted blank form: line note input is gone', !/l-note/.test(restrictedForm));
+      ok('restricted blank form: still balanced markup', balanced(restrictedForm) === null, balanced(restrictedForm));
+      ok('restricted blank form: still has the required customer field', /id="f-customer"/.test(restrictedForm));
+      ok('restricted blank form: still has description and qty', /l-description/.test(restrictedForm) && /l-qty/.test(restrictedForm));
+      session.permissions.visible_fields = fullFields;
+
+      console.log('\n' + 'UI smoke — order detail (Milestone 2.5c / D1 cache)');
     // Back to the list, then "click" the first order card's data-open.
     sandbox.window.TTOrders.render(root);
     setTimeout(() => {
@@ -191,6 +251,28 @@ setTimeout(() => {
         ok('shows a "Tai lai" control with a freshness stamp',
            /data-act="reload-order"/.test(detail) && /du lieu luc|dữ liệu lúc/.test(detail));
 
+        // Bug fix, Milestone 2.5c follow-up: applyOrderData() used to assign
+        // data.order straight into state.order, so state.order and the
+        // object cached in orderCache were the SAME reference. Editing the
+        // form (collect() runs on every add-line/del-line/save) mutated the
+        // cache too. Clicking "+ Thêm dòng" here calls collect(), which —
+        // against this harness's DOM stub, where every querySelector()
+        // returns null — writes '' into every field of state.order,
+        // including po. orderCache is module-private, so the only way to
+        // observe whether the cache itself got corrupted is indirect:
+        // leave without saving, then reopen the SAME order from cache
+        // (well within the TTL) and check the textarea still shows the
+        // real po. Before the shallowCopy fix this would come back blank.
+        captured.click({ target: { closest: sel => sel.indexOf('data-act') >= 0
+          ? { getAttribute: a => (a === 'data-act' ? 'add-line' : null) } : null } });
+        ok('add-line\'s collect() did blank state.order.po in this stubbed DOM',
+           /<textarea id="f-po"[^>]*><\/textarea>/.test(painted), 'sanity check on the stub itself');
+
+        showListForTest();
+        clickOpen();
+        ok('the cached order survives an edit to the open form (no shared reference)',
+           /<textarea id="f-po"[^>]*>4600041936<\/textarea>/.test(painted));
+
         // Milestone 2.5c / D1 follow-up - force-reload escape hatch.
         const clickAct = act => captured.click({ target: { closest: sel =>
           sel.indexOf('data-act') >= 0
@@ -206,24 +288,107 @@ setTimeout(() => {
         clickAct('do-reload');
         ok('confirming reload calls apiGetOrder again, bypassing the cache',
            callCounts.apiGetOrder === 2, callCounts.apiGetOrder);
+        ok('back is blocked while the reload is still in flight (one action at a time)',
+           /Mã đơn DH-2026-0001/.test((clickAct('back'), painted)));
 
-        const callsAfterFirstOpen = callCounts.apiGetOrder;
+        // The reload above is still pending (a Promise.resolve chain settles
+        // on the next microtask flush) — busyAction only clears once it
+        // resolves, so this setTimeout is what actually gets past the lock
+        // the previous assertion just proved exists.
+        setTimeout(() => {
+          const callsAfterFirstOpen = callCounts.apiGetOrder;
 
-        // Leave and reopen the SAME order within the cache TTL: D1 says this
-        // must paint instantly with no second apiGetOrder call.
-        showListForTest();
-        clickOpen();
-        ok('reopening a cached order paints without a skeleton',
-           !/Đang mở đơn hàng/.test(painted));
-        ok('reopening within the TTL does not call apiGetOrder again',
-           callCounts.apiGetOrder === callsAfterFirstOpen,
-           'calls: ' + callCounts.apiGetOrder);
-        ok('cached reopen still shows the order data', /DH-2026-0001/.test(painted));
+          // Leave and reopen the SAME order within the cache TTL: D1 says
+          // this must paint instantly with no second apiGetOrder call.
+          showListForTest();
+          clickOpen();
+          ok('reopening a cached order paints without a skeleton',
+             !/Đang mở đơn hàng/.test(painted));
+          ok('reopening within the TTL does not call apiGetOrder again',
+             callCounts.apiGetOrder === callsAfterFirstOpen,
+             'calls: ' + callCounts.apiGetOrder);
+          ok('cached reopen still shows the order data', /DH-2026-0001/.test(painted));
 
-        console.log('\n' + pass + ' passed, ' + fail + ' failed');
-        process.exit(fail ? 1 : 0);
+          console.log('\n' + 'UI smoke — busy-locking on save/delete (issues: disable-all, block-others)');
+
+          clickAct('save');
+          const midSave = painted;
+          ok('save shows its own progress label', /Đang lưu\.\.\./.test(midSave));
+          ok('every header input is locked while saving',
+             /id="f-customer"[^>]*disabled/.test(midSave) &&
+             /id="f-po"[^>]*disabled/.test(midSave), midSave.match(/<textarea id="f-po"[^>]*>/));
+          ok('the back button is disabled while saving', /data-act="back"[^>]*disabled/.test(midSave));
+          ok('the delete button is disabled while saving', /data-act="ask-delete"[^>]*disabled/.test(midSave));
+
+          clickAct('back'); // must be a no-op: one action at a time
+          ok('back is blocked while a save is in flight (still on the detail form)',
+             /Mã đơn DH-2026-0001/.test(painted));
+          ok('the blocked back-click did not trigger any new call',
+             lastCall.fn === 'apiUpdateOrder');
+
+          setTimeout(() => {
+            ok('save resolved: fields unlocked again', !/id="f-customer"[^>]*disabled/.test(painted));
+            ok('save button label restored', /Lưu thay đổi/.test(painted) && !/Đang lưu/.test(painted));
+            ok('a success toast fired', lastToast === 'Đã lưu thay đổi.');
+
+            clickAct('ask-delete');
+            clickAct('do-delete');
+            const midDelete = painted;
+            ok('delete shows its own progress label', /Đang xoá\.\.\./.test(midDelete));
+            ok('save is disabled while deleting', /data-act="save"[^>]*disabled/.test(midDelete));
+            ok('form fields are locked while deleting', /id="f-customer"[^>]*disabled/.test(midDelete));
+
+            clickAct('save'); // must be a no-op: a delete is already in flight
+            ok('save is blocked while a delete is in flight',
+               callCounts.apiUpdateOrder === 1, 'apiUpdateOrder calls: ' + callCounts.apiUpdateOrder);
+
+            setTimeout(() => {
+              ok('delete resolved and returned to the list', /Tạo đơn hàng|Đơn hàng/.test(painted) &&
+                 !/Mã đơn DH-2026-0001/.test(painted));
+              ok('a delete success toast fired', lastToast === 'Đã xoá đơn hàng.');
+
+              console.log('\n' + 'UI smoke — field-hiding for a visible_fields-restricted role (order detail)');
+              // Fix, 2026-08-26: mirrors the blank-form case above but for an
+              // EXISTING order — the fixture here omits po/poNote/statusNote/
+              // supplierName and the line's productCode/uom/invoiceNo/
+              // invoiceDate/note entirely, exactly like filterVisibleFields_
+              // does server-side. has(o, field) in headerCardHtml/lineHtml
+              // must hide those inputs, not render them blank.
+              const fullFields2 = session.permissions.visible_fields;
+              session.permissions.visible_fields =
+                ['customer', 'orderDate', 'status', 'description', 'qty', 'unitPrice', 'vatRate'];
+              const clickOpenRestricted = () => captured.click({ target: { closest: sel =>
+                sel.indexOf('data-open') >= 0
+                  ? { getAttribute: a => (a === 'data-open' ? 'DH-RESTRICTED' : null) }
+                  : null } });
+              showListForTest();
+              clickOpenRestricted();
+              setTimeout(() => {
+                const restrictedDetail = painted;
+                ok('restricted detail: asked the server for the restricted order',
+                   lastCall.fn === 'apiGetOrder' && lastCall.arg === 'DH-RESTRICTED');
+                ok('restricted detail: PO input is gone', !/f-po/.test(restrictedDetail));
+                ok('restricted detail: poNote input is gone', !/f-poNote/.test(restrictedDetail));
+                ok('restricted detail: statusNote input is gone', !/f-statusNote/.test(restrictedDetail));
+                ok('restricted detail: supplierName input is gone', !/f-supplierName/.test(restrictedDetail));
+                ok('restricted detail: line productCode input is gone', !/l-productCode/.test(restrictedDetail));
+                ok('restricted detail: line uom select is gone', !/l-uom/.test(restrictedDetail));
+                ok('restricted detail: line invoice fields are gone',
+                   !/l-invoiceNo/.test(restrictedDetail) && !/l-invoiceDate/.test(restrictedDetail));
+                ok('restricted detail: line note input is gone', !/l-note/.test(restrictedDetail));
+                ok('restricted detail: still balanced markup', balanced(restrictedDetail) === null, balanced(restrictedDetail));
+                ok('restricted detail: still shows the visible line description', /Ống nhựa PVC/.test(restrictedDetail));
+                session.permissions.visible_fields = fullFields2;
+
+                console.log('\n' + pass + ' passed, ' + fail + ' failed');
+                process.exit(fail ? 1 : 0);
+              }, 0);
+            }, 0);
+          }, 0);
+        }, 0);
       }, 0);
     }, 0);
+  }, 0);
   }, 0);
 
   // "← Danh sách" from the form: click data-act="back".

@@ -26,14 +26,23 @@ Stored per user in `Users.permissions` as a JSON object.
 | `manage_users` | Add, edit, deactivate users; edit the permission matrix |
 | `visible_fields` | **Array**, not boolean — which order columns this user may see |
 
-`visible_fields` example:
+`visible_fields` example (current field names — see `HEADERS.Orders` /
+`DEFAULT_VISIBLE_FIELDS` in `apps/api/Config.gs`; this used to say `orderNo`,
+a field that predates Milestone 2's Q3 decision and was replaced by `po` +
+`poNote` — a stale copy of the old example is exactly how a hand-typed
+`visible_fields` array ends up missing `po` and silently wipes it on save,
+see `fieldVisible_` in `apps/api/Orders.gs`):
 
 ```json
-["orderNo","customer","description","qty","uom","status","invoiceNo","invoiceDate"]
+["po","poNote","customer","orderDate","status","statusNote","supplierName",
+ "description","qty","uom","invoiceNo","invoiceDate"]
 ```
 
 A user without `unitPrice` / `amountExVat` in `visible_fields` must not receive
 those values in the API response at all — not merely have them hidden in the UI.
+The same is true of every other field: anything left out of this array is both
+invisible on read AND protected from being overwritten on save (the server
+keeps the stored value instead of trusting a blank the client never showed).
 
 ---
 
@@ -54,7 +63,8 @@ those values in the API response at all — not merely have them hidden in the U
   "export_statistics": false,
   "manage_inventory": false,
   "manage_users": false,
-  "visible_fields": ["orderNo","customer","description","qty","uom","status"]
+  "visible_fields": ["po","poNote","customer","orderDate","status","statusNote",
+                      "description","qty","uom","invoiceNo","invoiceDate"]
 }
 ```
 

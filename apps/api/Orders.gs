@@ -192,6 +192,18 @@ function actionUpdateOrder_(user, payload) {
     var saved = [];
     var maxSeq = maxLineSequence_(existing);
 
+    // Same reasoning as the order-level fields in updateRecord_ below: a
+    // line field this user's visible_fields excludes was never in their
+    // form, so preserve the stored value on a matched (existing) line
+    // instead of trusting a blank the client never showed. Only meaningful
+    // for a MATCHED line — a brand new line has no prior value to protect.
+    var lineFieldsHidden = {
+      productCode: !fieldVisible_(user, 'productCode'),
+      uom: !fieldVisible_(user, 'uom'),
+      note: !fieldVisible_(user, 'note'),
+      invoice: !fieldVisible_(user, 'invoiceNo') // invoiceNo/invoiceDate are edited as one pair
+    };
+
     clean.lines.forEach(function (input, i) {
       var lineNo = i + 1;
       var match = input.lineId ? byId[input.lineId] : null;
@@ -200,10 +212,22 @@ function actionUpdateOrder_(user, payload) {
         input.unitPrice = num_(match.unitPrice);
         input.vatRate = num_(match.vatRate);
       }
+      if (match) {
+        if (lineFieldsHidden.productCode) input.productCode = match.productCode;
+        if (lineFieldsHidden.uom) input.uom = match.uom;
+        if (lineFieldsHidden.note) input.note = match.note;
+      }
 
       if (match) {
         // id never changes on edit, and it comes from the SHEET, not the client
         var updated = buildLineRecord_(current.orderId, lineNo, input, user, match.lineId);
+        if (lineFieldsHidden.invoice) {
+          // buildLineRecord_ re-derives invoiceId from input.invoiceNo/
+          // invoiceDate, which for a blind-to-invoices role are always
+          // blank — that would silently unlink an existing invoice. Keep
+          // whatever was already stored instead.
+          updated.invoiceId = match.invoiceId;
+        }
         updateRecord_(SHEETS.ORDER_LINES, match._row, updated);
         kept[String(match.lineId)] = true;
         saved.push(updated);
@@ -227,14 +251,18 @@ function actionUpdateOrder_(user, payload) {
     var totals = sumLines_(saved);
 
     updateRecord_(SHEETS.ORDERS, current._row, {
-      po: clean.po,
-      poNote: clean.poNote,
+      // po / poNote / statusNote / supplierName: preserve the stored value
+      // when this user's visible_fields excludes the field — see
+      // fieldVisible_ above. customer / orderDate / status are always
+      // rendered regardless of visible_fields, so they stay unconditional.
+      po: fieldVisible_(user, 'po') ? clean.po : current.po,
+      poNote: fieldVisible_(user, 'poNote') ? clean.poNote : current.poNote,
       customer: clean.customer,
       orderDate: clean.orderDate,
       status: clean.status,
-      statusNote: clean.statusNote,
+      statusNote: fieldVisible_(user, 'statusNote') ? clean.statusNote : current.statusNote,
       customerDeposit: blindToMoney ? num_(current.customerDeposit) : clean.customerDeposit,
-      supplierName: clean.supplierName,
+      supplierName: fieldVisible_(user, 'supplierName') ? clean.supplierName : current.supplierName,
       supplierPaid: blindToMoney ? num_(current.supplierPaid) : clean.supplierPaid,
       totalExVat: totals.exVat,
       totalIncVat: totals.incVat,
@@ -442,6 +470,26 @@ function seesMoney_(user) {
   var allowed = visibleFields_(user);
   if (allowed.length === 1 && allowed[0] === '*') return true;
   return MONEY_FIELDS.some(function (f) { return allowed.indexOf(f) >= 0; });
+}
+
+/**
+ * Generalizes the money-blindness reasoning (above) to any other optional
+ * order-level field: a field this user's visible_fields excludes was never
+ * rendered in their form, so whatever the client sent for it is a blank
+ * default, not a deliberate edit. Used by actionUpdateOrder_ to decide,
+ * per field, whether to trust the incoming value or keep what is already
+ * stored. Money fields keep their own coarser, already-tested rule
+ * (blindToMoney / seesMoney_ — "sees ANY money field") rather than going
+ * through this; this covers po / poNote / statusNote / supplierName, which
+ * have nothing to do with money but can independently be left out of a
+ * hand-typed visible_fields array (see docs/PERMISSIONS.md history — its
+ * own examples still said `orderNo` for a while after Q3 replaced it with
+ * `po`, exactly the kind of stale config this guards against).
+ */
+function fieldVisible_(user, field) {
+  var allowed = visibleFields_(user);
+  if (allowed.length === 1 && allowed[0] === '*') return true;
+  return allowed.indexOf(field) >= 0;
 }
 
 /* =======================================================================

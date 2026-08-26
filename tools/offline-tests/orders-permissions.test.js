@@ -84,6 +84,103 @@ console.log('\n6. A user who cannot see prices cannot erase them either');
   eq('supplier payment survived', env.store.Orders[0].supplierPaid, 18765000);
 }
 
+/* ---------- 6b. Milestone 2.5c bugfix — po/poNote/statusNote/supplierName
+   survive an update from a role whose visible_fields doesn't list them ---------- */
+console.log('\n6b. A role missing po/poNote/statusNote/supplierName from visible_fields cannot erase them either');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, {
+    order: order({ po: '4600041936', poNote: 'PO tam', statusNote: 'ghi chu goc',
+                   supplierName: 'Tam Thinh Phat' }),
+    lines: [line()]
+  });
+  eq('po stored as created', env.store.Orders[0].po, '4600041936');
+
+  // The exact real-world trigger: docs/PERMISSIONS.md's own visible_fields
+  // examples said `orderNo` (a field Q3 removed) instead of `po` for a long
+  // time — anyone who copied that example into a real user's permissions
+  // JSON ends up with a role that can never see `po`. Their form never
+  // renders it, so it posts back empty; that must not reach the sheet.
+  const sales = user('sales@x.com', { visible_fields:
+    ['orderId', 'customer', 'orderDate', 'status', 'description', 'qty', 'uom',
+     'unitPrice', 'vatRate', 'amountExVat', 'amountIncVat', 'totalExVat', 'totalIncVat',
+     'lineId', 'lineNo'] });
+
+  const seen = env.actionGetOrder_(sales, { orderId: 'DH-2026-0001' });
+  check('this role does not receive po at all', !('po' in seen.order));
+  check('or poNote', !('poNote' in seen.order));
+  check('or statusNote', !('statusNote' in seen.order));
+  check('or supplierName', !('supplierName' in seen.order));
+
+  // Their form has none of those fields, so it posts back blanks — exactly
+  // what a real browser would send from a form that never rendered them.
+  env.actionUpdateOrder_(sales, {
+    orderId: 'DH-2026-0001',
+    order: { customer: 'Khach moi', orderDate: '2026-08-20', status: 'confirmed',
+             po: '', poNote: '', statusNote: '', supplierName: '' },
+    lines: [{ lineId: env.store.OrderLines[0].lineId, description: 'Ống nhựa PVC 90',
+              qty: 2, uom: 'Cái', unitPrice: 1200000, vatRate: 0.08 }]
+  });
+
+  eq('po survived the update', env.store.Orders[0].po, '4600041936');
+  eq('poNote survived', env.store.Orders[0].poNote, 'PO tam');
+  eq('statusNote survived', env.store.Orders[0].statusNote, 'ghi chu goc');
+  eq('supplierName survived', env.store.Orders[0].supplierName, 'Tam Thinh Phat');
+  // Fields this role DOES see and that are always rendered regardless of
+  // visible_fields (customer/orderDate/status) must still take the edit —
+  // preservation must not become a blanket ignore-everything.
+  eq('customer still updates', env.store.Orders[0].customer, 'Khach moi');
+  eq('status still updates', env.store.Orders[0].status, 'confirmed');
+}
+
+/* ---------- 6c. Same bugfix, line-level fields: productCode / uom / note /
+   invoiceNo+invoiceDate survive an update from a role that can't see them ---------- */
+console.log('\n6c. A role missing line fields from visible_fields cannot erase productCode/uom/note/invoice link either');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, {
+    order: order(),
+    lines: [line({ productCode: 'PVC-90', uom: 'Cuộn', note: 'Giao truoc thu 6',
+                   invoiceNo: '77', invoiceDate: '2026-08-10' })]
+  });
+  const originalLine = env.store.OrderLines[0];
+  eq('productCode stored as created', originalLine.productCode, 'PVC-90');
+  eq('uom stored as created', originalLine.uom, 'Cuộn');
+  eq('note stored as created', originalLine.note, 'Giao truoc thu 6');
+  check('invoice linked as created', !!originalLine.invoiceId);
+  const originalInvoiceId = originalLine.invoiceId;
+
+  // A role whose form has none of productCode / uom / note / invoiceNo /
+  // invoiceDate — same shape as 6b, just for the line-level fields
+  // buildLineRecord_ writes straight from client input.
+  const kho = user('kho@x.com', { visible_fields:
+    ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
+     'supplierName', 'description', 'qty', 'lineId', 'lineNo'] });
+
+  const seen = env.actionGetOrder_(kho, { orderId: 'DH-2026-0001' });
+  check('this role does not receive productCode', !('productCode' in seen.lines[0]));
+  check('or uom', !('uom' in seen.lines[0]));
+  check('or note', !('note' in seen.lines[0]));
+  check('or invoiceNo', !('invoiceNo' in seen.lines[0]));
+
+  env.actionUpdateOrder_(kho, {
+    orderId: 'DH-2026-0001',
+    order: order(),
+    lines: [{ lineId: originalLine.lineId, description: 'Ống nhựa PVC 90', qty: 5 }]
+  });
+
+  const updatedLine = env.store.OrderLines[0];
+  eq('productCode survived', updatedLine.productCode, 'PVC-90');
+  eq('uom survived', updatedLine.uom, 'Cuộn');
+  eq('note survived', updatedLine.note, 'Giao truoc thu 6');
+  eq('invoice link survived (not cleared by a blank invoiceNo this role never sent)',
+     updatedLine.invoiceId, originalInvoiceId);
+  // The field this role DOES see and that is required (qty) must still update.
+  eq('qty still updates', updatedLine.qty, 5);
+}
+
 /* ---------- 7. invoices ---------- */
 console.log('\n7. One invoice across several orders, several invoices in one order');
 {
