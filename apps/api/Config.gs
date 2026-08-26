@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-20-2';
+var BUILD = 'api-2026-08-20-3';
 
 /** Script Property keys. */
 var PROP = {
@@ -51,9 +51,16 @@ var HEADERS = {
   Security: ['key', 'value', 'description'],
   SecurityLog: ['timestamp', 'event', 'detail'],
 
+  // lineCount: Milestone 2.5 / P5 — maintained by actionCreateOrder_ /
+  // actionUpdateOrder_ on every save so actionListOrders_ never has to read
+  // the entire OrderLines sheet just to print a per-card count. Columns are
+  // addressed by name everywhere (SheetsRepo.gs), never by position, so
+  // adding it here does NOT reorder anything on a sheet that already exists —
+  // an existing Orders sheet needs the header cell added once by
+  // `migrateAddLineCount()` (Migrations.gs) before this is real.
   Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
            'customerDeposit', 'supplierName', 'supplierPaid',
-           'totalExVat', 'totalIncVat',
+           'totalExVat', 'totalIncVat', 'lineCount',
            'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt'],
 
   OrderLines: ['lineId', 'orderId', 'lineNo', 'productCode', 'description',

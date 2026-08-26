@@ -22,9 +22,23 @@
  *      needs ADMIN_EMAIL set and that admin already seeded into Users.
  *   2. Select `seedTestOrders` in the editor's Run dropdown and press Run.
  *      No arguments needed — it defaults to 30. Run it again to add another
- *      batch (ids keep incrementing; nothing here is idempotent on purpose,
- *      unlike setupMilestone1/2 — you are explicitly asking for more rows).
+ *      batch — nothing here is idempotent on purpose, unlike setupMilestone1/2,
+ *      you are explicitly asking for more rows.
  *   3. When done testing, select `deleteSeedTestOrders` and press Run once.
+ *
+ * RESUMABLE ACROSS RUNS (2026-08-26): each run scans the sheet for the
+ * highest existing "SEED-<n>" po tag (see nextSeedNumber_()) and starts
+ * numbering from n+1, instead of restarting at SEED-1 every time. That means:
+ *   - Running seedTestOrders(30) then seedTestOrders(30) again gives you
+ *     SEED-1..SEED-30 and then SEED-31..SEED-60 — 60 distinct orders, never
+ *     two rows sharing a po tag.
+ *   - orderId/lineId can never collide either way — those already come from
+ *     nextOrderId_()/makeLineId_() in Orders.gs, which allocate off the real
+ *     sheet contents regardless of what seeded this data.
+ *   - This is exactly what makes it safe to run in several smaller batches
+ *     (e.g. five runs of 40 instead of one run of 200) rather than one very
+ *     long single execution — each run pays its own latency and picks up
+ *     exactly where the last one left off.
  *
  * DO NOT run this against a spreadsheet holding real customer data unless you
  * intend to clean it up afterward with deleteSeedTestOrders(). It writes real
@@ -37,9 +51,20 @@
  * Expect roughly one write's worth of latency per order. 200 is capped here
  * as a safety margin under Apps Script's 6-minute execution limit; if you
  * want more than that, run it more than once.
+ *
+ * A NOTE ON lineCount (Milestone 2.5 / P5): actionCreateOrder_ writes
+ * lineCount on every order it creates, seeded ones included — but only if
+ * the Orders sheet actually has that column yet (see migrateAddLineCount()
+ * in Migrations.gs for why it might not). seedTestOrders() calls
+ * ensureLineCountColumn_() first so seeded rows keep their lineCount even on
+ * a sheet nobody has migrated yet — a NEW column is all it adds, never a
+ * backfill of old rows, so this stays cheap and doesn't do migrateAddLineCount's
+ * job for it. Existing pre-P5 orders still show 0 dòng until Phong actually
+ * runs migrateAddLineCount() himself.
  */
 function seedTestOrders(count) {
   guardSetup_();
+  ensureLineCountColumn_();
 
   count = Math.min(Math.max(parseInt(count, 10) || 30, 1), 200);
 
@@ -58,20 +83,24 @@ function seedTestOrders(count) {
   var statuses = seedStatusKeys_();
   var firstId = null, lastId = null;
 
+  var startSeed = nextSeedNumber_();
+
   for (var i = 0; i < count; i++) {
+    var seedNo = startSeed + i;
+
     // Spread orderDate across the past `count` days so newest-first sorting
     // (and pagination across that order) is actually exercised, rather than
     // every row landing on the same date and tying on createdAt instead.
     var orderDate = new Date();
     orderDate.setDate(orderDate.getDate() - (count - i));
 
-    var lineCount = 1 + (i % 5); // 1..5 lines, so card lineCount varies too
+    var lineCount = 1 + (seedNo % 5); // 1..5 lines, so card lineCount varies too
     var lines = [];
     for (var l = 0; l < lineCount; l++) {
       lines.push({
-        description: 'Hàng mẫu ' + (i + 1) + '.' + (l + 1),
+        description: 'Hàng mẫu ' + seedNo + '.' + (l + 1),
         qty: 1 + (l % 4),
-        unitPrice: String(100000 * (1 + ((i + l) % 10))),
+        unitPrice: String(100000 * (1 + ((seedNo + l) % 10))),
         uom: 'Cái',
         vatRate: (l % 2 === 0) ? 0.08 : 0.1
       });
@@ -79,10 +108,10 @@ function seedTestOrders(count) {
 
     var result = actionCreateOrder_(admin, {
       order: {
-        customer: 'TEST ' + customers[i % customers.length],
+        customer: 'TEST ' + customers[seedNo % customers.length],
         orderDate: orderDate,
-        status: statuses[i % statuses.length],
-        po: 'SEED-' + (i + 1)
+        status: statuses[seedNo % statuses.length],
+        po: 'SEED-' + seedNo
       },
       lines: lines
     });
@@ -91,10 +120,31 @@ function seedTestOrders(count) {
     lastId = result.order.orderId;
   }
 
-  var summary = 'seedTestOrders: created ' + count + ' order(s), ' + firstId + ' .. ' + lastId +
+  var summary = 'seedTestOrders: created ' + count + ' order(s) (SEED-' + startSeed + ' .. SEED-' +
+    (startSeed + count - 1) + '), ' + firstId + ' .. ' + lastId +
+    '. Run again any time to add more — it will continue from SEED-' + (startSeed + count) +
     '. Run deleteSeedTestOrders() when done testing.';
   console.log(summary);
   return summary;
+}
+
+/**
+ * Scans the Orders sheet for the highest "SEED-<n>" po tag already present
+ * and returns n+1 (or 1 if no seeded order exists yet), so seedTestOrders()
+ * continues numbering instead of restarting at SEED-1 every run.
+ *
+ * A plain max-scan, not a counter stored anywhere: it reads whatever is
+ * ACTUALLY in the sheet right now, so it stays correct even if some seeded
+ * orders were deleted by hand, deleteSeedTestOrders() was run partway, or
+ * the sheet was restored from an older backup.
+ */
+function nextSeedNumber_() {
+  var highest = 0;
+  readAll_(SHEETS.ORDERS).forEach(function (o) {
+    var m = /^SEED-(\d+)$/.exec(String(o.po || ''));
+    if (m) highest = Math.max(highest, parseInt(m[1], 10));
+  });
+  return highest + 1;
 }
 
 /** Status keys from Config, falling back to 'draft' if Config isn't seeded yet. */

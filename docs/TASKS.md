@@ -100,10 +100,10 @@ build pagination twice; §3.1 below is marked accordingly.
 | # | Task | Wins | Risk / notes |
 |---|------|------|--------------|
 | P1 | Timing instrumentation: API returns `_ms {gate, user, read, total}`; web adds transport ms; shown in the footer under `DEV_MODE` | Turns the guess above into numbers before spending effort on P4–P7 | None — read-only, additive. **☑ built and verified live 2026-08-20** |
-| P2 | Client cache + no-blank refresh + optimistic create (Phong's #2, #4, #5) | Returning to an already-loaded list is instant. Refresh spins in the button while the old list stays on screen. After save, the record the server just returned is shown immediately | None server-side. The one true risk: showing stale cached data as if it were current — must always be labeled "as of Xm ago" or refreshed on any write. **✎ built 2026-08-20, not yet verified live** |
-| P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None. **✎ built 2026-08-20, not yet verified live** |
-| P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice. **✎ built 2026-08-20, not yet verified live** |
-| P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands |
+| P2 | Client cache + no-blank refresh + optimistic create (Phong's #2, #4, #5) | Returning to an already-loaded list is instant. Refresh spins in the button while the old list stays on screen. After save, the record the server just returned is shown immediately | None server-side. The one true risk: showing stale cached data as if it were current — must always be labeled "as of Xm ago" or refreshed on any write. **☑ built and verified live 2026-08-26** |
+| P3 | Boot prefetch + skeleton cards | The tab is already warm by the time it's clicked; a genuine first load reads as loading, not frozen | None. **☑ built and verified live 2026-08-26** |
+| P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice. **☑ built and verified live 2026-08-26** |
+| P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands. **☑ built and verified live 2026-08-26 (migration run confirmed)** |
 | P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it |
 | P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them |
 
@@ -154,7 +154,7 @@ the request itself. These are real, not just a UX-perception problem — but
 Phong chose to still do P2+P3 next rather than jump straight to the riskier
 server-side tasks; P4/P5/P6 remain the next move once P2+P3's effect is seen.
 
-### P2 + P3 — built 2026-08-20, awaiting live check
+### P2 + P3 — built 2026-08-20, verified live 2026-08-26
 
 Both landed together in one conversation at Phong's request (normally one task
 per conversation — noted here since it's a deviation from the usual rule).
@@ -220,7 +220,7 @@ name without waiting on a refetch. Click "Làm mới" — the button should read
 "Đang làm mới…" while the old list stays fully visible, not blank. This won't
 move the raw numbers above (P2/P3 are client-only) — P4/P5/P6 are what would.
 
-### P4 — built 2026-08-20, awaiting live check (also closes 3.1)
+### P4 — built 2026-08-20, verified live 2026-08-26 (also closes 3.1)
 
 This one DOES move the raw `_ms` numbers from P1, on the server side. Touched
 `apps/api/Config.gs` (bumped `BUILD` to `api-2026-08-20-2`; added
@@ -308,6 +308,108 @@ delete" harmlessly on a second run. Not added to `tools/offline-tests/` —
 it is a manual dev tool with no HTTP path, unlike everything else that
 harness covers.
 
+**Follow-up, 2026-08-20 (after P5 landed):** Phong asked for `seedTestOrders`
+to be updated so `lineCount` works properly on seeded data. `Migrations.gs`'s
+`migrateAddLineCount()` was split in two — a new `ensureLineCountColumn_()`
+just adds the header cell if missing, and `migrateAddLineCount()` calls it
+before doing its full backfill. `seedTestOrders()` now calls
+`ensureLineCountColumn_()` too, so seeded orders keep their `lineCount` even
+run against a sheet nobody has migrated yet — it only adds the column if
+missing, it does NOT backfill pre-existing real orders (that stays
+`migrateAddLineCount()`'s job, since scanning all of `OrderLines` on every
+seed run would defeat the point of P5). Verified with a throwaway harness:
+seeding on an un-migrated sheet adds the column and every seeded order keeps
+its own 1–5 line count correctly; a pre-existing real order on that same
+sheet is left untouched by the seed run (still blank) but is correctly
+backfilled once `migrateAddLineCount()` actually runs afterward; and calling
+`seedTestOrders` again once the column already exists does not add a
+duplicate one. Re-ran the real 154-assertion suite too — unaffected, as
+expected (business logic in `Orders.gs` didn't change here, only how the two
+editor tools ensure the column exists).
+
+**Follow-up, 2026-08-26 (resumable seeding):** Phong wanted `seedTestOrders`
+runnable multiple times in a row to build up larger test datasets without one
+very long single execution, without ever creating a duplicate `SEED-N` tag.
+Added `nextSeedNumber_()`: scans the Orders sheet for the highest existing
+`SEED-<n>` po tag and returns `n + 1` (or `1` if none exist yet), computed
+once at the top of `seedTestOrders()` as `startSeed`, then used for every
+seeded order's `po`, description text, and customer/status pick in that run
+(`seedNo = startSeed + i`) in place of the old `i + 1`, which always
+restarted at `SEED-1`. `orderId`/`lineId` were never at risk of duplication —
+those already come from `nextOrderId_()`/`makeLineId_()` in `Orders.gs`,
+which allocate off the real sheet contents regardless of who's writing —
+so the only real gap was the po tag restarting, which this closes.
+`deleteSeedTestOrders()` needed no change: it already matches any `SEED-`
+prefix regardless of the number, so it still removes every seeded order
+across every run in one call. The returned summary now reports the actual
+`SEED-N` range a run covered and what number the next run will continue
+from. Verified with a throwaway Node harness: two sequential
+`seedTestOrders(10)` calls produce 20 orders tagged `SEED-1..SEED-20` with
+no gaps or repeats, and `deleteSeedTestOrders()` still cleanly removes all
+20 plus their lines. Re-ran the real 154-assertion suite afterward —
+unaffected, as expected (only `DevSeed.gs` changed, not `Orders.gs`/
+`Config.gs` business logic).
+
+### P5 — built 2026-08-20, verified live 2026-08-26 (migration run confirmed)
+
+Touched `apps/api/Config.gs` (added `'lineCount'` to `HEADERS.Orders`, bumped
+`BUILD` to `api-2026-08-20-3`), `apps/api/Orders.gs` (`actionCreateOrder_` and
+`actionUpdateOrder_` now write `lineCount` — line count at creation, and
+`saved.length` on every edit — alongside the totals they already recompute;
+`actionListOrders_` reads `num_(row.lineCount)` straight off the row instead
+of calling `countLinesByOrder_()`, which is what read the entire `OrderLines`
+sheet on every single list call, forever, regardless of page size), and a new
+`apps/api/Migrations.gs` with `migrateAddLineCount()`.
+
+**Why a migration file, not just the code change:** `appendRecord_` /
+`updateRecord_` (`SheetsRepo.gs`) address columns by the ACTUAL header row on
+the live sheet, not by the `HEADERS.Orders` array in `Config.gs`. Adding
+`lineCount` to that array only affects a brand-new sheet — `setupMilestone2`
+skips a sheet that already has data. The live Orders sheet (already created,
+already has M2's rows) has no `lineCount` header cell at all, so until
+`migrateAddLineCount()` runs once, every create/update silently drops the
+`lineCount` key it tries to write (not an error — `appendRecord_`/
+`updateRecord_` only ever look at keys the sheet's actual headers have), and
+every list call reads it as 0. Self-correcting, not dangerous — but every
+card would show "0 dòng" until the migration runs. `migrateAddLineCount()`
+adds the header cell if missing, then recomputes every order's real count
+from `OrderLines` (reusing `countLinesByOrder_`, kept around specifically for
+this) and rewrites only the rows that don't already match — safe to re-run
+any time, e.g. after restoring a backup.
+
+`countLinesByOrder_` itself is NOT deleted: it's exactly what the migration
+needs, and a reasonable thing to keep for a future "does the column still
+match reality" audit. It is dead code from `actionListOrders_`'s point of
+view now, on purpose.
+
+**How this was verified:** `tools/offline-tests/` gained permanent coverage
+in the served-request path — `orders-crud.test.js` checks `lineCount` is
+written correctly on create (1 line, then 8) and tracks a real change across
+two edits (3→3, then 3→1), and `orders-permissions.test.js` gained the
+sharpest test in the set: create a 3-line order, wipe `OrderLines` entirely
+behind its back, and confirm the list still reports `lineCount: 3` from the
+stored column — proving the full-sheet read is actually gone, not just
+faster. All 154 assertions across the three files pass. `migrateAddLineCount`
+itself can't run in that harness (it calls `getSheet_`/`readHeaders_`, real
+`SpreadsheetApp` calls the harness never stubs) — verified instead with a
+throwaway Node harness simulating a sheet whose header row starts without
+`lineCount`: confirms the pre-migration silent-drop behavior described above
+actually happens, the migration adds the header and backfills exactly the
+rows that need it, a second run is a genuine no-op, a new order created
+after migrating gets `lineCount` written immediately with no gap, and the
+function is confirmed blocked from the HTTP action registry.
+
+**How Phong verifies it live:** push `apps/api`. **Before** creating or
+editing any order on the new build — order doesn't actually matter for
+correctness (everything self-heals once the migration runs), but running it
+first avoids a stretch of "0 dòng" cards — open the API editor, select
+`migrateAddLineCount` in the Run dropdown, press Run, and read the summary
+(it should say how many orders it added the column for and backfilled).
+After that, the list should show correct line counts exactly as before, and
+with `DEV_MODE` on, `đọc` in the P1 timing pill should drop again — this is
+the one that removes the OrderLines read from the list entirely, not just
+narrows it like P4 did for Orders.
+
 ---
 
 ## Milestone 3 — List, filter, search, status
@@ -317,7 +419,7 @@ matters: each task builds on the one above it and is testable on its own.
 
 | # | Task | Scope | How Phong verifies it | Status |
 |---|------|-------|----------------------|--------|
-| 3.1 | Server-side pagination | **Absorbed into Milestone 2.5 task P4** — see above. Do not build this separately; P4 covers `listOrders` paging, and 3.1 is done when P4 is | 30+ orders exist; the list loads a page at a time and the button fetches the next | ✎ → done via P4, 2026-08-20, not yet verified live |
+| 3.1 | Server-side pagination | **Absorbed into Milestone 2.5 task P4** — see above. Do not build this separately; P4 covers `listOrders` paging, and 3.1 is done when P4 is | 30+ orders exist; the list loads a page at a time and the button fetches the next | ☑ → done via P4, verified live 2026-08-26 |
 | 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☐ |
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☐ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☐ |

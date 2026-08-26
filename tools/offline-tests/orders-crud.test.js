@@ -26,6 +26,7 @@ console.log('\n1. Create an order with one line');
   eq('header totalExVat', env.store.Orders[0].totalExVat, 2400000);
   eq('header totalIncVat', env.store.Orders[0].totalIncVat, 2592000);
   eq('createdBy is the actor', env.store.Orders[0].createdBy, 'admin@x.com');
+  eq('Milestone 2.5 / P5: lineCount stored on create', env.store.Orders[0].lineCount, 1);
   eq('status history written', env.store.StatusHistory.length, 1);
   check('orderDate is a real Date',
      Object.prototype.toString.call(env.store.Orders[0].orderDate) === '[object Date]');
@@ -57,6 +58,8 @@ console.log('\n2. Create an order with eight lines and mixed VAT');
     (sum, q, i) => sum + Math.round(q * 100000 * (1 + (i % 2 ? 0.1 : 0.08))), 0);
   eq('totalExVat = sum of lines', env.store.Orders[0].totalExVat, expectedEx);
   eq('totalIncVat = sum of per-line rounded amounts', env.store.Orders[0].totalIncVat, expectedInc);
+  eq('Milestone 2.5 / P5: lineCount stored on create matches the 8 lines',
+     env.store.Orders[0].lineCount, 8);
   eq('response carries 8 lines', res.lines.length, 8);
   eq('second order gets 0002',
      env.actionCreateOrder_(admin, { order: order(), lines: [line()] }).order.orderId,
@@ -100,6 +103,18 @@ console.log('\n3. Edit: keep one line, change one, add one, remove one');
   eq('response line count', updated.lines.length, 3);
   eq('no orphan lines',
      env.store.OrderLines.filter(l => l.orderId !== 'DH-2026-0001').length, 0);
+  eq('Milestone 2.5 / P5: lineCount stays correct after edit (3 lines in, 3 out)',
+     env.store.Orders[0].lineCount, 3);
+
+  // Edit again, this time actually changing the count, to prove lineCount
+  // tracks the CURRENT save rather than the value from creation.
+  env.actionUpdateOrder_(admin, {
+    orderId: 'DH-2026-0001',
+    order: order({ status: 'confirmed' }),
+    lines: [{ lineId: ids[0], description: 'A', qty: 2, unitPrice: 1200000, vatRate: 0.08 }]
+  });
+  eq('Milestone 2.5 / P5: lineCount drops to 1 after trimming down to one line',
+     env.store.Orders[0].lineCount, 1);
 }
 
 /* ---------- 4. delete ---------- */

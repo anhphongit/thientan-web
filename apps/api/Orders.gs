@@ -28,6 +28,13 @@
  * (3.2–3.4); this task is 3.1, "server-side pagination", absorbed here so it
  * is not built twice. Free-text search across line `description` (3.4) needs
  * OrderLines too and stays out of scope for the same reason.
+ *
+ * Milestone 2.5 / P5: `lineCount` comes straight off the Orders row now,
+ * maintained by actionCreateOrder_/actionUpdateOrder_ on every save — no more
+ * reading the entire OrderLines sheet just to print a per-card count. Run
+ * `migrateAddLineCount()` (Migrations.gs) once before this reaches anyone: an
+ * order that predates that migration has nothing in the column yet, and
+ * `num_()` below reads that as 0 rather than throwing.
  */
 function actionListOrders_(user, payload) {
   requirePermission_(user, 'view_orders');
@@ -42,10 +49,9 @@ function actionListOrders_(user, payload) {
   var total = orders.length;
   var start = (page - 1) * pageSize;
   var slice = orders.slice(start, start + pageSize);
-  var lineCounts = countLinesByOrder_();
 
   var out = slice.map(function (row) {
-    return listCardView_(user, row, lineCounts[row.orderId] || 0);
+    return listCardView_(user, row, num_(row.lineCount));
   });
 
   return {
@@ -115,6 +121,7 @@ function actionCreateOrder_(user, payload) {
       supplierPaid: clean.supplierPaid,
       totalExVat: totals.exVat,
       totalIncVat: totals.incVat,
+      lineCount: lines.length,
       createdBy: user.email,
       createdAt: now,
       updatedBy: user.email,
@@ -215,6 +222,7 @@ function actionUpdateOrder_(user, payload) {
       supplierPaid: blindToMoney ? num_(current.supplierPaid) : clean.supplierPaid,
       totalExVat: totals.exVat,
       totalIncVat: totals.incVat,
+      lineCount: saved.length,
       updatedBy: user.email,
       updatedAt: new Date()
     });
@@ -298,6 +306,13 @@ function linesForOrder_(orderId) {
   });
 }
 
+/**
+ * Full-sheet line count, keyed by orderId. No longer used by actionListOrders_
+ * as of Milestone 2.5 / P5 — that reads the maintained `lineCount` column on
+ * Orders instead. Kept for `migrateAddLineCount()` (Migrations.gs), which
+ * needs exactly this to backfill orders that predate the column, and for any
+ * future audit that wants to double-check the column against ground truth.
+ */
 function countLinesByOrder_() {
   var counts = {};
   readAll_(SHEETS.ORDER_LINES).forEach(function (line) {

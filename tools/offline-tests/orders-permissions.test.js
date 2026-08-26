@@ -216,4 +216,34 @@ console.log('\n10. List cards are slimmed to LIST_CARD_FIELDS, even for an admin
   check('a money-blind role still gets lineCount on the list', 'lineCount' in blindCard);
 }
 
+/* ---------- 11. Milestone 2.5 / P5 — the list trusts the stored lineCount ---------- */
+console.log('\n11. actionListOrders_ reads lineCount off Orders, not a live OrderLines recount');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, {
+    order: order(),
+    lines: [line({ description: 'A' }), line({ description: 'B' }), line({ description: 'C' })]
+  });
+  eq('created with 3 lines', env.actionListOrders_(admin, {}).orders[0].lineCount, 3);
+
+  // Deliberately desync the two: wipe OrderLines behind the order's back,
+  // without going through actionUpdateOrder_. A pre-P5 implementation
+  // (countLinesByOrder_ scanning OrderLines on every list call) would now
+  // report 0 — proving whether the list still depends on that full scan.
+  env.store.OrderLines.length = 0;
+
+  const afterWipe = env.actionListOrders_(admin, {}).orders[0].lineCount;
+  eq('list still reports 3 from the stored column, ignoring the wiped OrderLines sheet',
+     afterWipe, 3);
+
+  // And the column really is what actionCreateOrder_/actionUpdateOrder_
+  // maintain, not a coincidence — corrupt it directly and the list must
+  // reflect THAT, since it now trusts the column as source of truth for
+  // this screen.
+  env.store.Orders[0].lineCount = 99;
+  eq('list reflects whatever is actually stored in the column',
+     env.actionListOrders_(admin, {}).orders[0].lineCount, 99);
+}
+
 H.done();
