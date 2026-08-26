@@ -22,6 +22,7 @@ const session = {
 };
 
 let lastCall = null;
+const callCounts = {};
 const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -39,7 +40,11 @@ const sandbox = {
 };
 
 const TT_BRIDGE = {
-  call: (fn, arg) => { lastCall = { fn, arg }; return Promise.resolve(fixture(fn)); },
+  call: (fn, arg) => {
+    lastCall = { fn, arg };
+    callCounts[fn] = (callCounts[fn] || 0) + 1;
+    return Promise.resolve(fixture(fn, arg));
+  },
   can: p => session.permissions[p] === true,
   esc: esc,
   formatVnd: n => Math.round(Number(n) || 0).toLocaleString('vi-VN') + ' ₫',
@@ -56,7 +61,7 @@ vm.runInContext(src, sandbox, { filename: 'ViewsOrders.html' });
 // Only now — exactly like App.html, which is included after this file.
 sandbox.window.TT = TT_BRIDGE;
 
-function fixture(fn) {
+function fixture(fn, arg) {
   if (fn === 'apiListOrders') {
     // Milestone 2.5 / P4: total (25) is bigger than shown (2, this fixture's
     // page), with hasMore true — exercises the "Xem thêm" button below.
@@ -67,6 +72,20 @@ function fixture(fn) {
       { orderId: 'DH-2026-0002', customer: 'Yamato & Co <script>', orderDate: '2026-08-19',
         po: '', status: 'paid', lineCount: 1, totalExVat: 100, totalIncVat: 108 }
     ] };
+  }
+  if (fn === 'apiGetOrder') {
+    // Milestone 2.5c / D1 fixture — one order with one line, enough to
+    // exercise the detail cache without dragging in the whole form fixture.
+    return { hiddenMoney: false, order: {
+        orderId: arg, customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
+        po: '4600041936', poNote: '', status: 'draft', statusNote: '',
+        customerDeposit: 0, supplierName: '', supplierPaid: 0,
+        totalExVat: 2400000, totalIncVat: 2592000,
+        canEdit: true, canDelete: true, canChangeStatus: true
+      }, lines: [
+        { lineId: 'L1', productCode: '', description: 'Ống nhựa PVC', unitPrice: 2400000,
+          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '' }
+      ] };
   }
   return {};
 }
@@ -152,8 +171,65 @@ setTimeout(() => {
     ok('no inline onclick attributes', !/onclick=/i.test(form));
     ok('datalist carries the customer list', /<datalist id="customer-options">/.test(form));
 
-    console.log('\n' + pass + ' passed, ' + fail + ' failed');
-    process.exit(fail ? 1 : 0);
+    console.log('\n' + 'UI smoke — order detail (Milestone 2.5c / D1 cache)');
+    // Back to the list, then "click" the first order card's data-open.
+    sandbox.window.TTOrders.render(root);
+    setTimeout(() => {
+      const clickOpen = () => captured.click({ target: { closest: sel =>
+        sel.indexOf('data-open') >= 0
+          ? { getAttribute: a => (a === 'data-open' ? 'DH-2026-0001' : null) }
+          : null } });
+
+      clickOpen();
+      ok('shows a skeleton on the first (cold) open', /skeleton/.test(painted));
+      setTimeout(() => {
+        const detail = painted;
+        ok('detail markup is balanced', balanced(detail) === null, balanced(detail));
+        ok('asked the server for this order', lastCall.fn === 'apiGetOrder' && lastCall.arg === 'DH-2026-0001');
+        ok('shows the order id in the heading', /DH-2026-0001/.test(detail));
+        ok('shows the line description', /Ống nhựa PVC/.test(detail));
+        ok('shows a "Tai lai" control with a freshness stamp',
+           /data-act="reload-order"/.test(detail) && /du lieu luc|dữ liệu lúc/.test(detail));
+
+        // Milestone 2.5c / D1 follow-up - force-reload escape hatch.
+        const clickAct = act => captured.click({ target: { closest: sel =>
+          sel.indexOf('data-act') >= 0
+            ? { getAttribute: a => (a === 'data-act' ? act : null) }
+            : null } });
+
+        ok('has a hidden confirm box ready for the "discard unsaved edits" prompt',
+           /hidden" data-role="confirm-reload"/.test(detail));
+        clickAct('reload-order');
+        ok('an editable order does not reload immediately — it waits for confirmation first',
+           callCounts.apiGetOrder === 1, callCounts.apiGetOrder);
+
+        clickAct('do-reload');
+        ok('confirming reload calls apiGetOrder again, bypassing the cache',
+           callCounts.apiGetOrder === 2, callCounts.apiGetOrder);
+
+        const callsAfterFirstOpen = callCounts.apiGetOrder;
+
+        // Leave and reopen the SAME order within the cache TTL: D1 says this
+        // must paint instantly with no second apiGetOrder call.
+        showListForTest();
+        clickOpen();
+        ok('reopening a cached order paints without a skeleton',
+           !/Đang mở đơn hàng/.test(painted));
+        ok('reopening within the TTL does not call apiGetOrder again',
+           callCounts.apiGetOrder === callsAfterFirstOpen,
+           'calls: ' + callCounts.apiGetOrder);
+        ok('cached reopen still shows the order data', /DH-2026-0001/.test(painted));
+
+        console.log('\n' + pass + ' passed, ' + fail + ' failed');
+        process.exit(fail ? 1 : 0);
+      }, 0);
+    }, 0);
   }, 0);
+
+  // "← Danh sách" from the form: click data-act="back".
+  function showListForTest() {
+    captured.click({ target: { closest: sel => sel.indexOf('data-act') >= 0
+      ? { getAttribute: a => (a === 'data-act' ? 'back' : null) } : null } });
+  }
 }, 0);
 

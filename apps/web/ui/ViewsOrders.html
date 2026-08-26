@@ -31,7 +31,8 @@
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
     order: null, lines: [],
-    editing: false, saving: false, hiddenMoney: false, bound: false
+    editing: false, saving: false, hiddenMoney: false, bound: false,
+    orderReloading: false
   };
 
   /** Milestone 2.5 / P4 — mirrors LIST_PAGE_SIZE_DEFAULT in the API's Config.gs. */
@@ -45,6 +46,23 @@
    * visible without a round trip.
    */
   var LIST_CACHE_TTL_MS = 60000;
+
+  /**
+   * Milestone 2.5c / D1 — order-detail cache, mirroring LIST_CACHE_TTL_MS.
+   * Keyed by orderId: { data: {order, lines, hiddenMoney}, loadedAt }.
+   * Reopening the same order within the TTL paints from cache with zero API
+   * calls; past the TTL, paints the cached data immediately then silently
+   * revalidates in the background — same shape as the list's L1/P2.
+   *
+   * This does not add a new staleness risk to editing: actionUpdateOrder_
+   * has never guarded saves with an updatedAt/version check (it only
+   * re-reads inside the lock to reconcile line ids), so two overlapping
+   * edits already last-write-win today regardless of how the form got its
+   * data — a form simply left open for ten minutes carries the same risk
+   * already. A 60s cache does not meaningfully change that envelope.
+   */
+  var DETAIL_CACHE_TTL_MS = 60000;
+  var orderCache = {};
 
   /**
    * Milestone 2.5 / P2 — the in-flight page-1 apiListOrders promise, shared so
@@ -398,6 +416,22 @@
       '<div class="order-list">' + card + card + card + '</div>';
   }
 
+  /** Milestone 2.5c / D1 — same idea as skeletonHtml() (P3), for a genuine
+   *  first open of one order instead of a blocking "Đang mở đơn hàng..." line. */
+  function detailSkeletonHtml() {
+    return '' +
+      '<div class="view-head"><h2>Đang mở đơn hàng...</h2></div>' +
+      '<section class="card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w50"></div>' +
+      '</section>' +
+      '<section class="card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w40"></div>' +
+      '</section>';
+  }
+
   /**
    * Milestone 2.5 / P2 — write-through cache update after a create/edit, so
    * the next "← Danh sách" is instant AND already correct: no waiting on a
@@ -490,15 +524,27 @@
       return;
     }
 
-    root.innerHTML = '<section class="card"><p class="empty">Đang mở đơn hàng...</p></section>';
-    T.call('apiGetOrder', orderId)
+    var cached = orderCache[orderId];
+    if (cached) {
+      // D1: paint the cached order immediately — instant reopen.
+      applyOrderData(cached.data);
+      paintForm();
+      if (Date.now() - cached.loadedAt < DETAIL_CACHE_TTL_MS) return; // still fresh, no API call
+      fetchOrder(orderId)
+        .then(function (data) {
+          if (seq !== viewSeq) return; // user left this order while we revalidated
+          applyOrderData(data);
+          paintForm();
+        })
+        .catch(function () {}); // silent: the cached (if stale) data stays on screen
+      return;
+    }
+
+    root.innerHTML = detailSkeletonHtml();
+    fetchOrder(orderId)
       .then(function (data) {
         if (seq !== viewSeq) return; // user went back or opened another order
-        state.order = data.order;
-        state.lines = (data.lines || []).map(normalizeLine);
-        if (!state.lines.length) state.lines = [blankLine()];
-        state.hiddenMoney = !!data.hiddenMoney;
-        state.editing = !!data.order.canEdit;
+        applyOrderData(data);
         paintForm();
       })
       .catch(function (err) {
@@ -506,6 +552,24 @@
         T.toast(err.message, true);
         showList();
       });
+  }
+
+  /** The one place apiGetOrder is called. Always refreshes orderCache on
+   *  success so the next open of this order — and any write's response —
+   *  stays in sync. */
+  function fetchOrder(orderId) {
+    return T.call('apiGetOrder', orderId).then(function (data) {
+      orderCache[orderId] = { data: data, loadedAt: Date.now() };
+      return data;
+    });
+  }
+
+  function applyOrderData(data) {
+    state.order = data.order;
+    state.lines = (data.lines || []).map(normalizeLine);
+    if (!state.lines.length) state.lines = [blankLine()];
+    state.hiddenMoney = !!data.hiddenMoney;
+    state.editing = !!data.order.canEdit;
   }
 
   function blankLine() {
@@ -540,6 +604,7 @@
         '<h2>' + (isNew ? 'Tạo đơn hàng' : 'Mã đơn ' + T.esc(o.orderId)) + '</h2>' +
         '<button type="button" class="link-btn" data-act="back">← Danh sách</button>' +
       '</div>' +
+      (isNew ? '' : detailFreshHtml()) +
       (ro ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
       headerCardHtml(o, ro) +
       linesCardHtml(ro) +
@@ -548,6 +613,38 @@
       customerDatalistHtml();
 
     recalc();
+  }
+
+  /**
+   * Milestone 2.5c / D1 follow-up — the detail-cache counterpart to the
+   * list's "cập nhật lúc HH:mm · Làm mới" line (P2's staleness rule: cached
+   * data must always say how old it is and offer a way to force a real
+   * fetch). "Tải lại" bypasses the cache entirely — for when another user
+   * changed this order while it sat cached or the form was left open, which
+   * D1 accepted as an acceptable, bounded risk but should not leave silent.
+   */
+  function detailFreshHtml() {
+    return '' +
+      '<p class="list-count">' +
+        (detailFreshLabel() ? detailFreshLabel() + ' · ' : '') +
+        '<button type="button" class="link-btn" data-act="reload-order"' +
+          (state.orderReloading ? ' disabled' : '') + '>' +
+          (state.orderReloading ? 'Đang tải lại…' : 'Tải lại') +
+        '</button>' +
+      '</p>' +
+      '<span class="confirm-box hidden" data-role="confirm-reload">' +
+        '<span>Bỏ thay đổi chưa lưu trên màn hình và tải bản mới nhất?</span>' +
+        '<button type="button" class="btn-mini danger-link" data-act="do-reload">Tải lại</button>' +
+        '<button type="button" class="btn-mini" data-act="cancel-reload">Không</button>' +
+      '</span>';
+  }
+
+  function detailFreshLabel() {
+    var entry = state.order && orderCache[state.order.orderId];
+    if (!entry) return '';
+    var d = new Date(entry.loadedAt);
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return 'dữ liệu lúc ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   function headerCardHtml(o, ro) {
@@ -744,6 +841,18 @@
       case 'save':
         save();
         break;
+      case 'reload-order':
+        // Read-only view has nothing to lose; an editable form might have
+        // unsaved typing, so confirm before discarding it.
+        if (state.editing) toggleReloadConfirm(true);
+        else reloadOrder();
+        break;
+      case 'cancel-reload':
+        toggleReloadConfirm(false);
+        break;
+      case 'do-reload':
+        reloadOrder();
+        break;
       case 'refresh-list':
         manualRefresh();
         break;
@@ -757,6 +866,41 @@
   function toggleConfirm(show) {
     var box = root.querySelector('[data-role="confirm"]');
     if (box) box.classList.toggle('hidden', !show);
+  }
+
+  function toggleReloadConfirm(show) {
+    var box = root.querySelector('[data-role="confirm-reload"]');
+    if (box) box.classList.toggle('hidden', !show);
+  }
+
+  /**
+   * Milestone 2.5c / D1 follow-up — force-refresh the order on screen,
+   * bypassing orderCache entirely (fetchOrder() always overwrites the cache
+   * entry on success, so this doubles as "reset the cache for this order").
+   * The escape hatch for D1's accepted risk: someone else edited this order
+   * while it sat cached, or this form has just been open a while.
+   */
+  function reloadOrder() {
+    if (state.orderReloading || !state.order || !state.order.orderId) return;
+    toggleReloadConfirm(false);
+    var orderId = state.order.orderId;
+    var seq = viewSeq; // still viewing this order; ignore only if navigated away
+    state.orderReloading = true;
+    paintForm();
+    fetchOrder(orderId)
+      .then(function (data) {
+        state.orderReloading = false;
+        if (seq !== viewSeq) return; // left this order while reloading
+        applyOrderData(data);
+        paintForm();
+        T.toast('Đã tải dữ liệu mới nhất.');
+      })
+      .catch(function (err) {
+        state.orderReloading = false;
+        if (seq !== viewSeq) return;
+        paintForm();
+        T.toast(err.message, true);
+      });
   }
 
   function focusLast() {
@@ -868,6 +1012,12 @@
       .then(function (data) {
         // Always keep the list cache in sync — even if the user left the form.
         upsertCachedOrder(data.order, (data.lines || []).length);
+        // D1: and the detail cache, so reopening this order right after saving
+        // doesn't pay a network round trip for what the server just returned.
+        orderCache[data.order.orderId] = {
+          data: { order: data.order, lines: data.lines, hiddenMoney: data.hiddenMoney },
+          loadedAt: Date.now()
+        };
         if (seq !== viewSeq) return;
         state.order = data.order;
         state.lines = (data.lines || []).map(normalizeLine);
@@ -892,6 +1042,7 @@
     T.call('apiDeleteOrder', deletedId)
       .then(function () {
         removeCachedOrder(deletedId);
+        delete orderCache[deletedId];
         if (seq !== viewSeq) return;
         state.saving = false;
         T.toast('Đã xoá đơn hàng.');

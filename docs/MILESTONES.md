@@ -188,6 +188,8 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-08-26 | 2.5c | D1 verified live: order detail now has the same TTL cache + skeleton as the list, plus a "Tải lại" button to force-refresh an order (bypassing the cache) if another user changed it — confirms first when the form is editable, since that would discard unsaved typing. D2/D3 audited with no action needed; D4 (Invoices full-sheet scan in `buildOrderResponse_`) deferred pending real numbers. See `TASKS.md`. |
+| 2026-08-26 | 2.5c | P7's `getOrdersVersion_` fixed (unguarded `CacheService` call could throw and take the whole order list down; now fails safe like its siblings) and verified live. New Milestone 2.5c opened to audit the 2.5/2.5b loading-time playbook against every API request (small, fixed surface — see `TASKS.md`): `getOrder` detail now has the same TTL cache + stale-while-revalidate + skeleton treatment as the list (D1, built, offline-tested, awaiting live verification); create/update/delete and `getSession` audited and found not to need it; the `Invoices` full-sheet scan in `buildOrderResponse_` deferred pending real numbers. Also: Milestone 2's own CRUD checklist (`CHECKLIST_M2_VI.md` sections B–H) confirmed still unrun — this progress log had drifted from `TASKS.md`, which is the accurate source for 2.5/2.5b/2.5c status. |
 | 2026-08-20 | 2 | **Milestone 2 built.** Q1/Q3/Q4/Q6 answered and recorded; schema settled; `Orders.gs`, `setupMilestone2()`, order list + multi-line form, 105 offline assertions. Awaiting live verification. |
 | 2026-08-20 | 4 | Q2 answered: revenue shown ex-VAT **and** inc-VAT; month basis switchable (order date / invoice date). |
 | 2026-08-15 | — | Project initialized: scaffold + docs, no implementation |

@@ -355,12 +355,23 @@ function invoiceIndex_() {
 /**
  * Current global orders version. Starts at 1. Stored in ScriptCache so it is
  * shared across all concurrent executions of this project.
+ *
+ * Failure-safe like its siblings below: if CacheService is unavailable or
+ * throws, this must degrade to "treat the cache as empty" (version 1), never
+ * take the whole list request down with it. A missed version bump / read is
+ * the same acceptable risk bumpOrdersVersion_ already documents — a possibly
+ * stale page until TTL, never a correctness or security problem.
  */
 function getOrdersVersion_() {
-  var cache = CacheService.getScriptCache();
-  var raw = cache.get(CACHE.ORDERS_VERSION_KEY);
-  var n = parseInt(raw, 10);
-  return (n && n > 0) ? n : 1;
+  try {
+    var cache = CacheService.getScriptCache();
+    var raw = cache.get(CACHE.ORDERS_VERSION_KEY);
+    var n = parseInt(raw, 10);
+    return (n && n > 0) ? n : 1;
+  } catch (err) {
+    console.error('getOrdersVersion_ failed: ' + err);
+    return 1;
+  }
 }
 
 /**
