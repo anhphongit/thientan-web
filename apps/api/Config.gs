@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-26-3';
+var BUILD = 'api-2026-08-26-p7';
 
 /** Script Property keys. */
 var PROP = {
@@ -164,10 +164,26 @@ var MONEY_FIELDS = [
  * in the key, never getUserCache(): this project runs as the OWNER for every
  * employee, so the "user" cache is one shared bucket and would serve employee A
  * employee B's permissions.
+ *
+ * Milestone 2.5 / P7 — server-side order-list cache:
+ *   - Keyed by ordersVersion + user.email + page + pageSize.
+ *   - Any write (create / update / delete) bumps ordersVersion so every
+ *     previous list page misses on the next request.
+ *   - LIST_TTL_SECONDS is only a safety net; version is the real invalidator.
+ *   - Never caches securityGate_ / loadUser_ results.
  */
 var CACHE = {
   TTL_SECONDS: 120,
-  CONFIG_KEY: 'config:all'
+  CONFIG_KEY: 'config:all',
+
+  /** Global stamp; any order write increments it. */
+  ORDERS_VERSION_KEY: 'orders:version',
+
+  /** Prefix for per-user list pages: orders:list:v{ver}:u{email}:p{page}:s{size} */
+  LIST_KEY_PREFIX: 'orders:list:',
+
+  /** Safety-net TTL for a list page (seconds). Version bump is the real invalidator. */
+  LIST_TTL_SECONDS: 300
 };
 
 /**

@@ -105,7 +105,7 @@ build pagination twice; §3.1 below is marked accordingly.
 | P4 | Pagination + slim list payload (Phong's #3). **Absorbs Milestone 3 task 3.1** | Smaller responses (20 rows, card fields only) through the two HTTP hops | Coordinate with §3.1 below so it is not rebuilt twice. **☑ built and verified live 2026-08-26** |
 | P5 | `lineCount` column on `Orders`, maintained on every save | Removes the full `OrderLines` read on every list call | Denormalized value — needs a one-time backfill for orders created before this lands. **☑ built and verified live 2026-08-26 (migration run confirmed)** |
 | P6 | Memoize the spreadsheet handle + a per-execution read cache in `SheetsRepo.gs` | Removes duplicate opens/reads inside one request (e.g. `updateOrder` reads `OrderLines` more than once) | Highest bug risk here — a cache that outlives one execution, or isn't invalidated on write within it, can serve stale rows. Needs its own offline tests before anything else touches it. **✎ built 2026-08-26 (in p6-changes/), offline-tested, awaiting push + live verification** |
-| P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them. **☐ deferred** — does not fix the dominant `mạng` cost; revisit only after L1–L2 |
+| P7 | Server-side cache keyed by an `ordersVersion` stamp (Phong's #2, server half) | A page served from `CacheService` skips the sheet read entirely | Any write bumps the version so every cached page invalidates at once; only helps between writes, not during a burst of them. **✎ built 2026-08-26 (in p7-changes/), awaiting push + live verification** |
 
 P1's numbers decide whether P4–P7 are worth doing at all, or whether P2+P3 already
 make the app feel fixed.
@@ -501,6 +501,32 @@ Touched: `apps/web/ApiClient.gs`, `apps/web/ui/App.html`, `apps/web/ui/ViewsOrde
 1. Cold open app → getSession succeeds → ~0.4s later one listOrders (not two).
 2. Kill network briefly → one retry then clear Vietnamese error (not a storm).
 3. Spam Order tab / Làm mới → still a single in-flight page-1 request.
+
+---
+
+### P7 — Server-side list cache (ordersVersion) — built 2026-08-26
+
+Deliverable: `artifacts/p7-changes/`
+
+Touched:
+- `apps/api/Config.gs` — `CACHE.ORDERS_VERSION_KEY`, `LIST_KEY_PREFIX`, `LIST_TTL_SECONDS` (300s safety net); `BUILD = api-2026-08-26-p7`
+- `apps/api/Orders.gs` — `actionListOrders_` checks CacheService before reading sheets; create / update / delete call `bumpOrdersVersion_()`; helpers `getOrdersVersion_`, `bumpOrdersVersion_`, `listCacheKey_`, `getListCache_`, `putListCache_`
+
+Rules:
+- Cache key = `orders:list:v{version}:u{email}:p{page}:s{pageSize}` (always per-user email → ownership + visible_fields stay correct).
+- Uses `CacheService.getScriptCache()` only (never UserCache).
+- Version bump on every successful create / update / delete. Missed bump only risks a short stale window until TTL; never a privilege leak.
+- Does **not** cache `securityGate_` or `loadUser_`.
+- Cache put/get failures are swallowed — list still works without the cache.
+
+**How Phong verifies (live):**
+1. Push API only → publish new version. No `setupMilestone*` needed. No web push.
+2. With `DEV_MODE` on, open Đơn hàng twice in a row (within a few minutes, no writes). Second list response should show a much lower `đọc` time in the timing pill (cache hit — sheet read skipped).
+3. Create or edit any order → immediately list again → must show the new data (version was bumped).
+4. Second Google account (different email) must still see only its own orders (key includes email).
+5. Timing: first load after a write still pays full `đọc`; subsequent loads of the same page until the next write should be cheaper on the server side.
+
+**What this does not fix:** the WEB→API network hop (`mạng`). Client-side L1 TTL already avoids many of those calls. P7 only helps when a list request *does* reach the API and the page has not changed since the last write.
 
 ---
 ## Milestone 3 — List, filter, search, status

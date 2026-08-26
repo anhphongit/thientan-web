@@ -35,6 +35,13 @@
  * `migrateAddLineCount()` (Migrations.gs) once before this reaches anyone: an
  * order that predates that migration has nothing in the column yet, and
  * `num_()` below reads that as 0 rather than throwing.
+ *
+ * Milestone 2.5 / P7: CacheService page cache keyed by ordersVersion + user
+ * email + page + pageSize. A hit skips the sheet read entirely. Any create /
+ * update / delete bumps the version so every previous page misses. The TTL is
+ * only a safety net; version is the real invalidator. Cache key always includes
+ * the caller's email so ownership scoping and visible_fields stay correct —
+ * never share a list payload across users.
  */
 function actionListOrders_(user, payload) {
   requirePermission_(user, 'view_orders');
@@ -42,6 +49,11 @@ function actionListOrders_(user, payload) {
   var pageSize = Math.min(Math.max(parseInt(payload && payload.pageSize, 10) ||
                                     LIST_PAGE_SIZE_DEFAULT, 1), LIST_PAGE_SIZE_MAX);
   var page = Math.max(parseInt(payload && payload.page, 10) || 1, 1);
+
+  var version = getOrdersVersion_();
+  var cacheKey = listCacheKey_(version, user.email, page, pageSize);
+  var cached = getListCache_(cacheKey);
+  if (cached) return cached;
 
   var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
   orders.sort(compareOrdersNewestFirst_);
@@ -54,7 +66,7 @@ function actionListOrders_(user, payload) {
     return listCardView_(user, row, num_(row.lineCount));
   });
 
-  return {
+  var result = {
     orders: out,
     total: total,
     shown: out.length,
@@ -62,6 +74,9 @@ function actionListOrders_(user, payload) {
     pageSize: pageSize,
     hasMore: start + out.length < total
   };
+
+  putListCache_(cacheKey, result);
+  return result;
 }
 
 /**
@@ -136,6 +151,7 @@ function actionCreateOrder_(user, payload) {
     return orderId;
   });
 
+  bumpOrdersVersion_();
   rememberCustomer_(clean.customer);
   return buildOrderResponse_(user, findOrderRow_(result));
 }
@@ -233,6 +249,7 @@ function actionUpdateOrder_(user, payload) {
     }
   });
 
+  bumpOrdersVersion_();
   rememberCustomer_(clean.customer);
   return buildOrderResponse_(user, findOrderRow_(row.orderId));
 }
@@ -256,6 +273,7 @@ function actionDeleteOrder_(user, payload) {
                          'Xoá đơn hàng', user);
   });
 
+  bumpOrdersVersion_();
   return { deleted: true, orderId: row.orderId };
 }
 
@@ -328,6 +346,71 @@ function invoiceIndex_() {
     index[String(inv.invoiceId || '').trim()] = inv;
   });
   return index;
+}
+
+/* =======================================================================
+   Milestone 2.5 / P7 — list page cache (CacheService + ordersVersion)
+   ======================================================================= */
+
+/**
+ * Current global orders version. Starts at 1. Stored in ScriptCache so it is
+ * shared across all concurrent executions of this project.
+ */
+function getOrdersVersion_() {
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get(CACHE.ORDERS_VERSION_KEY);
+  var n = parseInt(raw, 10);
+  return (n && n > 0) ? n : 1;
+}
+
+/**
+ * Bump the version after any order write. All previous list cache keys become
+ * unreachable (they embed the old version). Failures are swallowed — a missed
+ * bump only means a stale page may be served until TTL expires, never a
+ * security hole (keys are still per-user).
+ */
+function bumpOrdersVersion_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var next = getOrdersVersion_() + 1;
+    // 6 hours — long enough that a quiet system does not reset to 1 and
+    // accidentally re-hit an old key that somehow still exists.
+    cache.put(CACHE.ORDERS_VERSION_KEY, String(next), 21600);
+  } catch (err) {
+    console.error('bumpOrdersVersion_ failed: ' + err);
+  }
+}
+
+function listCacheKey_(version, email, page, pageSize) {
+  var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
+  return CACHE.LIST_KEY_PREFIX +
+         'v' + version +
+         ':u' + safeEmail +
+         ':p' + page +
+         ':s' + pageSize;
+}
+
+function getListCache_(key) {
+  try {
+    var raw = CacheService.getScriptCache().get(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function putListCache_(key, value) {
+  try {
+    CacheService.getScriptCache().put(
+      key,
+      JSON.stringify(value),
+      CACHE.LIST_TTL_SECONDS
+    );
+  } catch (err) {
+    // Cache is best-effort. A put failure must never break the list response.
+    console.error('putListCache_ failed: ' + err);
+  }
 }
 
 /** Newest first: order date, then creation time as the tie-breaker. */
