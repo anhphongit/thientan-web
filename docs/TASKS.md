@@ -15,26 +15,24 @@ not here.
 
 ---
 
-## Milestone 2 — Order CRUD ◐ built, live checklist not fully run
+## Milestone 2 — Order CRUD ☑ done, verified live 2026-08-27
 
 | # | Task | Status |
 |---|------|--------|
 | 2.0 | Blocked questions answered; `OPEN_QUESTIONS.md` / `DATA_MODEL.md` updated | ☑ |
 | 2.1 | `Config.gs` headers + `setupMilestone2()` | ☑ verified live (Checklist A) |
-| 2.2 | `Orders.gs` create + list/get reads | ◐ retest — see Checklist B |
-| 2.3 | Money: per-line VAT, totals, deposits | ✎ built, not checked off live — Checklist C |
-| 2.4 | Edit and delete, line reconciliation | ✎ built, not checked off live — Checklist D |
-| 2.5 | Invoices: shared invoice, missing date refused | ✎ built, not checked off live — Checklist E |
-| 2.6 | Permission scoping and price blindness | ✎ built, not checked off live — Checklist F |
-| 2.7 | Phone pass | ✎ built, not checked off live — Checklist G/H |
+| 2.2 | `Orders.gs` create + list/get reads | ☑ verified live (Checklist B) |
+| 2.3 | Money: per-line VAT, totals, deposits | ☑ verified live (Checklist C) |
+| 2.4 | Edit and delete, line reconciliation | ☑ verified live (Checklist D) |
+| 2.5 | Invoices: shared invoice, missing date refused | ☑ verified live (Checklist E) |
+| 2.6 | Permission scoping and price blindness | ☑ verified live (Checklist F) |
+| 2.7 | Phone pass | ☑ verified live (Checklist G/H) |
 
-**This is the actual gap, not the performance work.** `CHECKLIST_M2_VI.md`
-section A (setup) is checked; sections B through H are still all unchecked
-boxes. The 2.5/2.5b/2.5c performance and race-condition work sits on top of
-this CRUD layer — none of it substitutes for running B–H. Do this before
-starting Milestone 3. Vietnamese checklist wording is in
-[`CHECKLIST_M2_VI.md`](CHECKLIST_M2_VI.md) — tick boxes there as each is
-confirmed, then flip the table above to ☑.
+**Signed off 2026-08-27.** `CHECKLIST_M2_VI.md` sections A through H are all
+fully checked, including F's last box (Status field locked for a role without
+`change_status`). The 2.5/2.5b/2.5c performance work and the B1–B5 permission
+fixes found along the way sit on top of this CRUD layer and are also closed
+out. See `MILESTONES.md`'s progress log for the sign-off entry.
 
 **Lesson from 2.2's first attempt:** `ViewsOrders.html` read `window.TT` at load
 time, before `App.html` (which defines it) had run, so the tab hung on

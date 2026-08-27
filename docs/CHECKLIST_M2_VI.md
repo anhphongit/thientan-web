@@ -18,58 +18,58 @@ Trước khi bắt đầu: đã push `apps/api`, đã tạo phiên bản mới, 
 
 ## B. Tạo đơn hàng
 
-- [ ] Vào mục **Đơn hàng** → bấm **+ Tạo đơn hàng**
-- [ ] Gõ 2 chữ đầu tên khách quen — danh sách gợi ý hiện ra
-- [ ] Tạo một đơn **1 dòng hàng**, lưu → hiện thông báo *Đã tạo đơn DH-2026-0001*
-- [ ] Tạo một đơn **8 dòng hàng** (bấm **+ Thêm dòng** 7 lần), lưu bình thường
-- [ ] Mở sheet `Orders`: mỗi đơn đúng **một** dòng; sheet `OrderLines`: 1 dòng và 8 dòng
-- [ ] Nhập một khách hàng **tên mới** → sau khi lưu, tên đó có trong
+- [x] Vào mục **Đơn hàng** → bấm **+ Tạo đơn hàng**
+- [x] Gõ 2 chữ đầu tên khách quen — danh sách gợi ý hiện ra
+- [x] Tạo một đơn **1 dòng hàng**, lưu → hiện thông báo *Đã tạo đơn DH-2026-0001*
+- [x] Tạo một đơn **8 dòng hàng** (bấm **+ Thêm dòng** 7 lần), lưu bình thường
+- [x] Mở sheet `Orders`: mỗi đơn đúng **một** dòng; sheet `OrderLines`: 1 dòng và 8 dòng
+- [x] Nhập một khách hàng **tên mới** → sau khi lưu, tên đó có trong
       `Config.customerList`
 
 ## C. Tiền và thuế
 
-- [ ] Một dòng VAT **8%**: `Thành tiền` = đơn giá × số lượng, `có VAT` = ×1,08
-- [ ] Một dòng VAT **10%** trong cùng đơn → tổng đơn = tổng đúng của các dòng
-- [ ] Số tiền hiển thị dạng `1.200.000 ₫`, không có số lẻ
-- [ ] Nhập cọc `47.466.000` → trong sheet lưu thành số `47466000`, không phải chữ
+- [x] Một dòng VAT **8%**: `Thành tiền` = đơn giá × số lượng, `có VAT` = ×1,08
+- [x] Một dòng VAT **10%** trong cùng đơn → tổng đơn = tổng đúng của các dòng
+- [x] Số tiền hiển thị dạng `1.200.000 ₫`, không có số lẻ
+- [x] Nhập cọc `47.466.000` → trong sheet lưu thành số `47466000`, không phải chữ
 
 ## D. Sửa và xoá
 
-- [ ] Mở lại đơn 8 dòng, sửa nội dung dòng 3, xoá dòng 5, thêm một dòng mới, lưu
-- [ ] Mở sheet `OrderLines`: đúng 8 dòng, **không** có dòng thừa, không có dòng mồ côi
-- [ ] Dòng không đụng tới vẫn giữ nguyên `lineId` và số hoá đơn của nó
-- [ ] Tổng tiền của đơn đã được tính lại đúng
-- [ ] Bấm **Xoá đơn hàng** → hiện dòng xác nhận ngay tại chỗ (không phải hộp thoại
+- [x] Mở lại đơn 8 dòng, sửa nội dung dòng 3, xoá dòng 5, thêm một dòng mới, lưu
+- [x] Mở sheet `OrderLines`: đúng 8 dòng, **không** có dòng thừa, không có dòng mồ côi
+- [x] Dòng không đụng tới vẫn giữ nguyên `lineId` và số hoá đơn của nó
+- [x] Tổng tiền của đơn đã được tính lại đúng
+- [x] Bấm **Xoá đơn hàng** → hiện dòng xác nhận ngay tại chỗ (không phải hộp thoại
       của trình duyệt) → bấm **Xoá** → cả dòng đơn và tất cả dòng hàng biến mất
 
 ## E. Hoá đơn
 
-- [ ] Trong một đơn, nhập **số hoá đơn 50** cho dòng 1 và **51** cho dòng 2, có ngày
-- [ ] Ở một đơn khác, nhập lại **số hoá đơn 50** với cùng ngày
-- [ ] Sheet `Invoices` chỉ có **hai** dòng (`HD-2026-0050`, `HD-2026-0051`),
+- [x] Trong một đơn, nhập **số hoá đơn 50** cho dòng 1 và **51** cho dòng 2, có ngày
+- [x] Ở một đơn khác, nhập lại **số hoá đơn 50** với cùng ngày
+- [x] Sheet `Invoices` chỉ có **hai** dòng (`HD-2026-0050`, `HD-2026-0051`),
       không bị lặp
-- [ ] Nhập số hoá đơn nhưng **bỏ trống ngày** → báo lỗi *"Dòng n: đã nhập số hoá đơn
+- [x] Nhập số hoá đơn nhưng **bỏ trống ngày** → báo lỗi *"Dòng n: đã nhập số hoá đơn
       thì phải nhập ngày hoá đơn."*, không lưu
 
 ## F. Phân quyền (dùng tài khoản nhân viên)
 
-- [ ] Nhân viên **không có** `view_all_orders` chỉ thấy đơn do mình tạo
-- [ ] Nhân viên **không có** `create_order` không thấy nút **+ Tạo đơn hàng**
-- [ ] Nhân viên **không có** `change_status` mở đơn cũ → ô Trạng thái bị khoá
-- [ ] Nhân viên **không được xem giá** không thấy ô Đơn giá / VAT / Tổng tiền
-- [ ] Nhân viên đó sửa và lưu đơn → **giá cũ vẫn còn nguyên** trong sheet
+- [x] Nhân viên **không có** `view_all_orders` chỉ thấy đơn do mình tạo
+- [x] Nhân viên **không có** `create_order` không thấy nút **+ Tạo đơn hàng**
+- [x] Nhân viên **không có** `change_status` mở đơn cũ → ô Trạng thái bị khoá
+- [x] Nhân viên **không được xem giá** không thấy ô Đơn giá / VAT / Tổng tiền
+- [x] Nhân viên đó sửa và lưu đơn → **giá cũ vẫn còn nguyên** trong sheet
       (đây là lỗi nguy hiểm nhất của giai đoạn này — kiểm tra kỹ)
 
 ## G. Điện thoại
 
-- [ ] Danh sách đơn đọc được, không phải kéo ngang
-- [ ] Bấm vào ô nhập không bị phóng to màn hình
-- [ ] Thêm/xoá dòng hàng bấm trúng dễ dàng
-- [ ] Bàn phím số hiện ra khi nhập số lượng và đơn giá
-- [ ] Lưu được một đơn 3 dòng hoàn toàn trên điện thoại
+- [x] Danh sách đơn đọc được, không phải kéo ngang
+- [x] Bấm vào ô nhập không bị phóng to màn hình
+- [x] Thêm/xoá dòng hàng bấm trúng dễ dàng
+- [x] Bàn phím số hiện ra khi nhập số lượng và đơn giá
+- [x] Lưu được một đơn 3 dòng hoàn toàn trên điện thoại
 
 ## H. Kiểm tra cuối
 
-- [ ] Không có chữ tiếng Anh nào trên màn hình đơn hàng
-- [ ] Không có thông báo lỗi kỹ thuật nào lọt ra giao diện
-- [ ] `DEV_MODE` đã tắt trước khi gửi link cho nhân viên
+- [x] Không có chữ tiếng Anh nào trên màn hình đơn hàng
+- [x] Không có thông báo lỗi kỹ thuật nào lọt ra giao diện
+- [x] `DEV_MODE` đã tắt trước khi gửi link cho nhân viên

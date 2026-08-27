@@ -95,8 +95,8 @@ Running it twice is safe: it never overwrites existing rows.
 
 Once the code for Milestone 2 is pushed, run the second bootstrap the same way.
 
-- [ ] In the API editor, select **`setupMilestone2`** → **Run**
-- [ ] Read the execution log. Expect:
+- [x] In the API editor, select **`setupMilestone2`** → **Run**
+- [x] Read the execution log. Expect:
 
 ```
 Sheet "Orders": created with 18 columns.

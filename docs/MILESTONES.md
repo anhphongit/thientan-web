@@ -54,7 +54,7 @@ Scope:
 
 ---
 
-## ◐ Milestone 2 — Order CRUD (multi-line)  ← **BUILT, AWAITING LIVE TEST**
+## ☑ Milestone 2 — Order CRUD (multi-line)  *(done 2026-08-27)*
 
 Unblocked on 2026-08-20: Q1, Q3, Q4 and Q6 were answered, so the schema is
 settled and `Orders`, `OrderLines`, `Invoices` and `StatusHistory` now exist.
@@ -82,16 +82,21 @@ run `setupMilestone2()` from the API editor, then push **web** and publish.
 
 **Exit criteria**
 
-- [ ] `setupMilestone2()` reports four sheets created and the header check passes
-- [ ] Create an order with 1 line, and another with 8 lines — both land correctly in `Orders` + `OrderLines`
-- [ ] Per-line VAT (8% / 10%) computes correctly; totals match the lines
-- [ ] Edit changes the right rows and does not orphan or duplicate lines
-- [ ] Delete removes the header and all its lines
-- [ ] A user without `view_all_orders` cannot open another user's order, even by URL/ID
-- [ ] Two lines sharing one invoice number create **one** row in `Invoices`
-- [ ] A deposit typed as `47.466.000` is stored as the number 47466000
-- [ ] A new customer name appears in `Config.customerList` afterwards
-- [ ] The multi-line form is usable on a phone
+- [x] `setupMilestone2()` reports four sheets created and the header check passes
+- [x] Create an order with 1 line, and another with 8 lines — both land correctly in `Orders` + `OrderLines`
+- [x] Per-line VAT (8% / 10%) computes correctly; totals match the lines
+- [x] Edit changes the right rows and does not orphan or duplicate lines
+- [x] Delete removes the header and all its lines
+- [x] A user without `view_all_orders` cannot open another user's order, even by URL/ID
+- [x] Two lines sharing one invoice number create **one** row in `Invoices`
+- [x] A deposit typed as `47.466.000` is stored as the number 47466000
+- [x] A new customer name appears in `Config.customerList` afterwards
+- [x] The multi-line form is usable on a phone
+
+Verified live 2026-08-27 via `CHECKLIST_M2_VI.md` sections A–H (all boxes
+checked, including F's `change_status`-locked Status field). B1–B5 bugs found
+during this verification pass are fixed and covered by 257 offline
+assertions — see `TASKS.md`.
 
 ---
 
@@ -188,6 +193,7 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-08-27 | 2 | **Milestone 2 signed off.** `CHECKLIST_M2_VI.md` sections A–H fully checked live (F's last box — Status field locked for a role without `change_status` — confirmed and ticked). All exit criteria in this file flipped to done. See `TASKS.md` for the full B1–B5 bug list closed out along the way. |
 | 2026-08-26 | 2 | Three bugs found while walking the M2 checklist, fixed same day: (1) a role missing `po` from `visible_fields` (traced to `docs/PERMISSIONS.md`'s stale `orderNo` examples, predating Q3) could have its edit silently wipe the real PO on save — fixed by generalizing money-blindness's preserve-on-save pattern to `po`/`poNote`/`statusNote`/`supplierName` (`fieldVisible_` in `Orders.gs`); (2) the order form stayed fully editable during a save/delete; (3) nothing stopped a second action from firing while one was in flight — (2) and (3) fixed together with one `state.busyAction` lock. Also fixed: a D1 caching bug where `state.order` and its `orderCache` entry were the same object reference. See `TASKS.md`. |
 | 2026-08-26 | — | UI polish, not tied to a milestone: order list cards now colour-code status (`.status-pill`, one style per workflow step plus a dot, so status reads without needing the text) and give line count its own indicator instead of hiding it in the muted date/PO line. Line-count treatment went through several rounds with Phong (5 badge styles, then 5 placements, tried grouped-with-status live, then moved once more) before settling on a filled circle badge, number-only, grouped with the order id on the left of the top row. Client-only; `BUILD` is `web-2026-08-26-9`. See `TASKS.md`. |
 | 2026-08-27 | 2 | B5, found on Phong's request to verify a direct API call (Postman/console, bypassing the web form) can't do anything a user's permissions forbid: `createOrder`, and appending a brand-new line during `updateOrder`, wrote every field straight from the client payload with no `visible_fields`/money check at all — B1/B4's guards only protect a field that ALREADY has a stored value, which a new order/line doesn't. A role with `create_order` but blind to money (or missing `po`/`productCode`/etc.) could set any price or hidden field by calling the API directly. Fixed with `clampHiddenOrderFields_`/`clampHiddenLineFields_`, forcing every hidden field to its safe default (`0`/`''`) on anything new. Also reviewed the rest of the permission surface (`Router.gs`, `Auth.gs`, `Permissions.gs`, `Security.gs`) — everything else fails closed; the one accepted risk is the shared-secret model itself, already documented in `Security.gs`. 257 offline assertions pass; `BUILD` is `api-2026-08-27-clamp`. See `TASKS.md`. |
