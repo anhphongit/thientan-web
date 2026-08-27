@@ -181,6 +181,95 @@ console.log('\n6c. A role missing line fields from visible_fields cannot erase p
   eq('qty still updates', updatedLine.qty, 5);
 }
 
+/* ---------- 6d. Security review, 2026-08-27 — a hidden field must be
+   unsettable on a BRAND NEW order too, not just protected once it already
+   has a value. 6/6b/6c above all edit an EXISTING order, where the
+   "preserve the stored value" guards (blindToMoney / fieldVisible_ /
+   lineFieldsHidden) apply. On create there is nothing stored yet, so those
+   guards never fired — before this fix, a role with create_order but no
+   money/po/product fields in visible_fields could set them to ANYTHING by
+   calling actionCreateOrder_ directly (a raw API call, not through a form
+   that never renders those inputs). ---------- */
+console.log('\n6d. A role missing money/po/product fields from visible_fields cannot set them on a brand NEW order either');
+{
+  const env = H.makeEnv();
+
+  // Real-world shape: an admin grants create_order to a junior sales role
+  // but keeps them blind to money and to a few other fields — exactly the
+  // "no prices" preset in docs/PERMISSIONS.md, just with create_order on.
+  const junior = user('junior@x.com', { visible_fields:
+    ['orderId', 'po', 'customer', 'orderDate', 'status', 'description', 'qty', 'uom', 'lineId'] });
+
+  // This payload is what a direct API call can send even though junior's own
+  // web form has no inputs for any of these fields — it must be clamped, not
+  // trusted.
+  env.actionCreateOrder_(junior, {
+    order: order({ customerDeposit: 999000000, supplierName: 'Ke gia mao',
+                   supplierPaid: 999000000, poNote: 'gia mao', statusNote: 'gia mao' }),
+    lines: [line({ unitPrice: 999000000, vatRate: 0.1, productCode: 'GIA-MAO',
+                   note: 'gia mao', invoiceNo: '999', invoiceDate: '2026-08-27' })]
+  });
+
+  eq('customerDeposit clamped to 0, not the attacker-supplied value',
+     env.store.Orders[0].customerDeposit, 0);
+  eq('supplierPaid clamped to 0', env.store.Orders[0].supplierPaid, 0);
+  eq('supplierName clamped to empty', env.store.Orders[0].supplierName, '');
+  eq('poNote clamped to empty', env.store.Orders[0].poNote, '');
+  eq('statusNote clamped to empty', env.store.Orders[0].statusNote, '');
+  // po IS in visible_fields here, so it must still go through untouched.
+  eq('po (a field this role DOES see) is not clamped', env.store.Orders[0].po, '4600041936');
+
+  eq('line unitPrice clamped to 0', env.store.OrderLines[0].unitPrice, 0);
+  eq('line vatRate clamped to 0', env.store.OrderLines[0].vatRate, 0);
+  eq('line amounts computed from the clamped price, not the attacker value',
+     env.store.OrderLines[0].amountIncVat, 0);
+  eq('line productCode clamped to empty', env.store.OrderLines[0].productCode, '');
+  eq('line note clamped to empty', env.store.OrderLines[0].note, '');
+  eq('no invoice created from a hidden invoiceNo', env.store.OrderLines[0].invoiceId, '');
+  check('the fake invoice number never made it into the Invoices sheet',
+        !env.store.Invoices.some(inv => inv.invoiceNo === '999'));
+  // A field this role DOES see (qty/description/uom) must still be honoured.
+  eq('qty (a field this role DOES see) is not clamped', env.store.OrderLines[0].qty, 2);
+}
+
+/* ---------- 6e. Same bug, the other place it hides: a NEW line appended
+   during an UPDATE to an order that already exists. lineFieldsHidden/
+   blindToMoney in actionUpdateOrder_ only fire `if (match)` — a freshly
+   added line has no match, so it slipped through the same way create did
+   before 6d's fix. ---------- */
+console.log('\n6e. A role missing money/product fields from visible_fields cannot set them on a NEW line added during an edit either');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+
+  const junior = user('junior@x.com', { visible_fields:
+    ['orderId', 'po', 'customer', 'orderDate', 'status', 'description', 'qty', 'uom', 'lineId'] });
+
+  // Edit keeps the existing line untouched and appends a second, brand-new
+  // line (no lineId) with values this role's form never has inputs for.
+  env.actionUpdateOrder_(junior, {
+    orderId: 'DH-2026-0001',
+    order: order(),
+    lines: [
+      { lineId: env.store.OrderLines[0].lineId, description: 'Ống nhựa PVC 90', qty: 2, uom: 'Cái' },
+      line({ unitPrice: 888000000, vatRate: 0.1, productCode: 'GIA-MAO-2',
+             note: 'gia mao', invoiceNo: '888', invoiceDate: '2026-08-27' })
+    ]
+  });
+
+  eq('two lines now stored', env.store.OrderLines.length, 2);
+  const newLine = env.store.OrderLines[1];
+  eq('the new line\'s unitPrice is clamped to 0, not the attacker-supplied value',
+     newLine.unitPrice, 0);
+  eq('the new line\'s vatRate is clamped to 0', newLine.vatRate, 0);
+  eq('the new line\'s productCode is clamped to empty', newLine.productCode, '');
+  eq('the new line\'s note is clamped to empty', newLine.note, '');
+  eq('no invoice created for the new line\'s hidden invoiceNo', newLine.invoiceId, '');
+  check('the fake invoice number never made it into the Invoices sheet',
+        !env.store.Invoices.some(inv => inv.invoiceNo === '888'));
+}
+
 /* ---------- 7. invoices ---------- */
 console.log('\n7. One invoice across several orders, several invoices in one order');
 {

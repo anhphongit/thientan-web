@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-26-fieldguard2';
+var BUILD = 'api-2026-08-27-clamp';
 
 /** Script Property keys. */
 var PROP = {

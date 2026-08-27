@@ -159,6 +159,18 @@ setTimeout(() => {
   ok('list markup is balanced', balanced(list) === null, balanced(list));
   ok('shows both order ids', /DH-2026-0001/.test(list) && /DH-2026-0002/.test(list));
   ok('shows the Vietnamese status label', /Đã thanh toán/.test(list));
+  ok('status is styled per-status, not a generic badge (UI request 2026-08-26)',
+     /class="status-pill status-pill--paid"/.test(list));
+  ok('draft status gets the neutral pill style', /class="status-pill status-pill--draft"/.test(list));
+  ok('line count is a prominent indicator, not folded into the muted meta text',
+     /class="oc-lines"[^>]*>3<\/span>/.test(list));
+  ok('line count shows just the number, no unit word, on the card', (function () {
+    const m = list.match(/class="oc-lines"[^>]*>([^<]*)<\/span>/);
+    return !!m && m[1] === '3';
+  })());
+  ok('the muted meta line no longer mentions line count', !/oc-meta">[^<]*dòng/.test(list));
+  ok('line count is grouped with the order id in the top row, not the customer row',
+     /class="oc-top-left"><span class="oc-id">DH-2026-0001<\/span><span class="oc-lines"[^>]*>3<\/span>/.test(list));
   ok('shows the create button', /Tạo đơn hàng/.test(list));
   ok('formats money as VND', /2\.592\.000 ₫/.test(list));
   ok('escapes a hostile customer name',

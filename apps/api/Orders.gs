@@ -114,6 +114,21 @@ function actionCreateOrder_(user, payload) {
 
   var clean = validateOrderPayload_(payload, user);
 
+  // Security review, 2026-08-27: every field this user cannot see must be
+  // unsettable, not just "protected once it already has a value". The
+  // update path clamps a hidden field to whatever is already stored
+  // (blindToMoney / fieldVisible_ / lineFieldsHidden below) — but a brand
+  // new order has no stored value to fall back to, so those guards never
+  // fired here. Concretely: a role with create_order but no unitPrice/
+  // vatRate in visible_fields never gets a price input in their form, but
+  // a direct API call (Postman, browser console, curl with a stolen
+  // session) could still hand the server any unitPrice it liked, and the
+  // server accepted it — same story for customerDeposit/supplierPaid and
+  // for po/poNote/statusNote/supplierName. clampHiddenOrderFields_ forces
+  // every hidden field to its safe default (0 / '') before anything is
+  // written, so the only way to set a field is to be allowed to see it.
+  clampHiddenOrderFields_(user, clean);
+
   var result = withOrderLock_(function () {
     var orderId = nextOrderId_();
     var now = new Date();
@@ -234,6 +249,13 @@ function actionUpdateOrder_(user, payload) {
       } else {
         // No match: an unknown lineId is treated as a new line, never trusted as
         // an id — otherwise a client could point a line at another order's row.
+        // Security review, 2026-08-27: a brand new line has no stored value to
+        // preserve, so lineFieldsHidden/blindToMoney above (which only fire
+        // `if (match)`) never touch it — clamp hidden fields here the same
+        // way clampHiddenOrderFields_ does for a whole new order, otherwise
+        // adding a line is an unguarded way to write a price or a hidden
+        // field this user's own form never lets them set.
+        clampHiddenLineFields_(user, input);
         maxSeq++;
         var created = buildLineRecord_(current.orderId, lineNo, input, user,
                                        makeLineId_(current.orderId, maxSeq));
@@ -490,6 +512,48 @@ function fieldVisible_(user, field) {
   var allowed = visibleFields_(user);
   if (allowed.length === 1 && allowed[0] === '*') return true;
   return allowed.indexOf(field) >= 0;
+}
+
+/**
+ * Security review, 2026-08-27: "hide the field" must mean "this user cannot
+ * set it", not just "cannot see its old value overwritten". blindToMoney /
+ * fieldVisible_ / lineFieldsHidden (used inside actionUpdateOrder_) all
+ * follow the pattern "if the field is hidden, keep whatever is already
+ * stored" — correct for editing something that already exists, but silent
+ * on a BRAND NEW order or line, where there is nothing stored yet to fall
+ * back to. Without this, a role whose web form never renders a price/PO/
+ * product-code input for a new record could still set one by calling the
+ * API directly (Postman, browser console, a captured request replayed with
+ * different values) instead of through the form. These two functions are
+ * the single place that clamps every such field to its safe default (0 for
+ * money, '' for text) on anything new — called from actionCreateOrder_ for
+ * the whole order, and from actionUpdateOrder_ for each newly-added line.
+ */
+function clampHiddenOrderFields_(user, clean) {
+  if (!seesMoney_(user)) {
+    clean.customerDeposit = 0;
+    clean.supplierPaid = 0;
+  }
+  if (!fieldVisible_(user, 'po')) clean.po = '';
+  if (!fieldVisible_(user, 'poNote')) clean.poNote = '';
+  if (!fieldVisible_(user, 'statusNote')) clean.statusNote = '';
+  if (!fieldVisible_(user, 'supplierName')) clean.supplierName = '';
+  (clean.lines || []).forEach(function (line) { clampHiddenLineFields_(user, line); });
+}
+
+/** Per-line half of clampHiddenOrderFields_ — see that comment. */
+function clampHiddenLineFields_(user, line) {
+  if (!seesMoney_(user)) {
+    line.unitPrice = 0;
+    line.vatRate = 0;
+  }
+  if (!fieldVisible_(user, 'productCode')) line.productCode = '';
+  if (!fieldVisible_(user, 'uom')) line.uom = '';
+  if (!fieldVisible_(user, 'note')) line.note = '';
+  if (!fieldVisible_(user, 'invoiceNo')) {
+    line.invoiceNo = '';
+    line.invoiceDate = null;
+  }
 }
 
 /* =======================================================================

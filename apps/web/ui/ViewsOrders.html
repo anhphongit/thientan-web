@@ -106,6 +106,30 @@
   }
 
   /**
+   * UI request, 2026-08-26: statuses must be tellable apart "at a glance",
+   * not only by reading the label — so each known workflow step gets its own
+   * colour AND its own left-edge dot/shape (colour-blind users, or anyone
+   * scanning fast, still get a second signal). Keyed on the fixed 8-status
+   * workflow this app ships with (see CONFIG_DEFAULTS in apps/api/Config.gs);
+   * an admin who adds a new status key via the Config sheet falls back to
+   * the neutral "default" style below rather than breaking.
+   */
+  var STATUS_STYLE = {
+    draft: 'draft',
+    confirmed: 'confirmed',
+    waiting_stock: 'waiting',
+    stock_arrived: 'arrived',
+    delivered_not_invoiced: 'delivered',
+    invoiced_unpaid: 'invoiced',
+    paid: 'paid',
+    cancelled: 'cancelled'
+  };
+
+  function statusPillClass(key) {
+    return 'status-pill status-pill--' + (STATUS_STYLE[key] || 'default');
+  }
+
+  /**
    * Mirror of MONEY_FIELDS in the API's Config.gs. Used only to decide whether
    * to draw price inputs — the server still filters what it sends and refuses
    * what it must. A mismatch here costs a redundant field, never a leak.
@@ -507,15 +531,25 @@
 
     var meta = [
       T.formatDate(o.orderDate),
-      o.po ? 'PO ' + T.esc(o.po) : '',
-      o.lineCount + ' dòng'
+      o.po ? 'PO ' + T.esc(o.po) : ''
     ].filter(Boolean).join(' · ');
+
+    // UI request, 2026-08-26: line count is a key at-a-glance number — a
+    // filled circle badge (style A), grouped with the order id on the left
+    // (position 3, chosen after seeing it live) — "this order, N lines"
+    // reads before status/customer. Just the number, no unit word (the
+    // badge shape + position already say "this is a count"); the title
+    // attribute still spells it out for anyone who hovers/long-presses.
+    var linesChip = '<span class="oc-lines" title="' + o.lineCount + ' dòng">' + o.lineCount + '</span>';
 
     return '' +
       '<button type="button" class="order-card" data-open="' + T.esc(o.orderId) + '">' +
         '<div class="oc-top">' +
-          '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
-          '<span class="badge">' + T.esc(statusLabel(o.status)) + '</span>' +
+          '<span class="oc-top-left">' +
+            '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
+            linesChip +
+          '</span>' +
+          '<span class="' + statusPillClass(o.status) + '">' + T.esc(statusLabel(o.status)) + '</span>' +
         '</div>' +
         '<div class="oc-customer">' + T.esc(o.customer) + '</div>' +
         '<div class="oc-meta">' + meta + '</div>' +
