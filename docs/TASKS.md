@@ -177,21 +177,46 @@ type="month">` + "Lọc"/"Xóa lọc" filter bar above the list
 (`filterBarHtml`/`setMonthFilter`); changing the filter is a deliberate
 action (like "Làm mới"), not filtered live on every keystroke, and drops the
 list cache so a stale unfiltered page can never show under the new filter —
-a `monthAtRequest` guard in `fetchOrders()` also discards the response of a
+a `filtersAtRequest` guard in `fetchOrders()` also discards the response of a
 now-superseded in-flight request, since `UrlFetchApp` cannot be cancelled
-mid-flight. 23 new offline assertions in
-`tools/offline-tests/orders-filter.test.js`; all three existing suites
-(54+116+87) still pass unchanged. `BUILD` is `api-2026-08-31-monthfilter` /
-`web-2026-08-31-monthfilter`. Not yet verified live — deploy **api** first
-(new version), then **web**, then pick a month with existing test data and
-confirm the count matches, including on a staff account without
-`view_all_orders`.
+mid-flight. 23 offline assertions in `tools/offline-tests/orders-filter.test.js`.
+
+UI follow-up same day, Phong's call: a native `<input type="month">` pops a
+full day-grid calendar on most browsers/phones for a filter that is only
+ever a month — replaced with two plain dropdowns (Tháng/Năm).
+
+**3.3 built 2026-08-31.** Customer + status + created-by filters, combinable
+with 3.2's date filter (all AND together). `normalizeFilter_` trims/
+lowercases customer and createdBy (status keeps case — the fixed status keys
+are already lowercase_with_underscores). `createdBy` is silently ignored for
+a caller without `view_all_orders` — `scopeToUser_` already narrowed them to
+their own rows, so honouring a different value there would be a "show me
+someone else's order" bug, not a filter. New `actionListOrderCreators_`
+(gated the same way) feeds the created-by dropdown from distinct `createdBy`
+values actually present in `Orders` — no `Users`-sheet read, same
+self-filling reasoning as `Config.customerList` (Q6). `listCacheKey_` folds
+in every filter (`safeToken_` sanitizes free text for the key). Client:
+`filterBarHtml()` now draws customer/status dropdowns plus a created-by
+dropdown (view_all_orders only, lazily fetched via `ensureCreatorsLoaded()`,
+degrades to a disabled placeholder while loading rather than shifting
+layout once it arrives); `applyFilters()`/`clearFilters()` replace the old
+month-only `setMonthFilter()`. 13 more offline assertions (36 total in
+`orders-filter.test.js`); all three prior suites (54+116+87) still pass
+unchanged — 293 total. `BUILD` is `api-2026-08-31-filters33` /
+`web-2026-08-31-filters33`. Not yet verified live — deploy **api** first
+(new version), then **web**, then walk each filter alone, two together, and
+all four together, on both an admin and a restricted staff account (staff
+should never see the created-by dropdown at all, and combining filters
+should read as AND, e.g. "confirmed AND this customer" returns only orders
+matching both).
+
+**Bug found live 2026-08-31, fixed same day:** the created-by dropdown was stuck on "Đang tải người tạo…" forever for an admin account. Root cause: `apps/web/ui/ViewsOrders.html` calls `T.call('apiListOrderCreators', {})`, which is `google.script.run.apiListOrderCreators` — a function that has to exist in the **web** Apps Script project (`apps/web/Main.gs`), separate from the API action (`Router.gs`) it forwards to. The API side (`actionListOrderCreators_`) was added and offline-tested, but the web-side pass-through was never written, so `google.script.run` failed with "function not found" and the promise never resolved. Fixed by adding `apiListOrderCreators()` to `Main.gs` alongside the other `apiList*`/`apiGet*` pass-throughs. The offline test harness only loads `apps/api/*.gs` (Config/Permissions/Orders), so it cannot catch a missing web-side wrapper — this class of bug only shows up live. `BUILD` is `web-2026-08-31-filters33-fix`.
 
 | # | Task | Scope | How Phong verifies it | Status |
 |---|------|-------|----------------------|--------|
 | 3.1 | Server-side pagination | Absorbed into Milestone 2.5 task P4 | Done via P4 | ☑ |
 | 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☑ |
-| 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☐ |
+| 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☑ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☐ |
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☐ |
 | 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☐ |

@@ -30,10 +30,14 @@
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
-    // Milestone 3 / 3.2 — server-side month filter. '' means "all months".
-    // Kept separate from the list cache: any change resets orders/loadedAt
-    // so the next fetch always goes to the API, filter included.
-    filters: { month: '' },
+    // Milestone 3 / 3.2-3.3 — server-side filters. '' means "no filter" for
+    // each field; they combine as AND. Kept separate from the list cache:
+    // any change resets orders/loadedAt so the next fetch always goes to the
+    // API, filters included.
+    filters: { month: '', customer: '', status: '', createdBy: '' },
+    // Milestone 3 / 3.3 — createdBy dropdown data (view_all_orders only).
+    // null = not fetched yet; [] is a valid "nobody yet" answer.
+    creators: null, creatorsLoading: false,
     order: null, lines: [],
     editing: false, hiddenMoney: false, bound: false,
     // Milestone 2.5c follow-up — one order-detail mutation in flight at a
@@ -266,6 +270,7 @@
   function showList() {
     var seq = ++viewSeq;
     state.order = null;
+    ensureCreatorsLoaded();
 
     if (state.orders.length) {
       paintList();
@@ -297,21 +302,59 @@
   function listPayload(page) {
     var payload = { page: page, pageSize: PAGE_SIZE };
     if (state.filters.month) payload.month = state.filters.month;
+    if (state.filters.customer) payload.customer = state.filters.customer;
+    if (state.filters.status) payload.status = state.filters.status;
+    if (state.filters.createdBy) payload.createdBy = state.filters.createdBy;
     return payload;
+  }
+
+  function hasActiveFilters() {
+    var f = state.filters;
+    return !!(f.month || f.customer || f.status || f.createdBy);
+  }
+
+  /**
+   * Milestone 3 / 3.3 — createdBy dropdown data. Fetched once, lazily, only
+   * for a caller who can see everyone's orders (apiListOrderCreators returns
+   * an empty list for anyone else anyway, so there's nothing worth a request
+   * for). Not gated behind the list cache/TTL machinery: this is small,
+   * changes rarely (only when someone new creates their first order), and
+   * re-fetching it is cheap compared to the order list itself.
+   */
+  function ensureCreatorsLoaded() {
+    if (!T.can('view_all_orders')) return;
+    if (state.creators !== null || state.creatorsLoading) return;
+    state.creatorsLoading = true;
+    T.call('apiListOrderCreators', {}).then(function (data) {
+      state.creators = (data && data.creators) || [];
+      state.creatorsLoading = false;
+      if (state.order === null) paintList(); // repaint the filter bar now that options exist
+    }).catch(function (err) {
+      // Bug found live 2026-08-31: leaving state.creators === null here made
+      // the dropdown show "Đang tải người tạo…" forever on any failure (a
+      // stale deployment missing the endpoint, a network blip) with no way
+      // to notice or recover. Fall back to an empty (but usable) dropdown —
+      // every OTHER filter still works — and surface the error once instead
+      // of failing silently forever.
+      state.creators = [];
+      state.creatorsLoading = false;
+      T.toast('Không tải được danh sách người tạo: ' + err.message, true);
+      if (state.order === null) paintList();
+    });
   }
 
   function fetchOrders() {
     if (loadingPromise) return loadingPromise;
-    // Milestone 3 / 3.2: stamp the request with the filter (and viewSeq) it
-    // was made under. setMonthFilter() cannot cancel an in-flight
-    // apiListOrders call (UrlFetchApp has no abort), so a slow request from
-    // the PREVIOUS filter must not be allowed to overwrite state.orders once
-    // a new filter has already reset it — checked on the way in below.
-    var monthAtRequest = state.filters.month;
+    // Milestone 3 / 3.2-3.3: stamp the request with the filters in effect
+    // when it was made. applyFilters()/clearFilters() cannot cancel an
+    // in-flight apiListOrders call (UrlFetchApp has no abort), so a slow
+    // request made under OLD filters must not be allowed to overwrite
+    // state.orders once newer filters have already reset it — checked below.
+    var filtersAtRequest = JSON.stringify(state.filters);
     loadingPromise = T.call('apiListOrders', listPayload(1)).then(
       function (data) {
         loadingPromise = null;
-        if (monthAtRequest !== state.filters.month) return data; // superseded by a newer filter
+        if (filtersAtRequest !== JSON.stringify(state.filters)) return data; // superseded by newer filters
         state.orders = (data && data.orders) || [];
         state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
         state.ordersPage = 1;
@@ -325,16 +368,23 @@
   }
 
   /**
-   * Milestone 3 / 3.2 — applying or clearing the month filter is a
-   * deliberate navigation, same spirit as manualRefresh(): drop whatever is
-   * cached (a stale unfiltered or differently-filtered page must never be
-   * shown under the new filter) and fetch page 1 fresh. Cheap at this data
-   * volume (≤ 100 orders/month) to just always hit the API rather than
-   * keep a per-filter cache client-side.
+   * Milestone 3 / 3.2-3.3 — applying or clearing filters is a deliberate
+   * navigation, same spirit as manualRefresh(): drop whatever is cached (a
+   * stale unfiltered or differently-filtered page must never be shown under
+   * the new filters) and fetch page 1 fresh. Cheap at this data volume
+   * (≤ 100 orders/month) to just always hit the API rather than keep a
+   * per-filter-combination cache client-side.
+   *
+   * `next` only needs to carry the fields that changed; anything omitted
+   * keeps its current value.
    */
-  function setMonthFilter(month) {
-    if (state.filters.month === month) return;
-    state.filters.month = month;
+  function applyFilters(next) {
+    var merged = Object.assign({}, state.filters, next || {});
+    var changed = ['month', 'customer', 'status', 'createdBy'].some(function (k) {
+      return merged[k] !== state.filters[k];
+    });
+    if (!changed) return;
+    state.filters = merged;
     state.orders = [];
     state.ordersMeta = null;
     state.ordersLoadedAt = 0;
@@ -343,6 +393,10 @@
     state.loadingMore = false;
     loadMorePromise = null;
     showList();
+  }
+
+  function clearFilters() {
+    applyFilters({ month: '', customer: '', status: '', createdBy: '' });
   }
 
   /**
@@ -456,8 +510,8 @@
       filterBarHtml();
 
     if (!state.orders.length) {
-      var emptyText = state.filters.month
-        ? 'Không có đơn hàng nào trong tháng đã chọn.'
+      var emptyText = hasActiveFilters()
+        ? 'Không có đơn hàng nào khớp với bộ lọc đã chọn.'
         : (canCreate ? 'Chưa có đơn hàng nào. Bấm “Tạo đơn hàng” để bắt đầu.'
                      : 'Chưa có đơn hàng nào.');
       return head + '<section class="card"><p class="empty">' + emptyText + '</p></section>';
@@ -497,8 +551,8 @@
    * action, same as "Làm mới". "Xóa lọc" only appears once a filter is active.
    */
   function filterBarHtml() {
-    var active = state.filters.month || '';
-    var parts = active.split('-');
+    var month = state.filters.month || '';
+    var parts = month.split('-');
     var selMonth = parts[0] ? parts[1] : '';
     var selYear = parts[0] ? parts[0] : '';
 
@@ -507,9 +561,52 @@
         '<label class="list-filter-label" for="f-filter-month">Tháng</label>' +
         '<select id="f-filter-month">' + monthOptionsHtml(selMonth) + '</select>' +
         '<select id="f-filter-year">' + yearOptionsHtml(selYear) + '</select>' +
+        '<select id="f-filter-customer">' + customerOptionsHtml(state.filters.customer) + '</select>' +
+        '<select id="f-filter-status">' + statusOptionsHtml(state.filters.status) + '</select>' +
+        creatorFilterHtml() +
         '<button type="button" class="btn btn-filter" data-act="apply-filter">Lọc</button>' +
-        (active ? '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' : '') +
+        (hasActiveFilters() ? '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' : '') +
       '</div>';
+  }
+
+  /** Milestone 3 / 3.3. Empty option is always "Tất cả khách hàng" — unlike
+   *  month, "no customer selected" is a real, common state, not an error. */
+  function customerOptionsHtml(selected) {
+    var out = '<option value="">Tất cả khách hàng</option>';
+    customerList().forEach(function (c) {
+      out += '<option value="' + T.esc(c) + '"' + (c === selected ? ' selected' : '') + '>' +
+             T.esc(c) + '</option>';
+    });
+    return out;
+  }
+
+  function statusOptionsHtml(selected) {
+    var out = '<option value="">Tất cả trạng thái</option>';
+    statusList().forEach(function (s) {
+      out += '<option value="' + T.esc(s.key) + '"' + (s.key === selected ? ' selected' : '') + '>' +
+             T.esc(s.label) + '</option>';
+    });
+    return out;
+  }
+
+  /**
+   * Milestone 3 / 3.3 — createdBy dropdown. Only drawn for a caller who can
+   * see everyone's orders (see actionListOrderCreators_'s own gate); while
+   * the list is still loading it degrades to a disabled placeholder rather
+   * than not being there at all, so the filter bar's layout doesn't jump
+   * once it arrives.
+   */
+  function creatorFilterHtml() {
+    if (!T.can('view_all_orders')) return '';
+    if (state.creators === null) {
+      return '<select id="f-filter-createdBy" disabled><option>Đang tải người tạo…</option></select>';
+    }
+    var out = '<option value="">Tất cả người tạo</option>';
+    state.creators.forEach(function (c) {
+      out += '<option value="' + T.esc(c.email) + '"' + (c.email === state.filters.createdBy ? ' selected' : '') + '>' +
+             T.esc(c.displayName) + '</option>';
+    });
+    return '<select id="f-filter-createdBy">' + out + '</select>';
   }
 
   function monthOptionsHtml(selected) {
@@ -1098,19 +1195,29 @@
         loadMore();
         break;
       case 'apply-filter': {
-        var m = root.querySelector('#f-filter-month');
-        var y = root.querySelector('#f-filter-year');
-        var mv = m ? m.value : '';
-        var yv = y ? y.value : '';
-        if (!mv || !yv) {
-          T.toast('Chọn cả tháng và năm để lọc.', true);
+        var mSel = root.querySelector('#f-filter-month');
+        var ySel = root.querySelector('#f-filter-year');
+        var mv = mSel ? mSel.value : '';
+        var yv = ySel ? ySel.value : '';
+        // Month/year are a pair: either both chosen (a real month filter) or
+        // neither (no date filter at all) — one alone is not a valid filter.
+        if ((mv && !yv) || (!mv && yv)) {
+          T.toast('Chọn cả tháng và năm để lọc theo tháng.', true);
           break;
         }
-        setMonthFilter(yv + '-' + mv);
+        var customerSel = root.querySelector('#f-filter-customer');
+        var statusSel = root.querySelector('#f-filter-status');
+        var createdBySel = root.querySelector('#f-filter-createdBy');
+        applyFilters({
+          month: (mv && yv) ? (yv + '-' + mv) : '',
+          customer: customerSel ? customerSel.value : '',
+          status: statusSel ? statusSel.value : '',
+          createdBy: createdBySel ? createdBySel.value : ''
+        });
         break;
       }
       case 'clear-filter':
-        setMonthFilter('');
+        clearFilters();
         break;
     }
   }

@@ -142,4 +142,99 @@ console.log('\n7. total/hasMore describe the filtered set');
   eq('hasMore is false at the end of the filtered set', page3.hasMore, false);
 }
 
+
+/* ---------- 8. customer filter ---------- */
+console.log('\n8. Customer filter (exact, case/whitespace-insensitive)');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, { order: order({ customer: 'Yamato' }), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order({ customer: 'Nhựa Duy Tân' }), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order({ customer: '  yamato  ' }), lines: [line()] });
+
+  const res = env.actionListOrders_(admin, { customer: 'Yamato' });
+  eq('two orders match Yamato, trimmed/case-insensitive', res.total, 2);
+
+  const none = env.actionListOrders_(admin, { customer: 'Không tồn tại' });
+  eq('unknown customer matches nothing', none.total, 0);
+}
+
+/* ---------- 9. status filter ---------- */
+console.log('\n9. Status filter is exact and case-sensitive (fixed status keys)');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, { order: order({ status: 'draft' }), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order({ status: 'confirmed' }), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order({ status: 'confirmed' }), lines: [line()] });
+
+  const res = env.actionListOrders_(admin, { status: 'confirmed' });
+  eq('two confirmed orders', res.total, 2);
+
+  const wrongCase = env.actionListOrders_(admin, { status: 'Confirmed' });
+  eq('status match is case-sensitive on the fixed status keys', wrongCase.total, 0);
+}
+
+/* ---------- 10. createdBy filter, gated on view_all_orders ---------- */
+console.log('\n10. createdBy filter is only honoured for a caller who can see everyone');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  const staff = user('staff@x.com', { view_all_orders: false });
+
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });      // DH-0001 by admin
+  env.actionCreateOrder_(staff, { order: order(), lines: [line()] });      // DH-0002 by staff
+
+  const adminFiltered = env.actionListOrders_(admin, { createdBy: 'staff@x.com' });
+  eq('admin filtering by createdBy sees only that person\'s order', adminFiltered.total, 1);
+  eq('it is the staff order', adminFiltered.orders[0].orderId, 'DH-2026-0002');
+
+  // staff has no view_all_orders: scopeToUser_ already restricted them to their
+  // own row, so a createdBy value is silently ignored rather than applied —
+  // it must never be treated as "show me someone else's order".
+  const staffAttempt = env.actionListOrders_(staff, { createdBy: 'admin@x.com' });
+  eq('createdBy is ignored for a scoped user, not honoured', staffAttempt.total, 1);
+  eq('they still only see their own order', staffAttempt.orders[0].orderId, 'DH-2026-0002');
+}
+
+/* ---------- 11. filters combine (AND, not OR) ---------- */
+console.log('\n11. Date + customer + status + createdBy combine as AND');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  const staff = user('staff@x.com', { view_all_orders: false });
+
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0001 admin, matches all
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'draft' }), lines: [line()] });     // 0002 wrong status
+  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0003 wrong creator
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-01', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0004 wrong month
+
+  const res = env.actionListOrders_(admin,
+    { month: '2026-07', customer: 'Yamato', status: 'confirmed', createdBy: 'admin@x.com' });
+  eq('only the order matching every filter is returned', res.total, 1);
+  eq('it is DH-2026-0001', res.orders[0].orderId, 'DH-2026-0001');
+}
+
+/* ---------- 12. actionListOrderCreators_ ---------- */
+console.log('\n12. actionListOrderCreators_ — dropdown data source');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  const staff = user('staff@x.com', { view_all_orders: false });
+
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+  env.actionCreateOrder_(staff, { order: order(), lines: [line()] });
+  env.actionCreateOrder_(staff, { order: order(), lines: [line()] });
+
+  const forAdmin = env.actionListOrderCreators_(admin);
+  eq('two distinct creators, no duplicates', forAdmin.creators.length, 2);
+  check('emails present',
+    forAdmin.creators.some(c => c.email === 'admin@x.com') &&
+    forAdmin.creators.some(c => c.email === 'staff@x.com'));
+
+  const forStaff = env.actionListOrderCreators_(staff);
+  eq('a scoped user (no view_all_orders) gets an empty list, not everyone\'s emails',
+     forStaff.creators.length, 0);
+}
+
 H.done();

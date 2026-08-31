@@ -56,14 +56,33 @@ function actionListOrders_(user, payload) {
   var page = Math.max(parseInt(payload && payload.page, 10) || 1, 1);
   var dateFilter = orderDateFilter_(payload);
 
+  // Milestone 3 / 3.3: customer + status + created-by, combinable with each
+  // other and with the 3.2 date filter. `createdBy` only makes sense for a
+  // caller who can see everyone's orders — scopeToUser_ has already narrowed
+  // anyone else to just their own rows, so normalizeFilter_ below is skipped
+  // for them rather than silently matching (or not matching) their own email.
+  var customerFilter = normalizeFilter_(payload && payload.customer);
+  var statusFilter = normalizeFilter_(payload && payload.status, { keepCase: true });
+  var createdByFilter = canSeeAllOrders_(user) ? normalizeFilter_(payload && payload.createdBy) : '';
+
   var version = getOrdersVersion_();
-  var cacheKey = listCacheKey_(version, user.email, page, pageSize, dateFilter);
+  var cacheKey = listCacheKey_(version, user.email, page, pageSize,
+                                dateFilter, customerFilter, statusFilter, createdByFilter);
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
 
   var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
   if (dateFilter.fromTime !== null || dateFilter.toTime !== null) {
     orders = orders.filter(function (row) { return matchesDateFilter_(row, dateFilter); });
+  }
+  if (customerFilter) {
+    orders = orders.filter(function (row) { return normalizeFilter_(row.customer) === customerFilter; });
+  }
+  if (statusFilter) {
+    orders = orders.filter(function (row) { return String(row.status || '') === statusFilter; });
+  }
+  if (createdByFilter) {
+    orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === createdByFilter; });
   }
   orders.sort(compareOrdersNewestFirst_);
 
@@ -86,6 +105,44 @@ function actionListOrders_(user, payload) {
 
   putListCache_(cacheKey, result);
   return result;
+}
+
+/** Trim + lowercase for a loose equality filter; status keeps its case
+ *  (status keys are fixed lowercase_with_underscores already, and comparing
+ *  case-sensitively there is one less way to accidentally match a status
+ *  that isn't the one on screen). Empty/whitespace-only input means "no
+ *  filter", same treatment as the date filter's malformed-input handling. */
+function normalizeFilter_(value, opts) {
+  var s = String(value === null || value === undefined ? '' : value).trim();
+  if (!s) return '';
+  return (opts && opts.keepCase) ? s : s.toLowerCase();
+}
+
+/**
+ * Milestone 3 / 3.3 — data source for the created-by dropdown. Distinct
+ * creators actually present in Orders, not the full Users sheet: this app
+ * has no user-management screen yet (Milestone 5), and a filter dropdown
+ * should only ever offer people who could possibly match something, the
+ * same self-filling reasoning as Config.customerList (Q6,
+ * docs/OPEN_QUESTIONS.md). Gated on view_all_orders for the same reason the
+ * filter itself is: anyone without it already sees only their own orders,
+ * so the dropdown would be a list of one.
+ */
+function actionListOrderCreators_(user) {
+  requirePermission_(user, 'view_orders');
+  if (!canSeeAllOrders_(user)) return { creators: [] };
+
+  var seen = {};
+  var creators = [];
+  readAll_(SHEETS.ORDERS).forEach(function (row) {
+    var email = String(row.createdBy || '').trim();
+    if (!email || seen[email.toLowerCase()]) return;
+    seen[email.toLowerCase()] = true;
+    var userRow = findBy_(SHEETS.USERS, 'email', email);
+    creators.push({ email: email, displayName: (userRow && userRow.displayName) || email });
+  });
+  creators.sort(function (a, b) { return a.displayName.localeCompare(b.displayName); });
+  return { creators: creators };
 }
 
 /**
@@ -495,20 +552,30 @@ function bumpOrdersVersion_() {
   }
 }
 
-function listCacheKey_(version, email, page, pageSize, dateFilter) {
+function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter) {
   var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
-  // Milestone 3 / 3.2: fold the date filter into the key so a filtered and an
-  // unfiltered request for the same page never collide on the same cache entry.
+  // Milestone 3 / 3.2-3.3: fold every filter into the key so a filtered and an
+  // unfiltered (or differently-filtered) request for the same page never
+  // collide on the same cache entry. safeToken_ keeps arbitrary customer/
+  // createdBy text from breaking the key's own delimiter structure.
   var f = (dateFilter && (dateFilter.fromTime !== null || dateFilter.toTime !== null))
     ? (':f' + (dateFilter.fromTime === null ? '' : dateFilter.fromTime) +
        '-' + (dateFilter.toTime === null ? '' : dateFilter.toTime))
     : '';
+  var c = customerFilter ? (':c' + safeToken_(customerFilter)) : '';
+  var st = statusFilter ? (':st' + safeToken_(statusFilter)) : '';
+  var cb = createdByFilter ? (':cb' + safeToken_(createdByFilter)) : '';
   return CACHE.LIST_KEY_PREFIX +
          'v' + version +
          ':u' + safeEmail +
          ':p' + page +
          ':s' + pageSize +
-         f;
+         f + c + st + cb;
+}
+
+/** Cache-key-safe token: anything not alphanumeric/@._- collapses to '_'. */
+function safeToken_(value) {
+  return String(value || '').replace(/[^a-z0-9@._+-]/gi, '_');
 }
 
 function getListCache_(key) {

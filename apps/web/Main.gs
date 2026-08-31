@@ -113,6 +113,13 @@ function apiGetOrder(orderId) {
   });
 }
 
+/** Milestone 3 / 3.3 — created-by filter dropdown data. */
+function apiListOrderCreators() {
+  return handle_('apiListOrderCreators', function () {
+    return apiCall_('listOrderCreators', {});
+  });
+}
+
 /** @param {{order:Object, lines:Object[]}} payload */
 function apiCreateOrder(payload) {
   return handle_('apiCreateOrder', function () {

@@ -143,6 +143,7 @@ function getActions_() {
     /* Milestone 2 — orders. Each handler gates itself; being in this list is
        not permission to run it. See Orders.gs. */
     listOrders: actionListOrders_,
+    listOrderCreators: actionListOrderCreators_,
     getOrder: actionGetOrder_,
     createOrder: actionCreateOrder_,
     updateOrder: actionUpdateOrder_,
