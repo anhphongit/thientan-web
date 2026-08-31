@@ -30,6 +30,10 @@
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
+    // Milestone 3 / 3.2 — server-side month filter. '' means "all months".
+    // Kept separate from the list cache: any change resets orders/loadedAt
+    // so the next fetch always goes to the API, filter included.
+    filters: { month: '' },
     order: null, lines: [],
     editing: false, hiddenMoney: false, bound: false,
     // Milestone 2.5c follow-up — one order-detail mutation in flight at a
@@ -290,21 +294,55 @@
    * manual "Làm mới" button) never fire duplicate requests. Always replaces
    * `state.orders` from the top — see loadMore() for appending page 2+.
    */
+  function listPayload(page) {
+    var payload = { page: page, pageSize: PAGE_SIZE };
+    if (state.filters.month) payload.month = state.filters.month;
+    return payload;
+  }
+
   function fetchOrders() {
     if (loadingPromise) return loadingPromise;
-    loadingPromise = T.call('apiListOrders', { page: 1, pageSize: PAGE_SIZE }).then(
+    // Milestone 3 / 3.2: stamp the request with the filter (and viewSeq) it
+    // was made under. setMonthFilter() cannot cancel an in-flight
+    // apiListOrders call (UrlFetchApp has no abort), so a slow request from
+    // the PREVIOUS filter must not be allowed to overwrite state.orders once
+    // a new filter has already reset it — checked on the way in below.
+    var monthAtRequest = state.filters.month;
+    loadingPromise = T.call('apiListOrders', listPayload(1)).then(
       function (data) {
+        loadingPromise = null;
+        if (monthAtRequest !== state.filters.month) return data; // superseded by a newer filter
         state.orders = (data && data.orders) || [];
         state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
         state.ordersPage = 1;
         state.ordersHasMore = !!(data && data.hasMore);
         state.ordersLoadedAt = Date.now();
-        loadingPromise = null;
         return data;
       },
       function (err) { loadingPromise = null; throw err; }
     );
     return loadingPromise;
+  }
+
+  /**
+   * Milestone 3 / 3.2 — applying or clearing the month filter is a
+   * deliberate navigation, same spirit as manualRefresh(): drop whatever is
+   * cached (a stale unfiltered or differently-filtered page must never be
+   * shown under the new filter) and fetch page 1 fresh. Cheap at this data
+   * volume (≤ 100 orders/month) to just always hit the API rather than
+   * keep a per-filter cache client-side.
+   */
+  function setMonthFilter(month) {
+    if (state.filters.month === month) return;
+    state.filters.month = month;
+    state.orders = [];
+    state.ordersMeta = null;
+    state.ordersLoadedAt = 0;
+    state.ordersPage = 0;
+    state.ordersHasMore = false;
+    state.loadingMore = false;
+    loadMorePromise = null;
+    showList();
   }
 
   /**
@@ -322,7 +360,7 @@
     paintList();
 
     var nextPage = state.ordersPage + 1;
-    loadMorePromise = T.call('apiListOrders', { page: nextPage, pageSize: PAGE_SIZE })
+    loadMorePromise = T.call('apiListOrders', listPayload(nextPage))
       .then(function (data) {
         if (seq !== viewSeq) {
           state.loadingMore = false;
@@ -414,13 +452,15 @@
       '<div class="view-head">' +
         '<h2>Đơn hàng</h2>' +
         (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
-      '</div>';
+      '</div>' +
+      filterBarHtml();
 
     if (!state.orders.length) {
-      return head + '<section class="card"><p class="empty">' +
-        (canCreate ? 'Chưa có đơn hàng nào. Bấm “Tạo đơn hàng” để bắt đầu.'
-                   : 'Chưa có đơn hàng nào.') +
-        '</p></section>';
+      var emptyText = state.filters.month
+        ? 'Không có đơn hàng nào trong tháng đã chọn.'
+        : (canCreate ? 'Chưa có đơn hàng nào. Bấm “Tạo đơn hàng” để bắt đầu.'
+                     : 'Chưa có đơn hàng nào.');
+      return head + '<section class="card"><p class="empty">' + emptyText + '</p></section>';
     }
 
     var meta = state.ordersMeta || { shown: state.orders.length, total: state.orders.length };
@@ -443,6 +483,53 @@
 
     return head + count + '<div class="order-list">' +
       state.orders.map(orderCardHtml).join('') + '</div>' + loadMoreBtn;
+  }
+
+  /**
+   * Milestone 3 / 3.2 — the month filter bar.
+   *
+   * A native <input type="month"> opens a full DATE calendar on most
+   * browsers/phones (day grid, just no day picked) for a filter that is only
+   * ever a month — Phong's call, 2026-08-31: two plain dropdowns (month +
+   * year) read as "pick a month" immediately and never show a day grid.
+   * Explicit "Lọc" button rather than filtering on every change: the API
+   * call has real latency (Apps Script), so filtering is a deliberate
+   * action, same as "Làm mới". "Xóa lọc" only appears once a filter is active.
+   */
+  function filterBarHtml() {
+    var active = state.filters.month || '';
+    var parts = active.split('-');
+    var selMonth = parts[0] ? parts[1] : '';
+    var selYear = parts[0] ? parts[0] : '';
+
+    return '' +
+      '<div class="list-filter">' +
+        '<label class="list-filter-label" for="f-filter-month">Tháng</label>' +
+        '<select id="f-filter-month">' + monthOptionsHtml(selMonth) + '</select>' +
+        '<select id="f-filter-year">' + yearOptionsHtml(selYear) + '</select>' +
+        '<button type="button" class="btn btn-filter" data-act="apply-filter">Lọc</button>' +
+        (active ? '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' : '') +
+      '</div>';
+  }
+
+  function monthOptionsHtml(selected) {
+    var out = '<option value="">Tháng</option>';
+    for (var m = 1; m <= 12; m++) {
+      var v = (m < 10 ? '0' : '') + m;
+      out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>Tháng ' + m + '</option>';
+    }
+    return out;
+  }
+
+  /** Current year, plus a couple back and one ahead — plenty for a ≤100
+   *  orders/month shop that has been running since 2026 (Q7, OPEN_QUESTIONS.md). */
+  function yearOptionsHtml(selected) {
+    var current = new Date().getFullYear();
+    var out = '<option value="">Năm</option>';
+    for (var y = current + 1; y >= current - 3; y--) {
+      out += '<option value="' + y + '"' + (String(y) === selected ? ' selected' : '') + '>' + y + '</option>';
+    }
+    return out;
   }
 
   function updatedLabel() {
@@ -1009,6 +1096,21 @@
         break;
       case 'load-more':
         loadMore();
+        break;
+      case 'apply-filter': {
+        var m = root.querySelector('#f-filter-month');
+        var y = root.querySelector('#f-filter-year');
+        var mv = m ? m.value : '';
+        var yv = y ? y.value : '';
+        if (!mv || !yv) {
+          T.toast('Chọn cả tháng và năm để lọc.', true);
+          break;
+        }
+        setMonthFilter(yv + '-' + mv);
+        break;
+      }
+      case 'clear-filter':
+        setMonthFilter('');
         break;
     }
   }

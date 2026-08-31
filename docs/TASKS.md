@@ -162,13 +162,35 @@ across the three test files: 54 + 95 + 87); `apps/web/Config.gs` `BUILD` is
 
 ## Milestone 3 — List, filter, search, status
 
-Not started. Split so it can be worked one task per conversation. Order matters:
-each task builds on the one above it and is testable on its own.
+Started 2026-08-31 with task 3.2. Split so it can be worked one task per
+conversation. Order matters: each task builds on the one above it and is
+testable on its own.
+
+**3.2 built 2026-08-31.** `actionListOrders_` (`apps/api/Orders.gs`) now
+accepts `month` ('YYYY-MM') or `dateFrom`/`dateTo` ('YYYY-MM-DD', inclusive
+both ends) via `orderDateFilter_`/`matchesDateFilter_`; applied AFTER
+`scopeToUser_` (a filter can never surface another user's orders) and BEFORE
+pagination (`total`/`hasMore` describe the filtered set). Cache key
+(`listCacheKey_`) now folds the filter in so filtered and unfiltered pages
+never collide. Client: `apps/web/ui/ViewsOrders.html` gets a `<input
+type="month">` + "Lọc"/"Xóa lọc" filter bar above the list
+(`filterBarHtml`/`setMonthFilter`); changing the filter is a deliberate
+action (like "Làm mới"), not filtered live on every keystroke, and drops the
+list cache so a stale unfiltered page can never show under the new filter —
+a `monthAtRequest` guard in `fetchOrders()` also discards the response of a
+now-superseded in-flight request, since `UrlFetchApp` cannot be cancelled
+mid-flight. 23 new offline assertions in
+`tools/offline-tests/orders-filter.test.js`; all three existing suites
+(54+116+87) still pass unchanged. `BUILD` is `api-2026-08-31-monthfilter` /
+`web-2026-08-31-monthfilter`. Not yet verified live — deploy **api** first
+(new version), then **web**, then pick a month with existing test data and
+confirm the count matches, including on a staff account without
+`view_all_orders`.
 
 | # | Task | Scope | How Phong verifies it | Status |
 |---|------|-------|----------------------|--------|
 | 3.1 | Server-side pagination | Absorbed into Milestone 2.5 task P4 | Done via P4 | ☑ |
-| 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☐ |
+| 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☑ |
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☐ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☐ |
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☐ |

@@ -24,10 +24,15 @@
  *
  * Milestone 2.5 / P4: `pageSize` is capped at LIST_PAGE_SIZE_MAX regardless of
  * what the client asks for, and every card is trimmed to LIST_CARD_FIELDS —
- * filtering and search by month/customer/status are still Milestone 3
- * (3.2–3.4); this task is 3.1, "server-side pagination", absorbed here so it
- * is not built twice. Free-text search across line `description` (3.4) needs
- * OrderLines too and stays out of scope for the same reason.
+ * this task is 3.1, "server-side pagination", absorbed here so it is not
+ * built twice.
+ *
+ * Milestone 3 / 3.2: `payload.month` ('YYYY-MM') or `payload.dateFrom`/
+ * `dateTo` ('YYYY-MM-DD') narrow the result to `orderDate` in range, applied
+ * AFTER scopeToUser_ so a filter can never leak another user's orders and
+ * BEFORE pagination so `total`/`hasMore` describe the filtered set, not the
+ * whole sheet. `month` wins if both are sent (the client only ever sends one).
+ * Customer/status/created-by filters and free-text search are still 3.3/3.4.
  *
  * Milestone 2.5 / P5: `lineCount` comes straight off the Orders row now,
  * maintained by actionCreateOrder_/actionUpdateOrder_ on every save — no more
@@ -49,13 +54,17 @@ function actionListOrders_(user, payload) {
   var pageSize = Math.min(Math.max(parseInt(payload && payload.pageSize, 10) ||
                                     LIST_PAGE_SIZE_DEFAULT, 1), LIST_PAGE_SIZE_MAX);
   var page = Math.max(parseInt(payload && payload.page, 10) || 1, 1);
+  var dateFilter = orderDateFilter_(payload);
 
   var version = getOrdersVersion_();
-  var cacheKey = listCacheKey_(version, user.email, page, pageSize);
+  var cacheKey = listCacheKey_(version, user.email, page, pageSize, dateFilter);
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
 
   var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
+  if (dateFilter.fromTime !== null || dateFilter.toTime !== null) {
+    orders = orders.filter(function (row) { return matchesDateFilter_(row, dateFilter); });
+  }
   orders.sort(compareOrdersNewestFirst_);
 
   var total = orders.length;
@@ -77,6 +86,50 @@ function actionListOrders_(user, payload) {
 
   putListCache_(cacheKey, result);
   return result;
+}
+
+/**
+ * Milestone 3 / 3.2 — parse the list request's date filter.
+ *
+ * `month` ('YYYY-MM', what the <input type="month"> on the client sends) is
+ * expanded to the first/last instant of that month. Otherwise `dateFrom`/
+ * `dateTo` ('YYYY-MM-DD') are read as local start-of-day / end-of-day so a
+ * range is inclusive on both ends. Anything malformed or missing is simply
+ * ignored — an unparseable filter must never throw or silently return
+ * nothing; it falls back to "no filter" the same as an absent one.
+ */
+function orderDateFilter_(payload) {
+  var out = { fromTime: null, toTime: null };
+  var month = payload && payload.month ? String(payload.month).trim() : '';
+  var monthMatch = /^(\d{4})-(\d{2})$/.exec(month);
+  if (monthMatch) {
+    var y = parseInt(monthMatch[1], 10);
+    var m = parseInt(monthMatch[2], 10);
+    var start = new Date(y, m - 1, 1, 0, 0, 0, 0);
+    var end = new Date(y, m, 1, 0, 0, 0, 0).getTime() - 1;
+    if (!isNaN(start.getTime())) { out.fromTime = start.getTime(); out.toTime = end; }
+    return out;
+  }
+
+  var from = payload && payload.dateFrom ? String(payload.dateFrom).trim() : '';
+  var to = payload && payload.dateTo ? String(payload.dateTo).trim() : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    var fd = new Date(from + 'T00:00:00');
+    if (!isNaN(fd.getTime())) out.fromTime = fd.getTime();
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    var td = new Date(to + 'T23:59:59.999');
+    if (!isNaN(td.getTime())) out.toTime = td.getTime();
+  }
+  return out;
+}
+
+/** True when row.orderDate falls inside the (possibly one-sided) filter. */
+function matchesDateFilter_(row, filter) {
+  var t = time_(row.orderDate);
+  if (filter.fromTime !== null && t < filter.fromTime) return false;
+  if (filter.toTime !== null && t > filter.toTime) return false;
+  return true;
 }
 
 /**
@@ -442,13 +495,20 @@ function bumpOrdersVersion_() {
   }
 }
 
-function listCacheKey_(version, email, page, pageSize) {
+function listCacheKey_(version, email, page, pageSize, dateFilter) {
   var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
+  // Milestone 3 / 3.2: fold the date filter into the key so a filtered and an
+  // unfiltered request for the same page never collide on the same cache entry.
+  var f = (dateFilter && (dateFilter.fromTime !== null || dateFilter.toTime !== null))
+    ? (':f' + (dateFilter.fromTime === null ? '' : dateFilter.fromTime) +
+       '-' + (dateFilter.toTime === null ? '' : dateFilter.toTime))
+    : '';
   return CACHE.LIST_KEY_PREFIX +
          'v' + version +
          ':u' + safeEmail +
          ':p' + page +
-         ':s' + pageSize;
+         ':s' + pageSize +
+         f;
 }
 
 function getListCache_(key) {

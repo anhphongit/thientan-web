@@ -321,6 +321,19 @@
   }
   .list-count .link-btn { font-size: 13px; }
   .list-count .link-btn[disabled] { color: var(--c-muted); cursor: default; text-decoration: none; }
+
+  /* Milestone 3 / 3.2 — month filter bar above the order list. */
+  .list-filter {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 10px;
+  }
+  .list-filter-label { font-size: 13px; color: var(--c-muted); }
+  .list-filter select {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    min-height: 40px; padding: 0 8px;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  }
+  .list-filter .btn-filter { min-height: 40px; padding: 0 14px; }
   .ro-note {
     background: var(--c-brand-soft); color: var(--c-brand);
     border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
