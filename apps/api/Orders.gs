@@ -61,13 +61,23 @@ function actionListOrders_(user, payload) {
   // caller who can see everyone's orders — scopeToUser_ has already narrowed
   // anyone else to just their own rows, so normalizeFilter_ below is skipped
   // for them rather than silently matching (or not matching) their own email.
-  var customerFilter = normalizeFilter_(payload && payload.customer);
-  var statusFilter = normalizeFilter_(payload && payload.status, { keepCase: true });
+  // Security fix, found live 2026-08-31: the same leak as search below —
+  // filtering by a field a role can't see (visible_fields excludes it)
+  // would tell them which orders have a given customer/status even though
+  // that field never renders on their card. Ignored, not honored, exactly
+  // like createdBy already is for a caller without view_all_orders.
+  var customerFilter = fieldVisible_(user, 'customer') ? normalizeFilter_(payload && payload.customer) : '';
+  var statusFilter = fieldVisible_(user, 'status')
+    ? normalizeFilter_(payload && payload.status, { keepCase: true }) : '';
   var createdByFilter = canSeeAllOrders_(user) ? normalizeFilter_(payload && payload.createdBy) : '';
+  // Milestone 3 / 3.4: free-text search across orderId, po, customer (order
+  // level) and line description (needs a second sheet). Substring, not
+  // exact — normalizeFilter_ trims/lowercases like customer/createdBy do.
+  var searchQuery = normalizeFilter_(payload && payload.q);
 
   var version = getOrdersVersion_();
   var cacheKey = listCacheKey_(version, user.email, page, pageSize,
-                                dateFilter, customerFilter, statusFilter, createdByFilter);
+                                dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery);
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
 
@@ -83,6 +93,18 @@ function actionListOrders_(user, payload) {
   }
   if (createdByFilter) {
     orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === createdByFilter; });
+  }
+  if (searchQuery) {
+    // Security fix, found live 2026-08-31: search must never become an
+    // oracle for a field a role can't see. Before this, a caller blind to
+    // `po` (visible_fields excludes it) could type a PO number and see a
+    // matching order come back — leaking that the PO exists, and which
+    // order/customer it belongs to, even though the card itself never
+    // renders `po` (filterVisibleFields_ strips it later, too late to
+    // matter). One full OrderLines read per search only when `description`
+    // is actually visible — same "cheap at this volume" call as D4.
+    var lineMatchIds = fieldVisible_(user, 'description') ? searchLineOrderIds_(searchQuery) : {};
+    orders = orders.filter(function (row) { return matchesSearch_(row, searchQuery, lineMatchIds, user); });
   }
   orders.sort(compareOrdersNewestFirst_);
 
@@ -105,6 +127,40 @@ function actionListOrders_(user, payload) {
 
   putListCache_(cacheKey, result);
   return result;
+}
+
+/**
+ * Milestone 3 / 3.4 — order-level fields the free-text search checks
+ * directly, plus a fallback to `lineMatchIds` for anything only findable on
+ * a line (line `description`).
+ *
+ * Security fix, 2026-08-31: `po` and `customer` are only checked when this
+ * user's `visible_fields` actually includes them — same predicate
+ * (`fieldVisible_`) already used to decide whether to render/trust these
+ * fields elsewhere in this file. `orderId` is always checked: it is always
+ * returned to every caller regardless of visible_fields (see
+ * listCardView_'s "always identifiable" comment), so searching by it leaks
+ * nothing a role couldn't already see.
+ */
+function matchesSearch_(row, query, lineMatchIds, user) {
+  var haystacks = [row.orderId];
+  if (fieldVisible_(user, 'po')) haystacks.push(row.po);
+  if (fieldVisible_(user, 'customer')) haystacks.push(row.customer);
+  for (var i = 0; i < haystacks.length; i++) {
+    if (String(haystacks[i] || '').toLowerCase().indexOf(query) >= 0) return true;
+  }
+  return !!lineMatchIds[row.orderId];
+}
+
+/** Distinct orderIds with at least one line whose description matches `query`. */
+function searchLineOrderIds_(query) {
+  var ids = {};
+  readAll_(SHEETS.ORDER_LINES).forEach(function (line) {
+    if (String(line.description || '').toLowerCase().indexOf(query) >= 0) {
+      ids[line.orderId] = true;
+    }
+  });
+  return ids;
 }
 
 /** Trim + lowercase for a loose equality filter; status keeps its case
@@ -552,12 +608,12 @@ function bumpOrdersVersion_() {
   }
 }
 
-function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter) {
+function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery) {
   var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
-  // Milestone 3 / 3.2-3.3: fold every filter into the key so a filtered and an
+  // Milestone 3 / 3.2-3.4: fold every filter into the key so a filtered and an
   // unfiltered (or differently-filtered) request for the same page never
   // collide on the same cache entry. safeToken_ keeps arbitrary customer/
-  // createdBy text from breaking the key's own delimiter structure.
+  // createdBy/search text from breaking the key's own delimiter structure.
   var f = (dateFilter && (dateFilter.fromTime !== null || dateFilter.toTime !== null))
     ? (':f' + (dateFilter.fromTime === null ? '' : dateFilter.fromTime) +
        '-' + (dateFilter.toTime === null ? '' : dateFilter.toTime))
@@ -565,12 +621,13 @@ function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilte
   var c = customerFilter ? (':c' + safeToken_(customerFilter)) : '';
   var st = statusFilter ? (':st' + safeToken_(statusFilter)) : '';
   var cb = createdByFilter ? (':cb' + safeToken_(createdByFilter)) : '';
+  var q = searchQuery ? (':q' + safeToken_(searchQuery)) : '';
   return CACHE.LIST_KEY_PREFIX +
          'v' + version +
          ':u' + safeEmail +
          ':p' + page +
          ':s' + pageSize +
-         f + c + st + cb;
+         f + c + st + cb + q;
 }
 
 /** Cache-key-safe token: anything not alphanumeric/@._- collapses to '_'. */

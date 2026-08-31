@@ -34,10 +34,20 @@
     // each field; they combine as AND. Kept separate from the list cache:
     // any change resets orders/loadedAt so the next fetch always goes to the
     // API, filters included.
-    filters: { month: '', customer: '', status: '', createdBy: '' },
+    filters: { month: '', customer: '', status: '', createdBy: '', q: '' },
+    // Milestone 3 / 3.4 fix — the LIVE text of the search box, separate from
+    // state.filters.q (the last value actually searched for). Every repaint
+    // (toggling the filter panel, "Làm mới", background refreshes...)
+    // re-renders the search input's value from this, never from
+    // state.filters.q directly, so nothing you're mid-typing gets wiped by
+    // an unrelated repaint. See submitSearch().
+    searchDraft: '',
     // Milestone 3 / 3.3 — createdBy dropdown data (view_all_orders only).
     // null = not fetched yet; [] is a valid "nobody yet" answer.
     creators: null, creatorsLoading: false,
+    // Milestone 3 / 3.2-3.4 UI, "Bảng lọc thu gọn" — purely a display toggle
+    // for the panel of dropdowns; never read by fetchOrders()/listPayload().
+    filterPanelOpen: false,
     order: null, lines: [],
     editing: false, hiddenMoney: false, bound: false,
     // Milestone 2.5c follow-up — one order-detail mutation in flight at a
@@ -224,6 +234,7 @@
       root.addEventListener('click', onClick);
       root.addEventListener('input', onInput);
       root.addEventListener('blur', onBlur, true);
+      root.addEventListener('keydown', onKeydown);
       state.bound = true;
     }
     showList();
@@ -305,13 +316,36 @@
     if (state.filters.customer) payload.customer = state.filters.customer;
     if (state.filters.status) payload.status = state.filters.status;
     if (state.filters.createdBy) payload.createdBy = state.filters.createdBy;
+    if (state.filters.q) payload.q = state.filters.q;
     return payload;
   }
 
   function hasActiveFilters() {
     var f = state.filters;
-    return !!(f.month || f.customer || f.status || f.createdBy);
+    return !!(f.month || f.customer || f.status || f.createdBy || f.q);
   }
+
+  /**
+   * Milestone 3 / 3.4 UI fix, Phong's spec 2026-08-31:
+   *   (a) empty search box → button disabled
+   *   (b) box matches the already-applied query → button disabled (nothing
+   *       new to search for)
+   *   (c) box holds a different, non-empty query → button enabled
+   * Read at paint time (drives the `disabled` attribute) AND on every
+   * keystroke (onInput toggles the live button directly — see below) so the
+   * two never drift.
+   */
+  function canSubmitSearch() {
+    var draft = (state.searchDraft || '').trim();
+    return !!draft && draft !== (state.filters.q || '');
+  }
+
+  /** Minimal magnifier glass, matches the app's line-icon-free style —
+   *  currentColor so .btn-icon's CSS (brand when enabled, muted when
+   *  disabled) drives its color, no separate SVG fill/stroke to keep in sync. */
+  var SEARCH_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.2" y2="16.2"></line></svg>';
 
   /**
    * Milestone 3 / 3.3 — createdBy dropdown data. Fetched once, lazily, only
@@ -380,7 +414,12 @@
    */
   function applyFilters(next) {
     var merged = Object.assign({}, state.filters, next || {});
-    var changed = ['month', 'customer', 'status', 'createdBy'].some(function (k) {
+    // Bug found live 2026-08-31: 'q' was missing from this list, so any
+    // call that only changed the search query (submitSearch(), the "✕" on
+    // the search chip) saw `changed === false` and returned before ever
+    // updating state.filters or re-fetching — the enabled, clickable search
+    // button did nothing because THIS check silently no-op'd it.
+    var changed = ['month', 'customer', 'status', 'createdBy', 'q'].some(function (k) {
       return merged[k] !== state.filters[k];
     });
     if (!changed) return;
@@ -396,7 +435,10 @@
   }
 
   function clearFilters() {
-    applyFilters({ month: '', customer: '', status: '', createdBy: '' });
+    // Same bug's other half: 'q' was missing here too, so "Xóa lọc" cleared
+    // every dropdown filter but left the search query actually applied
+    // (state.filters.q) untouched, even though the chip/input looked cleared.
+    applyFilters({ month: '', customer: '', status: '', createdBy: '', q: '' });
   }
 
   /**
@@ -540,33 +582,86 @@
   }
 
   /**
-   * Milestone 3 / 3.2 — the month filter bar.
+   * Milestone 3 / 3.2-3.4 — "Bảng lọc thu gọn" + "Thẻ đang áp dụng" (Phong's
+   * choice, 2026-08-31, over 4 sketched options): search box always visible;
+   * a "Bộ lọc" toggle (state.filterPanelOpen, UI-only — never triggers a
+   * fetch by itself) expands a stacked panel of dropdowns instead of
+   * cramming everything into one wrapping row; once filters are applied
+   * they show as removable chips under the search box, so clearing just
+   * "Yamato" doesn't require reopening the panel to hunt for its dropdown.
    *
    * A native <input type="month"> opens a full DATE calendar on most
    * browsers/phones (day grid, just no day picked) for a filter that is only
-   * ever a month — Phong's call, 2026-08-31: two plain dropdowns (month +
-   * year) read as "pick a month" immediately and never show a day grid.
-   * Explicit "Lọc" button rather than filtering on every change: the API
-   * call has real latency (Apps Script), so filtering is a deliberate
-   * action, same as "Làm mới". "Xóa lọc" only appears once a filter is active.
+   * ever a month — two plain dropdowns (month + year) read as "pick a
+   * month" immediately and never show a day grid.
    */
   function filterBarHtml() {
     var month = state.filters.month || '';
     var parts = month.split('-');
     var selMonth = parts[0] ? parts[1] : '';
     var selYear = parts[0] ? parts[0] : '';
+    var active = hasActiveFilters();
 
     return '' +
       '<div class="list-filter">' +
-        '<label class="list-filter-label" for="f-filter-month">Tháng</label>' +
-        '<select id="f-filter-month">' + monthOptionsHtml(selMonth) + '</select>' +
-        '<select id="f-filter-year">' + yearOptionsHtml(selYear) + '</select>' +
-        '<select id="f-filter-customer">' + customerOptionsHtml(state.filters.customer) + '</select>' +
-        '<select id="f-filter-status">' + statusOptionsHtml(state.filters.status) + '</select>' +
-        creatorFilterHtml() +
-        '<button type="button" class="btn btn-filter" data-act="apply-filter">Lọc</button>' +
-        (hasActiveFilters() ? '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' : '') +
+        '<div class="list-filter-row">' +
+          '<input type="search" id="f-filter-q" class="list-filter-q" placeholder="Tìm mã đơn, PO, khách hàng, mô tả…" ' +
+            'value="' + T.esc(state.searchDraft || '') + '">' +
+          '<button type="button" class="btn-icon" data-act="submit-search" aria-label="Tìm kiếm"' +
+            (canSubmitSearch() ? '' : ' disabled') + '>' + SEARCH_ICON_SVG + '</button>' +
+          '<button type="button" class="filter-toggle' + (active ? ' has-active' : '') + '" data-act="toggle-filter-panel">' +
+            (active ? '<span class="filter-dot"></span>' : '') + 'Bộ lọc' +
+          '</button>' +
+        '</div>' +
+        chipsHtml() +
+        (state.filterPanelOpen ? '' +
+          '<div class="filter-panel">' +
+            '<div class="filter-panel-pair">' +
+              '<select id="f-filter-month">' + monthOptionsHtml(selMonth) + '</select>' +
+              '<select id="f-filter-year">' + yearOptionsHtml(selYear) + '</select>' +
+            '</div>' +
+            (fieldAllowed_('customer') ? '<select id="f-filter-customer">' + customerOptionsHtml(state.filters.customer) + '</select>' : '') +
+            (fieldAllowed_('status') ? '<select id="f-filter-status">' + statusOptionsHtml(state.filters.status) + '</select>' : '') +
+            creatorFilterHtml() +
+            '<div class="filter-panel-actions">' +
+              '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' +
+              '<button type="button" class="btn btn-filter" data-act="apply-filter">Áp dụng</button>' +
+            '</div>' +
+          '</div>'
+        : '') +
       '</div>';
+  }
+
+  /**
+   * One removable chip per active filter. `data-key` says which
+   * `state.filters` field(s) to blank when its ✕ is clicked — month/year are
+   * one filter (`month`) even though they're two dropdowns.
+   */
+  function chipsHtml() {
+    var chips = [];
+    if (state.filters.month) {
+      var parts = state.filters.month.split('-');
+      chips.push({ key: 'month', label: 'Tháng ' + parseInt(parts[1], 10) + '/' + parts[0] });
+    }
+    if (state.filters.customer) {
+      chips.push({ key: 'customer', label: state.filters.customer });
+    }
+    if (state.filters.status) {
+      chips.push({ key: 'status', label: statusLabel(state.filters.status) });
+    }
+    if (state.filters.createdBy) {
+      var creator = (state.creators || []).filter(function (c) { return c.email === state.filters.createdBy; })[0];
+      chips.push({ key: 'createdBy', label: creator ? creator.displayName : state.filters.createdBy });
+    }
+    if (state.filters.q) {
+      chips.push({ key: 'q', label: 'Tìm: "' + state.filters.q + '"' });
+    }
+    if (!chips.length) return '';
+    return '<div class="chip-row">' + chips.map(function (c) {
+      return '<span class="chip">' + T.esc(c.label) +
+        '<button type="button" data-act="remove-filter" data-key="' + c.key + '" aria-label="Bỏ lọc ' + T.esc(c.label) + '">✕</button>' +
+      '</span>';
+    }).join('') + '</div>';
   }
 
   /** Milestone 3 / 3.3. Empty option is always "Tất cả khách hàng" — unlike
@@ -1208,6 +1303,13 @@
         var customerSel = root.querySelector('#f-filter-customer');
         var statusSel = root.querySelector('#f-filter-status');
         var createdBySel = root.querySelector('#f-filter-createdBy');
+        // Phong's spec 2026-08-31 (2d): the dropdown panel's "Áp dụng" is
+        // independent of the search box. A query typed but never submitted
+        // via the 🔍 button/Enter is discarded here, not silently applied —
+        // revert the visible text to whatever was last actually searched.
+        state.searchDraft = state.filters.q;
+        state.filterPanelOpen = false;
+        paintList(); // close the panel immediately even if applyFilters below is a no-op
         applyFilters({
           month: (mv && yv) ? (yv + '-' + mv) : '',
           customer: customerSel ? customerSel.value : '',
@@ -1216,9 +1318,31 @@
         });
         break;
       }
+      case 'submit-search':
+        if (canSubmitSearch()) submitSearch();
+        break;
       case 'clear-filter':
+        state.searchDraft = '';
+        state.filterPanelOpen = false;
+        paintList();
         clearFilters();
         break;
+      case 'toggle-filter-panel':
+        // Toggling the panel is display-only — it must never touch
+        // state.filters or state.searchDraft, only how they're rendered.
+        state.filterPanelOpen = !state.filterPanelOpen;
+        paintList();
+        break;
+      case 'remove-filter': {
+        // The month chip clears both dropdowns even though only `month` is
+        // one state.filters key; every other chip maps 1:1.
+        var key = target.getAttribute('data-key');
+        if (key === 'q') state.searchDraft = '';
+        var patch = {};
+        patch[key] = '';
+        applyFilters(patch);
+        break;
+      }
     }
   }
 
@@ -1273,9 +1397,47 @@
   }
 
   function onInput(e) {
+    // Milestone 3 / 3.4 fix — keep the live search text so any unrelated
+    // repaint (toggling the filter panel, "Làm mới"...) doesn't wipe it;
+    // see state.searchDraft's own comment. This does NOT search — only
+    // submitSearch() (Enter or the 🔍 button) does that. The button's
+    // enabled state is toggled directly on the element (NOT via paintList(),
+    // which would tear down and rebuild the input on every keystroke and
+    // throw away focus/cursor position mid-typing).
+    if (e.target && e.target.id === 'f-filter-q') {
+      state.searchDraft = e.target.value;
+      var searchBtn = root.querySelector('[data-act="submit-search"]');
+      if (searchBtn) searchBtn.disabled = !canSubmitSearch();
+      return;
+    }
     var cls = e.target.classList;
     if (!cls) return;
     if (cls.contains('money') || cls.contains('l-qty') || cls.contains('l-vatRate')) recalc();
+  }
+
+  /** Milestone 3 / 3.4 — Enter in the search box applies filters, same as
+   *  clicking "Lọc", without needing a separate keyup/debounce dance. */
+  function onKeydown(e) {
+    // Fix, found live 2026-08-31: Enter used to click "Áp dụng", a button
+    // that only exists in the DOM while the filter panel is open — with the
+    // panel closed (the default state) Enter did nothing at all. Search must
+    // work on its own, panel open or not.
+    if (e.key === 'Enter' && e.target && e.target.id === 'f-filter-q') {
+      e.preventDefault();
+      if (canSubmitSearch()) submitSearch();
+    }
+  }
+
+  /**
+   * Milestone 3 / 3.4 fix — the one place that actually commits a search.
+   * Reads the input directly (freshest value) rather than state.searchDraft,
+   * which onInput keeps in sync but could theoretically lag a fast Enter.
+   */
+  function submitSearch() {
+    var input = root.querySelector('#f-filter-q');
+    var q = (input ? input.value : state.searchDraft || '').trim();
+    state.searchDraft = q;
+    applyFilters({ q: q });
   }
 
   /** Reformat money on the way out of a field, so 1200000 reads as 1.200.000. */

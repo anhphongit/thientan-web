@@ -212,12 +212,118 @@ matching both).
 
 **Bug found live 2026-08-31, fixed same day:** the created-by dropdown was stuck on "Đang tải người tạo…" forever for an admin account. Root cause: `apps/web/ui/ViewsOrders.html` calls `T.call('apiListOrderCreators', {})`, which is `google.script.run.apiListOrderCreators` — a function that has to exist in the **web** Apps Script project (`apps/web/Main.gs`), separate from the API action (`Router.gs`) it forwards to. The API side (`actionListOrderCreators_`) was added and offline-tested, but the web-side pass-through was never written, so `google.script.run` failed with "function not found" and the promise never resolved. Fixed by adding `apiListOrderCreators()` to `Main.gs` alongside the other `apiList*`/`apiGet*` pass-throughs. The offline test harness only loads `apps/api/*.gs` (Config/Permissions/Orders), so it cannot catch a missing web-side wrapper — this class of bug only shows up live. `BUILD` is `web-2026-08-31-filters33-fix`.
 
+**3.4 built 2026-08-31.** Free-text search (`q`), combinable (AND) with every
+3.2/3.3 filter and still ownership-scoped. `matchesSearch_` checks `orderId`/
+`po`/`customer` directly; `searchLineOrderIds_` does one full `OrderLines`
+read (only when `q` is set) to also match line `description`, same "cheap at
+this volume" call as D4. Client: a search box in the filter bar, applied on
+"Lọc" click or Enter. 21 more offline assertions (52 total in
+`orders-filter.test.js`, 309 across all suites). `BUILD` is
+`api-2026-08-31-search34` / `web-2026-08-31-search34`.
+
+**Milestone 3's list/filter/search/status slice (3.1-3.4) is now feature-complete
+and unverified live.** Recommend one live pass covering all of 3.1-3.4 together
+before starting 3.5 (`changeStatus` + `StatusHistory`), since 3.5 is a different
+kind of change (a write, not a read) and any filter/search bug found live is
+cheaper to fix before more surface area lands on top of it.
+
+**Filter bar UI redesigned 2026-08-31, Phong's call.** The inline row of
+6+ controls (search + month/year + customer + status + created-by) wrapped
+messily on mobile. Sketched 4 layout options as an artifact
+(collapsible panel / bottom-sheet modal / chips+modal / tidied inline row);
+Phong picked "Bảng lọc thu gọn" + "Thẻ đang áp dụng": search box + a "Bộ lọc"
+toggle button (dot when a filter is active) always visible; the dropdowns
+live in a panel that only shows when toggled open (`state.filterPanelOpen`,
+UI-only, never triggers a fetch by itself); once applied, each filter shows
+as a removable chip under the search box (`chipsHtml()`) — clearing just one
+filter no longer means reopening the panel to find its dropdown. No API
+change. `BUILD` is `web-2026-08-31-filterui`.
+
+**Bug found live 2026-08-31, fixed same day: search was effectively unusable.**
+Three compounding problems, all client-only:
+1. The "Áp dụng" button that Enter tried to click only exists in the DOM
+   while the filter panel is open — with the panel closed (the default),
+   Enter did nothing, and there was no other way to submit a search at all.
+2. Toggling the filter panel (and any other repaint — "Làm mới", a
+   background refresh) fully re-rendered the search input's `value` from
+   `state.filters.q`, which only updates when a search is actually applied
+   — so anything typed but not yet submitted was silently wiped by an
+   unrelated repaint (e.g. just opening the filter panel).
+3. There was no dedicated way to trigger a search independent of the
+   dropdown panel's "Áp dụng".
+
+Fixed by splitting the search box's live text into its own
+`state.searchDraft` (updated on every keystroke via `onInput`, rendered as
+the input's value — never `state.filters.q` directly) from the last
+actually-searched value in `state.filters.q`. A new `submitSearch()` is the
+one place that commits a search: wired to Enter, to a new always-visible 🔍
+button next to the search box (`data-act="submit-search"`), and reused by
+the panel's "Áp dụng" (which now also syncs `searchDraft`). Toggling the
+panel now only ever flips `state.filterPanelOpen` — it never touches
+`state.filters` or `state.searchDraft`, so it can no longer wipe anything.
+`BUILD` is `web-2026-08-31-searchfix`.
+
+**Search behavior refined 2026-08-31, Phong's exact spec:** the 🔍 button
+now replaces the placeholder emoji with an inline SVG magnifier
+(`SEARCH_ICON_SVG`, `currentColor` so `.btn-icon`'s CSS drives brand/muted
+coloring — matches the app's existing bordered-icon-button look, no more
+mismatched emoji). Behavior, via `canSubmitSearch()` (empty draft, or draft
+equal to the already-applied `state.filters.q`, ⇒ disabled; anything else
+⇒ enabled), checked on every keystroke (toggles the button directly, NOT
+via a full repaint — a repaint mid-typing would tear down the input and
+drop focus/cursor position) and re-checked before Enter or the button
+actually act: 2a (typing enables, clearing disables), 2b (re-searching the
+same committed query stays disabled), 2c (click while enabled executes the
+search and adds its chip). 2d — the dropdown panel's "Áp dụng" no longer
+touches the search box at all; a query typed but never submitted is
+discarded (reverted to the last actually-applied query) the moment "Áp
+dụng" is clicked, not silently applied alongside the dropdown filters.
+`BUILD` is `web-2026-08-31-searchfix2`.
+
+**Bug found live 2026-08-31, fixed same day: search button did nothing when
+clicked.** `applyFilters()`'s own "did anything actually change?" check
+(`changed = ['month','customer','status','createdBy'].some(...)`) never
+listed `'q'` — so any call that only changed the search query (`submitSearch()`,
+and the search chip's "✕") saw `changed === false` and returned immediately,
+before ever updating `state.filters` or re-fetching. The button was correctly
+enabled and correctly clickable; the click handler itself silently no-op'd
+one line deeper. Same gap existed in `clearFilters()` — "Xóa lọc" cleared
+every dropdown but left the search query still actually applied even though
+the UI looked cleared. Fixed by adding `'q'` to both. `BUILD` is
+`web-2026-08-31-searchfix3`.
+
+**Security bug found live 2026-08-31, fixed same day: search/filters leaked
+fields outside `visible_fields`.** Phong caught it directly: a role blind to
+`po` could type a PO number into search and get a matching order back —
+proving that PO exists and which order/customer it belongs to — even though
+`po` never renders on their card (`filterVisibleFields_` strips it from the
+response, but only after the search/filter had already used it to decide
+which rows to return in the first place). Same gap in the 3.3 customer/status
+dropdown filters: filtering by a customer or status a role can't see still
+worked, silently narrowing the list by a field that's invisible to them.
+
+Fixed in `actionListOrders_`: `customerFilter`/`statusFilter` are only
+honoured when `fieldVisible_(user, 'customer'/'status')` — otherwise ignored,
+same pattern `createdBy` already used for `view_all_orders`. `matchesSearch_`
+now takes `user` and only checks `po`/`customer` when visible; line
+`description` search (`searchLineOrderIds_`) is skipped entirely (no
+`OrderLines` read at all) unless `description` is visible. `orderId` is
+always checked — it's always returned regardless of `visible_fields` (see
+`listCardView_`'s "always identifiable"), so it leaks nothing new. Client:
+the customer/status dropdowns are no longer rendered at all for a role that
+can't see those fields (`fieldAllowed_`), instead of being drawn but
+silently doing nothing server-side. 8 new offline assertions (60 total in
+`orders-filter.test.js`, 317 across all suites) — including a role blind to
+po/customer/status/description confirming zero leakage while orderId search
+and the admin (`*`) path both still work exactly as before. `BUILD` is
+`api-2026-08-31-searchleak` / `web-2026-08-31-searchleak`.
+
 | # | Task | Scope | How Phong verifies it | Status |
 |---|------|-------|----------------------|--------|
 | 3.1 | Server-side pagination | Absorbed into Milestone 2.5 task P4 | Done via P4 | ☑ |
 | 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☑ |
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☑ |
-| 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☐ |
+| 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☑ |
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☐ |
 | 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☐ |
 | 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☐ |

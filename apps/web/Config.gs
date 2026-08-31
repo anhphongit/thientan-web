@@ -10,7 +10,7 @@
  */
 
 /** Bump on every meaningful web change. Shown in the footer when DEV_MODE is on. */
-var BUILD = 'web-2026-08-31-filters33-fix2';
+var BUILD = 'web-2026-08-31-searchleak';
 
 var PROP = {
   API_URL: 'API_URL',

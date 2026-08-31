@@ -237,4 +237,134 @@ console.log('\n12. actionListOrderCreators_ — dropdown data source');
      forStaff.creators.length, 0);
 }
 
+
+/* ---------- 13. free-text search: order-level fields ---------- */
+console.log('\n13. Free-text search matches orderId, po, customer (substring)');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, { order: order({ customer: 'Yamato', po: 'PO-4600041936' }), lines: [line()] }); // 0001
+  env.actionCreateOrder_(admin, { order: order({ customer: 'Nhựa Duy Tân', po: 'ABC' }), lines: [line()] });     // 0002
+
+  const byPo = env.actionListOrders_(admin, { q: '4600041936' });
+  eq('substring match on po', byPo.total, 1);
+  eq('matched the right order', byPo.orders[0].orderId, 'DH-2026-0001');
+
+  const byCustomer = env.actionListOrders_(admin, { q: 'duy tân' });
+  eq('case-insensitive substring match on customer', byCustomer.total, 1);
+  eq('matched the right order', byCustomer.orders[0].orderId, 'DH-2026-0002');
+
+  const byOrderId = env.actionListOrders_(admin, { q: 'dh-2026-0002' });
+  eq('case-insensitive match on orderId itself', byOrderId.total, 1);
+
+  const none = env.actionListOrders_(admin, { q: 'không có gì khớp' });
+  eq('no match returns nothing', none.total, 0);
+}
+
+/* ---------- 14. free-text search: line description ---------- */
+console.log('\n14. Free-text search also matches a line description');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, {
+    order: order({ customer: 'Yamato' }),
+    lines: [line({ description: 'Ống nhựa PVC phi 90' }), line({ description: 'Keo dán ống' })]
+  }); // 0001
+  env.actionCreateOrder_(admin, {
+    order: order({ customer: 'Yamato' }),
+    lines: [line({ description: 'Van bi inox' })]
+  }); // 0002
+
+  const res = env.actionListOrders_(admin, { q: 'pvc' });
+  eq('one order has a line matching "pvc"', res.total, 1);
+  eq('it is the order with that line', res.orders[0].orderId, 'DH-2026-0001');
+
+  const res2 = env.actionListOrders_(admin, { q: 'inox' });
+  eq('the other order matches on its own line', res2.total, 1);
+  eq('it is the second order', res2.orders[0].orderId, 'DH-2026-0002');
+}
+
+/* ---------- 15. search combines with the other filters (AND) ---------- */
+console.log('\n15. Search combines with date/customer/status/createdBy as AND');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  const staff = user('staff@x.com', { view_all_orders: false });
+
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0001, matches everything
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'draft' }), lines: [line({ description: 'Ống nhựa PVC' })] });     // 0002, wrong status
+  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0003, wrong creator
+
+  const res = env.actionListOrders_(admin,
+    { month: '2026-07', customer: 'Yamato', status: 'confirmed', createdBy: 'admin@x.com', q: 'pvc' });
+  eq('only the order matching search AND every other filter', res.total, 1);
+  eq('it is DH-2026-0001', res.orders[0].orderId, 'DH-2026-0001');
+
+  // A staff account's search still only ever searches within their own scope.
+  const staffRes = env.actionListOrders_(staff, { q: 'pvc' });
+  eq('staff search is still ownership-scoped', staffRes.total, 1);
+  eq('their own order only', staffRes.orders[0].orderId, 'DH-2026-0003');
+}
+
+/* ---------- 16. whitespace-only / empty query means "no search" ---------- */
+console.log('\n16. An empty or whitespace-only query is not a filter at all');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+
+  const blank = env.actionListOrders_(admin, { q: '   ' });
+  eq('whitespace-only query returns everything, unfiltered', blank.total, 2);
+
+  const missing = env.actionListOrders_(admin, {});
+  eq('omitted query also returns everything', missing.total, 2);
+}
+
+
+/* ---------- 17. permission leak fix: customer/status filters, and search,
+   must be silently ignored for a role blind to that field ---------- */
+console.log('\n17. Filters/search never leak a field outside visible_fields');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  // Blind to po, customer, status, description — sees only the base fields.
+  const blind = user('blind@x.com', {
+    visible_fields: ['orderId', 'orderDate', 'lineId', 'lineNo', 'qty']
+  });
+
+  env.actionCreateOrder_(admin, {
+    order: order({ customer: 'Yamato', po: 'PO-SECRET-123', status: 'confirmed' }),
+    lines: [line({ description: 'Ống nhựa PVC bí mật' })]
+  }); // 0001
+  env.actionCreateOrder_(admin, {
+    order: order({ customer: 'Nhựa Duy Tân', po: 'OTHER', status: 'draft' }),
+    lines: [line({ description: 'Van bi inox' })]
+  }); // 0002
+
+  const byCustomer = env.actionListOrders_(blind, { customer: 'Yamato' });
+  eq('customer filter ignored for a role blind to customer — sees everything', byCustomer.total, 2);
+
+  const byStatus = env.actionListOrders_(blind, { status: 'confirmed' });
+  eq('status filter ignored for a role blind to status — sees everything', byStatus.total, 2);
+
+  const byPoSearch = env.actionListOrders_(blind, { q: 'SECRET-123' });
+  eq('search on po does NOT leak a match for a role blind to po', byPoSearch.total, 0);
+
+  const byCustomerSearch = env.actionListOrders_(blind, { q: 'yamato' });
+  eq('search on customer does NOT leak a match for a role blind to customer', byCustomerSearch.total, 0);
+
+  const byDescSearch = env.actionListOrders_(blind, { q: 'bí mật' });
+  eq('search on line description does NOT leak for a role blind to description', byDescSearch.total, 0);
+
+  const byOrderIdSearch = env.actionListOrders_(blind, { q: 'dh-2026-0001' });
+  eq('search by orderId itself still works — orderId is always visible', byOrderIdSearch.total, 1);
+
+  // Sanity: the SAME filters/search all still work normally for admin ('*').
+  const adminCustomer = env.actionListOrders_(admin, { customer: 'Yamato' });
+  eq('admin (visible_fields *) customer filter still works', adminCustomer.total, 1);
+  const adminSearch = env.actionListOrders_(admin, { q: 'SECRET-123' });
+  eq('admin (visible_fields *) po search still works', adminSearch.total, 1);
+}
+
 H.done();
