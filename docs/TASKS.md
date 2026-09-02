@@ -325,7 +325,7 @@ and the admin (`*`) path both still work exactly as before. `BUILD` is
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☑ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☑ |
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☑ |
-| 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☐ |
+| 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☑ |
 | 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☐ |
 
 ---
@@ -424,6 +424,135 @@ also carries `StatusHistory` and server-computed flags
 the next open just re-fetches cleanly instead of guessing at a merge.
 `BUILD` is now `web-2026-08-31-detailcache-fix`. No server or test changes;
 345 assertions, all still passing.
+
+## Milestone 3, task 3.6 — admin approve
+
+**Built 2026-08-31.** `actionApproveOrder_` (`apps/api/Orders.gs`) is a new
+one-purpose action, the same shape as `actionChangeStatus_`: takes just
+`{orderId}`, not a full order payload. `requirePermission_('approve_order')`
+→ `requireOwnershipOrAll_` (consistent with every other order action here,
+even though in practice every preset granting `approve_order` also grants
+`view_all_orders` — see `docs/PERMISSIONS.md` §3, only Admin has it checked)
+→ refuses outright if `row.approvedBy` is already set (checked once before
+the lock, and re-checked on the freshly re-read row INSIDE the lock, so two
+admins approving the same order within the same instant can't both succeed
+and silently overwrite each other's stamp) → `updateRecord_` sets
+`approvedBy`/`approvedAt`/`updatedBy`/`updatedAt` → `bumpOrdersVersion_`.
+Approval is one-way: there is no `unapprove` action, matching the spec's
+"Admin approves; a staff account cannot" — nothing here revokes one.
+
+`listCardView_` and `buildOrderResponse_` both gain `canApprove` — same
+`mayAct_(user, row, 'approve_order')` shape as `canEdit`/`canDelete`/
+`canChangeStatus`, additionally ANDed with `!row.approvedBy` so the flag (and
+therefore the button) disappears for good the moment an order is approved,
+for every user including the approver themselves.
+
+Client: a "Duyệt đơn hàng" button appears in the detail view's action row
+(`apps/web/ui/ViewsOrders.html`, `actionsHtml`) whenever
+`state.order.canApprove` is true, styled `.btn-ok` (an outline in `--c-ok`,
+not `--c-danger`, so it doesn't read as destructive next to "Xoá đơn hàng").
+Clicking it reveals an inline confirm row (`confirm-box confirm-ok`, no
+native `window.confirm` — that would block the whole Apps Script iframe),
+same pattern as delete. Confirming calls the new `apiApproveOrder`
+pass-through (`apps/web/Main.gs`) and — deliberately not optimistic — only
+updates `state.order` from the server's actual response
+(`res.approvedBy`/`res.approvedAt`), since the server is what stamps the
+timestamp and resolves any approve-approve race. On success it also patches
+the matching card in `state.orders` (`canApprove = false`) and deletes any
+cached `orderCache[orderId]` entry, the same two things `changeStatusQuick`
+does after a status change — see the detail-cache bug fixed just above.
+Once approved, `approvedNoteHtml` shows "Đã duyệt bởi &lt;email&gt; ·
+&lt;date&gt;" at the top of the detail view; gated by
+`has(o, 'approvedBy')`, so a role without that field in `visible_fields`
+never receives it from the server and the note simply doesn't render —
+same pattern as every other optional field on this screen.
+
+21 new offline assertions in `tools/offline-tests/orders-approve.test.js`
+covering the happy path, permission + ownership enforcement, the
+already-approved refusal (including a second, different admin), an unknown
+orderId, and `canApprove` on both list cards and the detail response
+(ownership-aware, flips off once approved) — 366 assertions across all
+suites, all passing. `BUILD` is `api-2026-08-31-approveorder` /
+`web-2026-08-31-approveorder`. Not yet verified live.
+
+## Milestone 3 — reusable confirm popup (`TT.confirm()`)
+
+**Built 2026-08-31.** Replaced every inline `.confirm-box` in
+`apps/web/ui/ViewsOrders.html` (delete order, approve order, discard-and-
+reload) with one shared popup, `TT.confirm()`, added to the app shell
+(`apps/web/ui/App.html`) rather than to ViewsOrders — it lives on
+`window.TT` alongside `call`/`can`/`esc`/`toast`, so any future view module
+(Inventory, Users, Statistics — currently stub files) can use the exact
+same popup without depending on Orders code at all.
+
+**Shape.** `TT.confirm({title, message, summary, okLabel, cancelLabel,
+danger})` returns `Promise<boolean>`, resolving `true`/`false` on the
+user's choice (backdrop click and Escape both resolve `false`). Still not
+`window.confirm` — same reason as the inline pattern it replaces: a native
+dialog blocks the whole Apps Script iframe (documented at the call site in
+`App.html`, same as the old comment in ViewsOrders.html it succeeds). A
+single `#confirm-modal` node lives in `ui/Index.html` (a `.modal`/
+`.modal-card` pair — the same fixed, dimmed-overlay convention the existing
+`#switch-modal` account-switcher already used, not duplicated CSS), filled
+in per call and torn down (listeners removed) on every resolution so
+nothing leaks between calls.
+
+**UI, per the "S2" option the user picked out of several rounds of Artifact
+mockups**: a tinted icon-band header (green for a safe one-way action,
+red for `danger: true`), then — when the caller passes `summary` — a mini
+order-card block (id, status pill, customer, meta line, total) in the same
+visual language as a real list card, so the user is confirming against the
+*specific* record on screen rather than reading a generic sentence. Useful
+when the list is filtered/scrolled and it's not obvious at a glance which
+row "this one" is. `summary` is entirely optional per field — a caller
+without money-visible fields just omits `money`, nothing breaks.
+
+**Migrated call sites** (`ViewsOrders.html`): `confirmDelete()` (danger,
+full summary via a new `orderSummaryFor(order)` helper — respects
+`state.hiddenMoney` and `has()` the same way the rest of the screen does,
+so a role without visible money fields simply doesn't get a money line),
+`confirmApprove()` (safe, same summary), `confirmReload()` (danger — this
+one discards unsaved local edits, not server data, but the friction should
+still match "you'll lose something"). All three replace what used to be an
+`ask-X` click revealing an inline row, then a separate `do-X`/`cancel-X`
+click — now a single `ask-X` click opens the popup and its own two buttons
+are the only next step; the old `toggleConfirm`/`toggleApproveConfirm`/
+`toggleReloadConfirm` helper functions and the `.confirm-box` CSS rules
+they toggled are gone.
+
+**New confirm, not previously present**: quick status change from the list
+pill (`changeStatusQuick`) was a one-click `<select>` firing
+`apiChangeStatus` immediately, no undo, no confirm at all — found during
+this review as the one action that plausibly needed a confirm and didn't
+have one. Now shows a lightweight `TT.confirm()` (no summary card,
+deliberately — this control's whole point since task 3.5 is staying a
+*quick* action, not becoming a heavy multi-step flow) with a one-line
+"A → B cho đơn X" message before calling through. Because the browser
+already commits the `<select>`'s value the instant `change` fires, a
+cancelled confirm explicitly resets `selectEl.value` back to the previous
+status without a full list repaint (nothing else in `state` changed).
+
+**Not migrated / left as-is**: removing a line from the order FORM
+(`del-line`, before Save) — local, unsaved state, reviewed and judged low-
+stakes enough to leave unconfirmed; Save itself — the safe, primary action,
+correctly unconfirmed; sign-out (`App.html`) — no specific record, a plain
+session action, judged not to need this pattern.
+
+Offline tests: `tools/offline-tests/orders-ui.test.js` updated for the new
+flow — its harness's `T` stub gained a `confirm()` that resolves `true`
+immediately and records what it was called with (`lastConfirmOpts`), so
+tests can assert the popup was asked with the right title/summary without
+a real DOM popup. Four assertions that checked a synchronous "mid-flight,
+busy-locked" window inside the old two-click ask/do pattern no longer have
+an observable equivalent now that confirming itself is a Promise (same as
+the real popup) — removed with an explanatory comment rather than faked;
+three new assertions cover the popup being asked with the right
+title/summary on reload and delete. Net: 362 assertions across all
+suites (down from 366; the busy-lock guarantees those four covered are
+still exercised elsewhere in the same test, by the save-in-flight
+assertions, which don't go through `T.confirm()`), all passing. `BUILD` is
+`web-2026-08-31-confirmpopup` (API unchanged — this is entirely
+client-side). Not yet verified live.
 
 ## Milestones 4–6
 

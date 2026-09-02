@@ -1065,6 +1065,7 @@
       '</div>' +
       (isNew ? '' : detailFreshHtml(busy)) +
       (permRo ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
+      approvedNoteHtml(o) +
       headerCardHtml(o, fieldsLocked) +
       linesCardHtml(fieldsLocked) +
       totalsHtml() +
@@ -1094,14 +1095,21 @@
           (busy ? ' disabled' : '') + '>' +
           (reloadingNow ? 'Đang tải lại…' : 'Tải lại') +
         '</button>' +
-      '</p>' +
-      '<span class="confirm-box hidden" data-role="confirm-reload">' +
-        '<span>Bỏ thay đổi chưa lưu trên màn hình và tải bản mới nhất?</span>' +
-        '<button type="button" class="btn-mini danger-link" data-act="do-reload"' +
-          (busy ? ' disabled' : '') + '>Tải lại</button>' +
-        '<button type="button" class="btn-mini" data-act="cancel-reload"' +
-          (busy ? ' disabled' : '') + '>Không</button>' +
-      '</span>';
+      '</p>';
+  }
+
+  /**
+   * Milestone 3 / 3.6 — once an order is approved, say so plainly at the
+   * top of the detail view (not just in a data column nobody scrolls to).
+   * Gated by has(o, 'approvedBy'): a role without that field in
+   * visible_fields never receives it from the server at all, so this note
+   * simply doesn't render for them — same pattern as every other optional
+   * field on this screen.
+   */
+  function approvedNoteHtml(o) {
+    if (!has(o, 'approvedBy') || !o.approvedBy) return '';
+    return '<p class="approved-note">Đã duyệt bởi ' + T.esc(o.approvedBy) +
+      (o.approvedAt ? ' · ' + T.formatDate(o.approvedAt) : '') + '</p>';
   }
 
   function detailFreshLabel() {
@@ -1270,23 +1278,28 @@
       (busy ? ' disabled' : '') + '>' +
       (savingNow ? 'Đang lưu...' : (isNew ? 'Lưu đơn hàng' : 'Lưu thay đổi')) + '</button>';
 
+    // Milestone 3 / 3.6, migrated to T.confirm() popup: one-way (canApprove
+    // is already false server-side once approvedBy is set, so the control
+    // disappears for good after a successful approve, same as the server
+    // enforces). No inline confirm markup anymore — see doApprove(), which
+    // calls the shared popup with an order-summary card.
+    var approvingNow = state.busyAction === 'approving';
+    var approve = (!isNew && state.order.canApprove)
+      ? '<button type="button" class="btn btn-ok" data-act="ask-approve"' +
+          (busy ? ' disabled' : '') + '>' +
+          (approvingNow ? 'Đang duyệt...' : 'Duyệt đơn hàng') + '</button>'
+      : '';
+
     var deletingNow = state.busyAction === 'deleting';
     var del = (!isNew && state.order.canDelete)
       ? '<button type="button" class="btn btn-danger" data-act="ask-delete"' +
           (busy ? ' disabled' : '') + '>' +
-          (deletingNow ? 'Đang xoá...' : 'Xoá đơn hàng') + '</button>' +
-        '<span class="confirm-box hidden" data-role="confirm">' +
-          '<span>Xoá hẳn đơn này?</span>' +
-          '<button type="button" class="btn-mini danger-link" data-act="do-delete"' +
-            (busy ? ' disabled' : '') + '>Xoá</button>' +
-          '<button type="button" class="btn-mini" data-act="cancel-delete"' +
-            (busy ? ' disabled' : '') + '>Không</button>' +
-        '</span>'
+          (deletingNow ? 'Đang xoá...' : 'Xoá đơn hàng') + '</button>'
       : '';
 
     return '<div class="form-actions">' + save +
       '<button type="button" class="btn" data-act="back"' +
-      (busy ? ' disabled' : '') + '>Huỷ</button>' + del + '</div>';
+      (busy ? ' disabled' : '') + '>Huỷ</button>' + approve + del + '</div>';
   }
 
   function customerDatalistHtml() {
@@ -1340,13 +1353,10 @@
         paintForm();
         break;
       case 'ask-delete':
-        toggleConfirm(true);
+        confirmDelete();
         break;
-      case 'cancel-delete':
-        toggleConfirm(false);
-        break;
-      case 'do-delete':
-        doDelete();
+      case 'ask-approve':
+        confirmApprove();
         break;
       case 'save':
         save();
@@ -1354,14 +1364,8 @@
       case 'reload-order':
         // Read-only view has nothing to lose; an editable form might have
         // unsaved typing, so confirm before discarding it.
-        if (state.editing) toggleReloadConfirm(true);
+        if (state.editing) confirmReload();
         else reloadOrder();
-        break;
-      case 'cancel-reload':
-        toggleReloadConfirm(false);
-        break;
-      case 'do-reload':
-        reloadOrder();
         break;
       case 'refresh-list':
         manualRefresh();
@@ -1426,15 +1430,43 @@
     }
   }
 
-  /** No window.confirm: a native dialog blocks the whole Apps Script iframe. */
-  function toggleConfirm(show) {
-    var box = root.querySelector('[data-role="confirm"]');
-    if (box) box.classList.toggle('hidden', !show);
+  /**
+   * Milestone 3, migrated to the T.confirm() popup — was an inline
+   * confirm-box. No window.confirm: a native dialog blocks the whole Apps
+   * Script iframe (see T.confirm's own doc comment in ui/App.html).
+   */
+  function confirmDelete() {
+    T.confirm({
+      title: 'Xoá đơn hàng?',
+      message: 'Xoá vĩnh viễn đơn này và toàn bộ dòng hàng. Không thể hoàn tác.',
+      summary: orderSummaryFor(state.order),
+      okLabel: 'Xoá đơn hàng', cancelLabel: 'Không', danger: true
+    }).then(function (ok) { if (ok) doDelete(); });
   }
 
-  function toggleReloadConfirm(show) {
-    var box = root.querySelector('[data-role="confirm-reload"]');
-    if (box) box.classList.toggle('hidden', !show);
+  /**
+   * Milestone 3 — builds the record-summary block T.confirm() shows inside
+   * the popup ("S2": a mini order-card — id, status pill, customer, meta,
+   * total — same look as a real list card, so the user recognizes exactly
+   * which order they're about to act on). Respects the same visibility
+   * rules as the rest of this screen: a field simply isn't included when
+   * the order object doesn't carry it (has()) or the user can't see money
+   * (state.hiddenMoney) — T.confirm()'s summary renderer already treats
+   * every field as optional, so omitting one here just leaves that line
+   * out of the card, nothing breaks.
+   */
+  function orderSummaryFor(o) {
+    if (!o) return null;
+    var meta = [T.formatDate(o.orderDate), o.po ? 'PO ' + o.po : ''].filter(Boolean).join(' · ');
+    return {
+      id: o.orderId,
+      statusLabel: statusLabel(o.status),
+      statusClass: statusPillClass(o.status),
+      customer: o.customer,
+      meta: meta,
+      money: (!state.hiddenMoney && has(o, 'totalIncVat'))
+        ? T.formatVnd(o.totalIncVat) + ' (có VAT)' : ''
+    };
   }
 
   /**
@@ -1444,9 +1476,17 @@
    * The escape hatch for D1's accepted risk: someone else edited this order
    * while it sat cached, or this form has just been open a while.
    */
+  function confirmReload() {
+    T.confirm({
+      title: 'Tải lại đơn hàng?',
+      message: 'Bỏ thay đổi chưa lưu trên màn hình và tải bản mới nhất.',
+      summary: orderSummaryFor(state.order),
+      okLabel: 'Tải lại', cancelLabel: 'Không', danger: true
+    }).then(function (ok) { if (ok) reloadOrder(); });
+  }
+
   function reloadOrder() {
     if (isBusy() || !state.order || !state.order.orderId) return;
-    toggleReloadConfirm(false);
     var orderId = state.order.orderId;
     var seq = viewSeq; // still viewing this order; ignore only if navigated away
     state.busyAction = 'reloading';
@@ -1552,6 +1592,26 @@
     if (!order || order.status === newStatus) return;
     var previousStatus = order.status;
 
+    // Milestone 3 — a quick confirm before firing, closing gap #4 found in
+    // the confirm-popup review: this was a one-click <select> with no undo
+    // and no confirm at all. Deliberately lightweight (no order-summary
+    // card, unlike delete/approve/reload) — it's meant to stay a QUICK
+    // action (task 3.5's original design goal), just no longer a single
+    // click with zero friction. The <select>'s value already changed to
+    // newStatus the instant the browser fired 'change' — on Không, put it
+    // back without a full paintList() (nothing else in state changed, no
+    // need to touch the rest of the list).
+    T.confirm({
+      title: 'Đổi trạng thái?',
+      message: statusLabel(previousStatus) + ' → ' + statusLabel(newStatus) + ' cho đơn ' + orderId + '.',
+      okLabel: 'Đổi trạng thái', cancelLabel: 'Không', danger: false
+    }).then(function (ok) {
+      if (!ok) { selectEl.value = previousStatus; return; }
+      doChangeStatusQuick(orderId, newStatus, order);
+    });
+  }
+
+  function doChangeStatusQuick(orderId, newStatus, order) {
     state.statusUpdatingIds[orderId] = true;
     paintList();
     T.call('apiChangeStatus', { orderId: orderId, status: newStatus })
@@ -1723,6 +1783,56 @@
         if (seq !== viewSeq) return;
         T.toast('Đã xoá đơn hàng.');
         showList();
+      })
+      .catch(function (err) {
+        state.busyAction = null;
+        if (seq !== viewSeq) return;
+        paintForm();
+        T.toast(err.message, true);
+      });
+  }
+
+  /**
+   * Milestone 3 / 3.6, migrated to the T.confirm() popup — was an inline
+   * confirm-box.
+   */
+  function confirmApprove() {
+    T.confirm({
+      title: 'Duyệt đơn hàng?',
+      message: 'Không thể hoàn tác sau khi duyệt.',
+      summary: orderSummaryFor(state.order),
+      okLabel: 'Duyệt', cancelLabel: 'Không', danger: false
+    }).then(function (ok) { if (ok) doApprove(); });
+  }
+
+  /**
+   * Milestone 3 / 3.6 — approve the order on screen. Not optimistic: the
+   * server is the source of truth for approvedBy/approvedAt (it stamps the
+   * timestamp, and re-checks for a race against a second approver inside
+   * the lock), so the form is repainted from its actual response rather
+   * than guessed at locally. Also patches the list-card cache the same way
+   * changeStatusQuick does — if this order is in state.orders, its
+   * canApprove flips off there too so "← Danh sách" doesn't show a stale
+   * still-approvable card.
+   */
+  function doApprove() {
+    if (isBusy()) return;
+    var seq = viewSeq;
+    var orderId = state.order.orderId;
+    state.busyAction = 'approving';
+    paintForm();
+    T.call('apiApproveOrder', { orderId: orderId })
+      .then(function (res) {
+        state.busyAction = null;
+        state.order.approvedBy = res.approvedBy;
+        state.order.approvedAt = res.approvedAt;
+        state.order.canApprove = false;
+        delete orderCache[orderId]; // stale otherwise, same reasoning as changeStatusQuick
+        var card = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
+        if (card) card.canApprove = false;
+        if (seq !== viewSeq) return;
+        T.toast('Đã duyệt đơn hàng.');
+        paintForm();
       })
       .catch(function (err) {
         state.busyAction = null;

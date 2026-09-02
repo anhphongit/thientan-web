@@ -9,6 +9,8 @@
     --c-brand-soft: #e8f1f7;
     --c-danger: #b42318;
     --c-ok: #157347;
+    --c-danger-soft: #fdecea;
+    --c-ok-soft: #e7f5ec;
     --r: 10px;
     --gap: 16px;
     --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
@@ -158,6 +160,40 @@
   }
   .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
   .modal-card .actions { margin-top: 18px; }
+
+  /* Milestone 3 — TT.confirm() popup (ui/App.html). Reuses .modal/.modal-card
+     (the same fixed, dimmed overlay as #switch-modal above) with its own
+     inner layout: a tinted icon band, an optional mini order-summary card
+     (id / status pill / customer / meta / total — same look as a real
+     order-list card, so the user recognizes the record they're confirming
+     against), the message, then the two action buttons. */
+  .confirm-modal-card { max-width: 340px; padding: 0; overflow: hidden; }
+  .confirm-band {
+    background: linear-gradient(180deg, var(--c-ok-soft), var(--c-surface));
+    padding: 20px 20px 14px; display: flex; flex-direction: column;
+    align-items: center; text-align: center; gap: 10px;
+  }
+  .confirm-band--danger { background: linear-gradient(180deg, var(--c-danger-soft), var(--c-surface)); }
+  .confirm-icon {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--c-surface);
+    color: var(--c-ok); box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .confirm-band--danger .confirm-icon { color: var(--c-danger); }
+  .confirm-icon svg { width: 22px; height: 22px; }
+  .confirm-band h2 { margin: 0; font-size: 15.5px; }
+  .confirm-summary {
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--r);
+    margin: 0 20px 14px; padding: 10px 12px;
+  }
+  .confirm-summary-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .confirm-summary-id { font-weight: 700; color: var(--c-brand); font-size: 13px; }
+  .confirm-summary-customer { font-weight: 600; font-size: 13.5px; margin: 2px 0; }
+  .confirm-summary-meta { color: var(--c-muted); font-size: 12px; }
+  .confirm-summary-money { font-size: 13px; font-weight: 700; margin-top: 6px; }
+  .confirm-message { margin: 0 20px 18px; font-size: 13.5px; color: var(--c-muted); text-align: center; }
+  .confirm-actions { display: flex; gap: 8px; padding: 0 20px 20px; }
+  .confirm-actions .btn { flex: 1 1 0; }
 
   .switch-input {
     flex: 1; min-width: 0;
@@ -559,11 +595,18 @@
   }
   .btn-primary { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
   .btn-danger { background: transparent; color: var(--c-danger); border-color: var(--c-danger); }
+  /* Milestone 3 / 3.6 — approve is a positive, one-way action: same outline
+     shape as .btn-danger but in --c-ok, not red, so it doesn't read as
+     destructive next to "Xoá đơn hàng". */
+  .btn-ok { background: transparent; color: var(--c-ok); border-color: var(--c-ok); }
   .btn:disabled { opacity: .6; cursor: default; }
-  .confirm-box {
-    display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    background: #fdecea; border: 1px solid var(--c-danger); border-radius: 8px;
-    padding: 6px 10px; font-size: 13px;
+  /* Milestone 3 — .confirm-box (inline confirm rows) removed: every confirm
+     in this app now goes through the shared T.confirm() popup (see the
+     .confirm-modal-card / .confirm-band / .confirm-summary rules near
+     .modal-card above). */
+  .approved-note {
+    background: #e8f5ee; color: var(--c-ok);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
   }
 
   @media (min-width: 640px) {

@@ -262,6 +262,10 @@ function listCardView_(user, row, lineCount) {
   view.canEdit = mayAct_(user, row, 'edit_order');
   view.canDelete = mayAct_(user, row, 'delete_order');
   view.canChangeStatus = mayAct_(user, row, 'change_status'); // Milestone 3 / 3.5
+  // Milestone 3 / 3.6 — same permission+ownership shape as the others, plus
+  // "not already approved": approving is one-way, so a card that's already
+  // approved never offers the control again, even to an admin.
+  view.canApprove = mayAct_(user, row, 'approve_order') && !row.approvedBy;
   return view;
 }
 
@@ -541,6 +545,46 @@ function actionChangeStatus_(user, payload) {
   return { orderId: row.orderId, status: newStatus };
 }
 
+/**
+ * Milestone 3 / 3.6 — admin approval. One-purpose and one-way, same shape
+ * as actionChangeStatus_: no full-order payload, just the id. approve_order
+ * + ownership (requireOwnershipOrAll_ — in practice every profile granting
+ * approve_order also grants view_all_orders, but this stays consistent with
+ * every other action here rather than special-casing "admin only"). An
+ * already-approved order refuses a second approval outright — approvedBy/
+ * approvedAt are a first-approval record, not something to overwrite.
+ */
+function actionApproveOrder_(user, payload) {
+  requirePermission_(user, 'approve_order');
+
+  var row = findOrderRow_(payload && payload.orderId);
+  requireOwnershipOrAll_(user, row);
+
+  if (row.approvedBy) {
+    throw new Error(MSG.ORDER_ALREADY_APPROVED);
+  }
+
+  var approvedAt = new Date();
+  withOrderLock_(function () {
+    // Re-read INSIDE the lock: two admins approving the same order at
+    // nearly the same moment must not both succeed and silently overwrite
+    // each other's approvedBy/approvedAt.
+    var current = findOrderRow_(row.orderId);
+    if (current.approvedBy) {
+      throw new Error(MSG.ORDER_ALREADY_APPROVED);
+    }
+    updateRecord_(SHEETS.ORDERS, current._row, {
+      approvedBy: user.email,
+      approvedAt: approvedAt,
+      updatedBy: user.email,
+      updatedAt: approvedAt
+    });
+  });
+
+  bumpOrdersVersion_();
+  return { orderId: row.orderId, approvedBy: user.email, approvedAt: approvedAt };
+}
+
 /* =======================================================================
    Reading
    ======================================================================= */
@@ -569,6 +613,7 @@ function buildOrderResponse_(user, row) {
   order.canEdit = mayAct_(user, row, 'edit_order');
   order.canDelete = mayAct_(user, row, 'delete_order');
   order.canChangeStatus = hasPermission_(user, 'change_status');
+  order.canApprove = mayAct_(user, row, 'approve_order') && !row.approvedBy; // Milestone 3 / 3.6
 
   return { order: order, lines: lines, hiddenMoney: !seesMoney_(user) };
 }

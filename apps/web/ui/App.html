@@ -81,7 +81,7 @@
    */
   window.TT = {
     call: call, can: can, esc: esc, formatVnd: formatVnd,
-    formatDate: formatDate, toast: toast,
+    formatDate: formatDate, toast: toast, confirm: confirm_,
     config: function () { return (session && session.config) || {}; },
     session: function () { return session; }
   };
@@ -475,6 +475,107 @@
 
   function showModal() { el('switch-modal').classList.remove('hidden'); }
   function closeModal() { el('switch-modal').classList.add('hidden'); }
+
+  /* ---------------- confirm popup (TT.confirm) ---------------- */
+
+  /**
+   * Milestone 3 — one reusable "are you sure" popup for every risky action
+   * in the app, replacing the inline confirm-box pattern used ad hoc in
+   * ViewsOrders.html (delete order, approve order, discard-and-reload).
+   * Style follows the "S2" mockup the user picked: a small record-summary
+   * card (id / status pill / customer / meta / total, in the same visual
+   * language as an order-list card) so the user is confirming against the
+   * SPECIFIC record on screen, not just answering a generic yes/no — useful
+   * when the list is filtered/scrolled and it's not obvious at a glance
+   * which row is "this one". `summary` is optional: a lightweight caller
+   * (e.g. quick status change) can skip it and get a plain text confirm.
+   *
+   * Still not window.confirm — same reason as the old inline pattern: a
+   * native dialog blocks the whole Apps Script iframe. This is a
+   * hand-built overlay, `position: fixed` (see .modal in Styles.html), so
+   * it works regardless of where the page is scrolled.
+   *
+   * @param {Object} opts
+   *   title: string, required — e.g. "Duyệt đơn hàng?"
+   *   message: string, required — the "what happens / can't undo" line
+   *   summary: optional {id, statusLabel, statusClass, customer, meta, money}
+   *     — when given, renders the mini order-card block; statusClass should
+   *     be the same class statusPillClass() returns, so colors match the
+   *     list exactly. Every field is optional within summary too (a caller
+   *     without money-visible fields just omits `money`).
+   *   okLabel / cancelLabel: strings, default "Xác nhận" / "Không"
+   *   danger: boolean — true colors the OK button/icon with --c-danger
+   *     instead of --c-ok (delete vs. approve/reload)
+   * @return {Promise<boolean>} resolves true if the user confirmed
+   */
+  function confirm_(opts) {
+    return new Promise(function (resolve) {
+      var danger = !!(opts && opts.danger);
+      var okLabel = (opts && opts.okLabel) || 'Xác nhận';
+      var cancelLabel = (opts && opts.cancelLabel) || 'Không';
+      var iconPath = danger
+        ? '<path d="M12 9v4"></path><path d="M12 17h.01"></path>' +
+          '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path>'
+        : '<path d="M9 11l3 3L22 4"></path>' +
+          '<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>';
+
+      el('confirm-modal-body').innerHTML = '' +
+        '<div class="confirm-band' + (danger ? ' confirm-band--danger' : '') + '">' +
+          '<span class="confirm-icon">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + iconPath + '</svg>' +
+          '</span>' +
+          '<h2 id="confirm-modal-title">' + esc(opts.title) + '</h2>' +
+        '</div>' +
+        (opts.summary ? confirmSummaryHtml(opts.summary) : '') +
+        '<p class="confirm-message">' + esc(opts.message) + '</p>' +
+        '<div class="confirm-actions">' +
+          '<button type="button" class="btn" data-confirm-choice="cancel">' + esc(cancelLabel) + '</button>' +
+          '<button type="button" class="btn ' + (danger ? 'btn-danger' : 'btn-ok') +
+            '" data-confirm-choice="ok">' + esc(okLabel) + '</button>' +
+        '</div>';
+
+      var modal = el('confirm-modal');
+
+      function finish(result) {
+        modal.classList.add('hidden');
+        modal.removeEventListener('click', onClick);
+        document.removeEventListener('keydown', onKeydown);
+        resolve(result);
+      }
+      function onClick(e) {
+        var choice = e.target.closest && e.target.closest('[data-confirm-choice]');
+        if (choice) { finish(choice.getAttribute('data-confirm-choice') === 'ok'); return; }
+        if (e.target === modal) finish(false); // click on the dimmed backdrop = cancel
+      }
+      function onKeydown(e) {
+        if (e.key === 'Escape') finish(false);
+      }
+
+      modal.addEventListener('click', onClick);
+      document.addEventListener('keydown', onKeydown);
+      modal.classList.remove('hidden');
+    });
+  }
+
+  /** Mini order-card block inside the confirm popup — same visual language
+   *  (id / status pill / customer / meta / total) as a real order-list
+   *  card, per the "S2" option: the user recognizes the record they're
+   *  about to act on instead of reading a generic sentence. */
+  function confirmSummaryHtml(s) {
+    return '' +
+      '<div class="confirm-summary">' +
+        '<div class="confirm-summary-top">' +
+          (s.id ? '<span class="confirm-summary-id">' + esc(s.id) + '</span>' : '') +
+          (s.statusLabel
+            ? '<span class="' + esc(s.statusClass || 'status-pill') + '">' + esc(s.statusLabel) + '</span>'
+            : '') +
+        '</div>' +
+        (s.customer ? '<div class="confirm-summary-customer">' + esc(s.customer) + '</div>' : '') +
+        (s.meta ? '<div class="confirm-summary-meta">' + esc(s.meta) + '</div>' : '') +
+        (s.money ? '<div class="confirm-summary-money">' + esc(s.money) + '</div>' : '') +
+      '</div>';
+  }
 
   /** List view — used by the "Đổi tài khoản" control in the top bar. */
   function openOptionList() {

@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-31-changestatus';
+var BUILD = 'api-2026-08-31-approveorder';
 
 /** Script Property keys. */
 var PROP = {
@@ -250,6 +250,7 @@ var MSG = {
   LINE_INVOICE_NO_DATE: ': đã nhập số hoá đơn thì phải nhập ngày hoá đơn.',
   LINE_INVOICE_BAD_DATE: ': ngày hoá đơn không hợp lệ.',
   ORDER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
+  ORDER_ALREADY_APPROVED: 'Đơn hàng này đã được duyệt.',
 
   /* ---- security gate: what a normal employee sees ---- */
   LOCKED_USER: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',

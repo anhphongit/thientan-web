@@ -148,6 +148,12 @@ function apiChangeStatus(payload) {
   });
 }
 
+function apiApproveOrder(payload) {
+  return handle_('apiApproveOrder', function () {
+    return apiCall_('approveOrder', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

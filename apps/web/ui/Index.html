@@ -90,6 +90,22 @@
     </div>
   </div>
 
+  <!--
+    Milestone 3 — generic confirm popup (TT.confirm(), see ui/App.html).
+    One shared node for every "are you sure" moment in the app: delete/approve
+    order, discard unsaved changes, quick status change, and any future view
+    (inventory, users) that needs the same pattern. Not the account-switch
+    #switch-modal above — that one owns fixed content/IDs; this one is filled
+    in per call. Starts hidden; TT.confirm() fills #confirm-modal-body and
+    shows it, resolving a Promise<boolean> on the user's choice.
+  -->
+  <div id="confirm-modal" class="modal hidden" role="alertdialog" aria-modal="true"
+       aria-labelledby="confirm-modal-title">
+    <div class="modal-card confirm-modal-card">
+      <div id="confirm-modal-body"></div>
+    </div>
+  </div>
+
   <?!= include_('ui/ViewsOrders'); ?>
   <?!= include_('ui/App'); ?>
 </body>

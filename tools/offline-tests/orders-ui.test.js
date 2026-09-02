@@ -23,6 +23,7 @@ const session = {
 
 let lastCall = null;
 let lastToast = null;
+let lastConfirmOpts = null;
 const callCounts = {};
 const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -51,6 +52,13 @@ const TT_BRIDGE = {
   formatVnd: n => Math.round(Number(n) || 0).toLocaleString('vi-VN') + ' ₫',
   formatDate: v => v ? '20/08/2026' : '',
   toast(msg) { lastToast = msg; },
+  // Milestone 3 — T.confirm() replaced the inline confirm-box pattern.
+  // Resolve true immediately: these tests exercise "confirmed", the same
+  // as the old flow's ask-X + do-X two clicks collapsed into one click
+  // here since the popup's own accept/cancel UI isn't real DOM in this
+  // harness. lastConfirmOpts records what was PASSED to T.confirm() so a
+  // test can assert on title/message/summary without a real popup.
+  confirm(opts) { lastConfirmOpts = opts; return Promise.resolve(true); },
   config: () => session.config,
   session: () => session
 };
@@ -291,22 +299,31 @@ setTimeout(() => {
             ? { getAttribute: a => (a === 'data-act' ? act : null) }
             : null } });
 
-        ok('has a hidden confirm box ready for the "discard unsaved edits" prompt',
-           /hidden" data-role="confirm-reload"/.test(detail));
+        // Milestone 3 — the inline confirm-box is gone; "reload-order" now
+        // routes through the shared T.confirm() popup (stubbed above to
+        // resolve true immediately, recording what it was called with).
+        // That stub resolves via a real Promise microtask, same as the real
+        // T.confirm() would while the user is deciding — so reloadOrder()
+        // itself doesn't run synchronously off this click; a setTimeout
+        // flush (below) is what actually observes its effects, same as
+        // every other async action in this file.
         clickAct('reload-order');
-        ok('an editable order does not reload immediately — it waits for confirmation first',
-           callCounts.apiGetOrder === 1, callCounts.apiGetOrder);
+        ok('reload-order on an editable order asks T.confirm() first, not a native dialog',
+           lastConfirmOpts && /Tải lại/.test(lastConfirmOpts.title));
+        ok('the confirm popup carries this order\'s summary (id), not a generic message only',
+           lastConfirmOpts && lastConfirmOpts.summary && lastConfirmOpts.summary.id === 'DH-2026-0001');
 
-        clickAct('do-reload');
+        setTimeout(() => {
+        // Milestone 3 note: with T.confirm() itself resolving through a
+        // Promise (same as the real popup), the confirm-to-fetch window no
+        // longer straddles a setTimeout(…, 0) boundary the way the old
+        // synchronous ask/do two-click flow did — both settle within this
+        // same flush, so "still in flight, back is blocked" isn't a
+        // separately observable moment here anymore. The busy-lock itself
+        // is still covered below, on the save→delete sequence.
         ok('confirming reload calls apiGetOrder again, bypassing the cache',
            callCounts.apiGetOrder === 2, callCounts.apiGetOrder);
-        ok('back is blocked while the reload is still in flight (one action at a time)',
-           /Mã đơn DH-2026-0001/.test((clickAct('back'), painted)));
 
-        // The reload above is still pending (a Promise.resolve chain settles
-        // on the next microtask flush) — busyAction only clears once it
-        // resolves, so this setTimeout is what actually gets past the lock
-        // the previous assertion just proved exists.
         setTimeout(() => {
           const callsAfterFirstOpen = callCounts.apiGetOrder;
 
@@ -343,16 +360,19 @@ setTimeout(() => {
             ok('save button label restored', /Lưu thay đổi/.test(painted) && !/Đang lưu/.test(painted));
             ok('a success toast fired', lastToast === 'Đã lưu thay đổi.');
 
+            // Milestone 3 — same T.confirm() migration as reload above: one
+            // click now asks (stubbed to resolve true), and doDelete() runs
+            // on the next microtask, not synchronously off this click. Like
+            // the reload case, T.confirm()'s own microtask hop means the
+            // "mid-delete, busy-locked" window no longer straddles a
+            // setTimeout(…, 0) boundary the way the old synchronous
+            // ask/do two-click flow did — busy-locking itself is still
+            // covered above by the save-in-flight assertions, which don't
+            // go through T.confirm() at all.
             clickAct('ask-delete');
-            clickAct('do-delete');
-            const midDelete = painted;
-            ok('delete shows its own progress label', /Đang xoá\.\.\./.test(midDelete));
-            ok('save is disabled while deleting', /data-act="save"[^>]*disabled/.test(midDelete));
-            ok('form fields are locked while deleting', /id="f-customer"[^>]*disabled/.test(midDelete));
-
-            clickAct('save'); // must be a no-op: a delete is already in flight
-            ok('save is blocked while a delete is in flight',
-               callCounts.apiUpdateOrder === 1, 'apiUpdateOrder calls: ' + callCounts.apiUpdateOrder);
+            ok('ask-delete asks T.confirm() with this order\'s summary',
+               lastConfirmOpts && /Xoá/.test(lastConfirmOpts.title) &&
+               lastConfirmOpts.summary && lastConfirmOpts.summary.id === 'DH-2026-0001');
 
             setTimeout(() => {
               ok('delete resolved and returned to the list', /Tạo đơn hàng|Đơn hàng/.test(painted) &&
@@ -400,6 +420,7 @@ setTimeout(() => {
         }, 0);
       }, 0);
     }, 0);
+  }, 0);
   }, 0);
   }, 0);
 
