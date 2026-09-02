@@ -148,6 +148,7 @@ function getActions_() {
     createOrder: actionCreateOrder_,
     updateOrder: actionUpdateOrder_,
     deleteOrder: actionDeleteOrder_,
+    changeStatus: actionChangeStatus_,
 
     logDev: actionLogDev_
   };

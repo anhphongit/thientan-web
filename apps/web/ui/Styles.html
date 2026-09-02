@@ -381,13 +381,25 @@
   .err-text { color: var(--c-danger); }
 
   .order-list { display: grid; gap: 10px; }
+  /* Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): the card is an
+     outer, non-interactive .order-card (visual chrome only) holding TWO
+     sibling .oc-open buttons (id/lines area, and customer/meta/money area)
+     plus the status pill sitting between them in .oc-top — a <select>
+     cannot legally nest inside a <button>, and the pill is now itself the
+     quick-status control (see .pill-wrap/.pill-select below), so it can
+     never be a child of either button. */
   .order-card {
-    display: block; width: 100%; text-align: left; cursor: pointer;
     background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: var(--r); box-shadow: var(--shadow);
-    padding: 12px 14px; font: inherit; color: inherit;
+    padding: 12px 14px;
   }
-  .order-card:hover { border-color: var(--c-brand); }
+  .order-card:has(.oc-open:hover) { border-color: var(--c-brand); }
+  .oc-open {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; color: inherit;
+  }
+  .oc-open-id { width: auto; flex: 1 1 auto; min-width: 0; }
   .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .oc-id { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
   /* UI request, 2026-08-26 (position pass, moved again after seeing it
@@ -424,6 +436,35 @@
     content: ''; width: 7px; height: 7px; border-radius: 50%;
     background: currentColor; flex: 0 0 auto;
   }
+
+  /* Milestone 3 / 3.5, style E1 (chosen 2026-08-31) — the status pill
+     itself becomes the quick-status control: .pill-wrap positions a
+     transparent <select> exactly over the pill so the whole pill is
+     clickable/tappable, and .pill-pencil is a small trailing edit glyph
+     tinted via currentColor to match that pill's own status color — a
+     minimal "this is editable" affordance, not a separate heavy control. */
+  .pill-wrap { position: relative; display: inline-flex; }
+  .pill-select {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    border: none; padding: 0; margin: 0; appearance: none;
+  }
+  .pill-pencil { width: 11px; height: 11px; flex: 0 0 auto; opacity: .85; }
+
+  /* Milestone 3 / 3.5 — while a status change is in flight: the pill shows
+     a small spinning dot instead of the dot::before/pencil, "Đang cập
+     nhật…" replaces the label, and the card's two open-detail buttons are
+     visibly (not just functionally) disabled — a clear "hold on" signal so
+     the user doesn't try to act on this order again before the change is
+     confirmed. */
+  .status-pill--pending { cursor: default; }
+  .pill-spinner {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    animation: pill-spin .6s linear infinite;
+  }
+  @keyframes pill-spin { to { transform: rotate(360deg); } }
+  .order-card--updating .oc-open { opacity: .55; cursor: default; }
+  .oc-open:disabled { pointer-events: none; }
   .status-pill--draft,
   .status-pill--default { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
   .status-pill--confirmed { background: var(--c-brand-soft); color: var(--c-brand); border-color: #cfe3ee; }
@@ -444,9 +485,9 @@
   .oc-money em { font-style: normal; font-weight: 400; color: var(--c-muted); }
 
   /* Milestone 2.5 / P3 — skeleton cards for a genuine first load, so it reads
-     as "loading" instead of a frozen blank screen. */
-  .order-card.skeleton { cursor: default; }
-  .order-card.skeleton:hover { border-color: var(--c-border); }
+     as "loading" instead of a frozen blank screen. Milestone 3 / 3.5: cursor
+     now lives on .oc-open, and a skeleton card has no .oc-open at all, so
+     there's nothing left here to override. */
   .sk-line {
     height: 12px; border-radius: 6px; margin: 8px 0;
     background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);

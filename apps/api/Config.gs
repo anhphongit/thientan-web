@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-31-searchleak';
+var BUILD = 'api-2026-08-31-changestatus';
 
 /** Script Property keys. */
 var PROP = {

@@ -324,11 +324,106 @@ and the admin (`*`) path both still work exactly as before. `BUILD` is
 | 3.2 | Month / date-range filter | One filter, server-side, permission-scoped | Pick a month → only that month's orders; a staff account still sees only their own | ☑ |
 | 3.3 | Customer + status + created-by filters | Three dropdowns, combinable with 3.2 | Each alone, then two together, then all | ☑ |
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☑ |
-| 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☐ |
+| 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☑ |
 | 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☐ |
 | 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☐ |
 
 ---
+
+## Milestone 3, task 3.5 — quick status change from the list
+
+**Built 2026-08-31.** `actionChangeStatus_` (`apps/api/Orders.gs`) is a new,
+deliberately narrow action — separate from `actionUpdateOrder_`, which needs
+the whole order + all its lines and re-validates everything. This one takes
+just `{orderId, status, note}`: `requirePermission_('change_status')` →
+`requireOwnershipOrAll_` → validates the status against `Config.statusList`
+(`isKnownStatus_`) → re-reads the row INSIDE the lock and re-compares before
+writing (not just before acquiring the lock — someone else's change could
+have landed in between) → updates `Orders.status`/`updatedBy`/`updatedAt` →
+`appendStatusHistory_` with who and when. Setting the same status is a no-op:
+no history row, no version bump — a no-op "confirmed → confirmed" entry
+would be noise, not an audit trail. `listCardView_` now also returns
+`canChangeStatus` (same `mayAct_` permission+ownership check as `canEdit`/
+`canDelete`) so the list knows whether to draw the control at all.
+
+Client (first pass): each order card was an outer, non-interactive
+`.order-card` div around an inner `.oc-open` `<button>` (the navigable "open
+this order" area) plus a sibling `.oc-quick-status` row with a status
+`<select>` and a "Đổi trạng thái" label underneath, separated by a dashed
+top border.
+
+28 new offline assertions in `tools/offline-tests/orders-changestatus.test.js`
+covering the happy path, permission + ownership enforcement, unknown/missing
+status, the same-status no-op, `canChangeStatus` on list cards
+(ownership-aware), and an optional note. `BUILD` is
+`api-2026-08-31-changestatus`; the API side of 3.5 has not changed since.
+
+**Redesigned 2026-08-31 (style E1).** Feedback: the dashed-row control read
+as too heavy for "just a quick action" — a whole extra section on every
+card, with its own label and border, for something meant to be a fast flip.
+Went through three rounds of option comparisons (layout concepts A/B/C →
+pill-style variants B1–B4 → icon variants E1–E3) before landing on E1: the
+existing status pill becomes the control itself, no new row added at all.
+
+A trailing pencil/edit icon (`PENCIL_ICON_SVG`, `apps/web/ui/ViewsOrders.html`)
+is appended after the pill's label text, colored via `currentColor` so it
+always matches that pill's own status color (same technique as
+`SEARCH_ICON_SVG`). A transparent `<select>` is absolutely positioned over
+the pill (`.pill-wrap` / `.pill-select` in `apps/web/ui/Styles.html`) so the
+whole pill is the click/tap target. The pencil and the overlaid select are
+only added when `o.canChangeStatus` is true — otherwise the pill renders
+exactly as before, plain and non-interactive.
+
+Structural knock-on: since a `<select>` still can't nest inside a `<button>`,
+and the pill (now interactive) sits in the same top row as the order id, the
+single `.oc-open` button was split into two siblings — `.oc-open-id` (id +
+line-count badge) and `.oc-open-rest` (customer/meta/money) — with the pill
+as an independent element between them in `.oc-top`. Both buttons still
+carry `data-open="<orderId>"` and open the same order detail; only the pill
+itself is exempted from "open this order" and instead changes the status.
+The underlying `change` listener (`onChange` → `changeStatusQuick`) and
+`apiChangeStatus` pass-through are unchanged from the first pass.
+
+`tools/offline-tests/orders-ui.test.js`'s card-smoke assertion was updated
+to expect two `data-open` buttons per card instead of one (style E1's two
+navigable regions), not a behavior change — 345 assertions across all
+suites, all passing. `BUILD` is `web-2026-08-31-statuspill-e1` (API BUILD
+unchanged — this redesign is client-only). Not yet verified live.
+
+**Loading/lock state added 2026-08-31.** Feedback: while the status change
+round trip is in flight, the user should be told it's happening and should
+not be able to open that order's detail until the change is confirmed —
+otherwise they could act on stale status data or fire a second change before
+the first lands. `changeStatusQuick` is no longer optimistic: it puts the
+orderId into a new `state.statusUpdatingIds` set and calls `paintList()`
+immediately (before the request even goes out), then removes it and repaints
+again on either success or failure — `state.orders` itself is only mutated
+after the server confirms. While an orderId is in that set,
+`statusQuickPillHtml` renders a pending pill ("Đang cập nhật…" + a small
+spinner, no pencil, no overlaid `<select>`, so a second change can't be
+queued), and `orderCardHtml` renders both of that card's `.oc-open` buttons
+`disabled` with a dimmed style. `onClick`'s `data-open` handler also checks
+`state.statusUpdatingIds` directly, so a click that slips in before a
+repaint lands is still blocked. `BUILD` is now
+`web-2026-08-31-statuspill-pending`; no API or test changes — this is
+client-only and the server already re-validates change_status + ownership
+on every call regardless. 345 assertions, all still passing.
+
+**Bug fix, 2026-08-31 — stale detail cache after a quick status change.**
+`orderCache` (`apps/web/ui/ViewsOrders.html`, keyed by orderId — the detail
+view's own cache, separate from `state.orders`/the list) was never touched
+by `changeStatusQuick`. So: open an order's detail once (caches it), go back
+to the list, quick-change its status from the pill — the list card updates,
+but reopening that order's detail still showed the pre-change status until
+`DETAIL_CACHE_TTL_MS` expired, because `openForm` paints straight from
+`orderCache[orderId]` when an entry exists and is fresh. Fixed by deleting
+`orderCache[orderId]` in `changeStatusQuick`'s success handler, right where
+`state.orders` is updated — not patched in place, since the cached detail
+also carries `StatusHistory` and server-computed flags
+(`canEdit`/`canDelete`/`canChangeStatus`) this response doesn't return, so
+the next open just re-fetches cleanly instead of guessing at a merge.
+`BUILD` is now `web-2026-08-31-detailcache-fix`. No server or test changes;
+345 assertions, all still passing.
 
 ## Milestones 4–6
 

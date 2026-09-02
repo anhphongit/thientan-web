@@ -140,6 +140,14 @@ function apiDeleteOrder(orderId) {
   });
 }
 
+/** Milestone 3 / 3.5 — quick status change from the order list card.
+ *  @param {{orderId:string, status:string, note:string}} payload */
+function apiChangeStatus(payload) {
+  return handle_('apiChangeStatus', function () {
+    return apiCall_('changeStatus', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

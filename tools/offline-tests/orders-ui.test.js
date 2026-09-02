@@ -187,7 +187,7 @@ setTimeout(() => {
 
   console.log('\nUI smoke — blank form');
   const rows = list.match(/data-open="/g) || [];
-  ok('every card is clickable', rows.length === 2);
+  ok('every card has its two navigable buttons (id area + rest area), style E1', rows.length === 4);
 
   // openForm(null) is synchronous: click the create button's handler path.
   sandbox.window.TTOrders.render(root);

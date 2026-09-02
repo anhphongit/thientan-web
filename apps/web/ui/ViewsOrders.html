@@ -45,6 +45,13 @@
     // Milestone 3 / 3.3 — createdBy dropdown data (view_all_orders only).
     // null = not fetched yet; [] is a valid "nobody yet" answer.
     creators: null, creatorsLoading: false,
+    // Milestone 3 / 3.5 — orderIds with a status change in flight (server
+    // round trip not yet resolved). While an orderId is in here: its card's
+    // "open detail" buttons are blocked (see onClick) and its status pill
+    // shows a pending state instead of the pencil/select — so the user
+    // can't navigate into an order whose status the server hasn't
+    // confirmed yet, and always sees that a change is happening.
+    statusUpdatingIds: {},
     // Milestone 3 / 3.2-3.4 UI, "Bảng lọc thu gọn" — purely a display toggle
     // for the panel of dropdowns; never read by fetchOrders()/listPayload().
     filterPanelOpen: false,
@@ -235,6 +242,7 @@
       root.addEventListener('input', onInput);
       root.addEventListener('blur', onBlur, true);
       root.addEventListener('keydown', onKeydown);
+      root.addEventListener('change', onChange);
       state.bound = true;
     }
     showList();
@@ -346,6 +354,14 @@
   var SEARCH_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.2" y2="16.2"></line></svg>';
+
+  /** Small pencil/edit glyph for the quick-status pill (E1 option, chosen
+   *  2026-08-31): trailing icon appended after the status label, colored via
+   *  currentColor so it always matches that pill's own status color — same
+   *  technique as SEARCH_ICON_SVG above. */
+  var PENCIL_ICON_SVG = '<svg class="pill-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>';
 
   /**
    * Milestone 3 / 3.3 — createdBy dropdown data. Fetched once, lazily, only
@@ -821,19 +837,75 @@
     // attribute still spells it out for anyone who hovers/long-presses.
     var linesChip = '<span class="oc-lines" title="' + o.lineCount + ' dòng">' + o.lineCount + '</span>';
 
+    // Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): a <select>
+    // can't nest inside a <button> (invalid HTML — buttons may not contain
+    // interactive content), and the status pill itself is now the
+    // quick-status control, so the id/lines area and the customer/meta/
+    // money area are two SEPARATE sibling buttons, with the pill sitting
+    // between them as its own element (plain span, or pill+overlaid
+    // <select> when o.canChangeStatus) — never nested inside either button.
+    // Milestone 3 / 3.5 — while a status change on THIS order is in
+    // flight, both navigable buttons are disabled (not just blocked in JS):
+    // gives a visible cue and stops focus/keyboard activation, not just
+    // clicks.
+    var updating = !!state.statusUpdatingIds[o.orderId];
+    var openAttrs = updating ? ' disabled' : '';
+
     return '' +
-      '<button type="button" class="order-card" data-open="' + T.esc(o.orderId) + '">' +
+      '<div class="order-card' + (updating ? ' order-card--updating' : '') + '">' +
         '<div class="oc-top">' +
-          '<span class="oc-top-left">' +
-            '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
-            linesChip +
-          '</span>' +
-          '<span class="' + statusPillClass(o.status) + '">' + T.esc(statusLabel(o.status)) + '</span>' +
+          '<button type="button" class="oc-open oc-open-id" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
+            '<span class="oc-top-left">' +
+              '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
+              linesChip +
+            '</span>' +
+          '</button>' +
+          statusQuickPillHtml(o) +
         '</div>' +
-        '<div class="oc-customer">' + T.esc(o.customer) + '</div>' +
-        '<div class="oc-meta">' + meta + '</div>' +
-        money +
-      '</button>';
+        '<button type="button" class="oc-open oc-open-rest" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
+          '<div class="oc-customer">' + T.esc(o.customer) + '</div>' +
+          '<div class="oc-meta">' + meta + '</div>' +
+          money +
+        '</button>' +
+      '</div>';
+  }
+
+  /**
+   * Milestone 3 / 3.5, style E1 (chosen 2026-08-31) — the status pill
+   * itself is the quick-status control: a small pencil icon (currentColor,
+   * matching that pill's own status color) trails the label, and a
+   * transparent <select> is overlaid on top of the pill to capture the
+   * click/tap. Only drawn as interactive when the server already said this
+   * user may act on THIS order (o.canChangeStatus — mayAct_'s permission+
+   * ownership check, mirrored from canEdit/canDelete); the server re-checks
+   * change_status and ownership again on the actual apiChangeStatus call
+   * regardless — this flag only decides whether to draw the control.
+   * Otherwise it's the same plain, non-interactive pill as before.
+   */
+  function statusQuickPillHtml(o) {
+    // Milestone 3 / 3.5 — while this order's status change is in flight,
+    // show a pending pill (spinner dot + "Đang cập nhật…") instead of the
+    // normal label+pencil, and drop the overlaid <select> entirely so a
+    // second change can't be queued on top of the first before it resolves.
+    if (state.statusUpdatingIds[o.orderId]) {
+      return '<span class="' + statusPillClass(o.status) + ' status-pill--pending">' +
+        '<span class="pill-spinner" aria-hidden="true"></span>Đang cập nhật…' +
+        '</span>';
+    }
+    var pill = '<span class="' + statusPillClass(o.status) + '">' + T.esc(statusLabel(o.status));
+    if (!o.canChangeStatus) return pill + '</span>';
+    pill += PENCIL_ICON_SVG + '</span>';
+    var options = statusList().map(function (s) {
+      return '<option value="' + T.esc(s.key) + '"' + (s.key === o.status ? ' selected' : '') + '>' +
+             T.esc(s.label) + '</option>';
+    }).join('');
+    return '' +
+      '<span class="pill-wrap">' +
+        pill +
+        '<select class="pill-select" data-act="quick-status" data-order="' + T.esc(o.orderId) + '">' +
+          options +
+        '</select>' +
+      '</span>';
   }
 
   /* =====================================================================
@@ -1238,7 +1310,15 @@
     if (isBusy()) return;
 
     var open = target.getAttribute('data-open');
-    if (open) { openForm(open); return; }
+    if (open) {
+      // Milestone 3 / 3.5 — don't let the user open an order whose status
+      // change is still in flight: the server hasn't confirmed it yet, and
+      // opening the (possibly stale) detail form invites acting on it
+      // before the change actually lands.
+      if (state.statusUpdatingIds[open]) return;
+      openForm(open);
+      return;
+    }
 
     switch (target.getAttribute('data-act')) {
       case 'new':
@@ -1438,6 +1518,66 @@
     var q = (input ? input.value : state.searchDraft || '').trim();
     state.searchDraft = q;
     applyFilters({ q: q });
+  }
+
+  /**
+   * Milestone 3 / 3.5 — the quick-status <select> on a list card. Uses
+   * 'change', not 'input': 'change' is the event a <select> is guaranteed to
+   * fire on every browser/webview when its value commits, where 'input' on
+   * a <select> is a newer addition some older mobile webviews still miss —
+   * and these are the employees' own phones, not a controlled desktop.
+   */
+  function onChange(e) {
+    if (e.target && e.target.matches && e.target.matches('[data-act="quick-status"]')) {
+      changeStatusQuick(e.target);
+    }
+  }
+
+  /**
+   * Not optimistic: the status only changes in state.orders once the server
+   * confirms it. While the round trip is in flight, orderId sits in
+   * state.statusUpdatingIds — paintList() (called immediately, before the
+   * request even goes out) then renders that card's pill as a pending
+   * "Đang cập nhật…" state with no select, and disables both of the card's
+   * "open detail" buttons (see orderCardHtml/statusQuickPillHtml), so the
+   * user can't navigate into this order or queue a second status change
+   * until the current one has actually landed. onClick's data-open handler
+   * enforces the same block server-round-trip-side, in case a click slips
+   * in before the repaint above lands.
+   */
+  function changeStatusQuick(selectEl) {
+    var orderId = selectEl.getAttribute('data-order');
+    var newStatus = selectEl.value;
+    var order = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
+    if (!order || order.status === newStatus) return;
+    var previousStatus = order.status;
+
+    state.statusUpdatingIds[orderId] = true;
+    paintList();
+    T.call('apiChangeStatus', { orderId: orderId, status: newStatus })
+      .then(function () {
+        order.status = newStatus;
+        if (state.ordersLoadedAt) state.ordersLoadedAt = Date.now(); // own write keeps the list cache fresh, same as upsertCachedOrder
+        // Bug fix, 2026-08-31: orderCache (the detail-view cache keyed by
+        // orderId, see openForm/fetchOrder) is a SEPARATE cache from
+        // state.orders — updating the list card above did nothing to it.
+        // A quick status change from the list left any cached detail view
+        // showing the old status until its DETAIL_CACHE_TTL_MS expired.
+        // Drop the cache entry entirely rather than patch it in place: the
+        // detail view also holds StatusHistory and other server-computed
+        // fields (canEdit/canDelete/canChangeStatus) this response doesn't
+        // return, so the safe fix is "next open re-fetches", not "guess at
+        // a merged object".
+        delete orderCache[orderId];
+        delete state.statusUpdatingIds[orderId];
+        paintList();
+        T.toast('Đã đổi trạng thái.');
+      })
+      .catch(function (err) {
+        delete state.statusUpdatingIds[orderId];
+        paintList();
+        T.toast(err.message, true);
+      });
   }
 
   /** Reformat money on the way out of a field, so 1200000 reads as 1.200.000. */

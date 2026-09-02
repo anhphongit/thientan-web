@@ -261,6 +261,7 @@ function listCardView_(user, row, lineCount) {
   view.lineCount = lineCount;
   view.canEdit = mayAct_(user, row, 'edit_order');
   view.canDelete = mayAct_(user, row, 'delete_order');
+  view.canChangeStatus = mayAct_(user, row, 'change_status'); // Milestone 3 / 3.5
   return view;
 }
 
@@ -491,6 +492,53 @@ function actionDeleteOrder_(user, payload) {
 
   bumpOrdersVersion_();
   return { deleted: true, orderId: row.orderId };
+}
+
+/**
+ * Milestone 3 / 3.5 — one-purpose status change, for the quick control on
+ * the order list card. Deliberately separate from actionUpdateOrder_: that
+ * one requires the WHOLE order + all its lines and re-validates everything,
+ * which is the right shape for the edit form but far too much to ask for
+ * "flip this one order from confirmed to delivered" from a list of cards.
+ * Same rules as the status change inside actionUpdateOrder_ (change_status,
+ * ownership, a known status, StatusHistory with who/when) — just without
+ * the rest of the order along for the ride.
+ */
+function actionChangeStatus_(user, payload) {
+  requirePermission_(user, 'change_status');
+
+  var row = findOrderRow_(payload && payload.orderId);
+  requireOwnershipOrAll_(user, row);
+
+  var config = readPublicConfig_();
+  var newStatus = text_(payload && payload.status);
+  if (!newStatus || !isKnownStatus_(config, newStatus)) {
+    throw new Error(MSG.ORDER_BAD_STATUS);
+  }
+
+  var note = text_(payload && payload.note);
+  var wroteChange = false;
+
+  withOrderLock_(function () {
+    // Re-read (and re-compare) INSIDE the lock, not just before it: someone
+    // else's status change may have landed between the check above and
+    // acquiring the lock, and comparing against a stale `row.status` could
+    // either skip a real change or log a false "X → X" no-op.
+    var current = findOrderRow_(row.orderId);
+    var previousStatus = String(current.status || '');
+    if (newStatus === previousStatus) return; // nothing to do, nothing to log
+
+    updateRecord_(SHEETS.ORDERS, current._row, {
+      status: newStatus,
+      updatedBy: user.email,
+      updatedAt: new Date()
+    });
+    appendStatusHistory_(current.orderId, previousStatus, newStatus, note, user);
+    wroteChange = true;
+  });
+
+  if (wroteChange) bumpOrdersVersion_();
+  return { orderId: row.orderId, status: newStatus };
 }
 
 /* =======================================================================
