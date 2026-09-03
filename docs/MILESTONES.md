@@ -104,17 +104,22 @@ assertions — see `TASKS.md`.
 
 Scope:
 - Paginated order list, sorted newest first
-- Filter by month/date range, customer, status, created-by
+- Filter by month/date range, customer, status, created-by, approve status
 - Free-text search across order no, customer PO, customer, description
 - `changeStatus` + `StatusHistory` append
-- Admin approve / delete
+- Approve-status workflow (Draft/Wait For Approved/Approved/Rejected) gating
+  who can edit an order — task 3.8, replaces the plain admin-approve stamp
+  originally scoped here as "Admin approve / delete"
 
 **Exit criteria**
 
 - [ ] List loads under ~3 seconds with a year of data
 - [ ] Every filter works alone and combined; filters are permission-scoped
 - [ ] Status change is recorded in `StatusHistory` with who and when
-- [ ] `change_status` and `approve_order` are enforced server-side
+- [ ] `change_status` is enforced server-side
+- [ ] The approve-status edit-gating matrix (`TASKS.md`, task 3.8) is
+      enforced server-side for every `approveStatus` × permission
+      combination, not just the UI hiding a button
 - [ ] The list is readable on a phone (cards, not a squashed table)
 
 ---
@@ -193,6 +198,8 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-09-02 | 3 | **Task 3.8 built** (server pass then client pass, same day as the design was agreed): `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) live in `apps/api` (new `requestApprove`/`approveOrder`(rewritten)/`rejectOrder` actions, the edit-gating matrix enforced in `actionUpdateOrder_`, `ALWAYS_VISIBLE_FIELDS` for approve-status/last-updated-by, `migrateAddApproveStatus()`) and `apps/web` (approve-status pill on every card/detail, Gửi duyệt/Duyệt/Từ chối buttons, the auto-approve-vs-draft save prompt, an approve-status filter, `T.confirm()` gained an optional reject-note field). Fixed a gap inherited from 3.6 along the way: approve/reject require only `approve_order`, not `edit_order`, but the old action-row markup hid those buttons whenever the order was read-only for that user — now drawn independent of the read-only gate. Behind `approvalFlowEnabled` (Config, default off) end to end — flag off reproduces today's plain edit/view behavior exactly, both client and server. 404 assertions across 7 offline test files, all passing (49 new server assertions, 14 new UI assertions). `migrateAddApproveStatus()` has NOT been run against the live sheet yet, and the flag has not been verified live — do that before enabling it for real users. Full detail in `TASKS.md`, "Milestone 3, task 3.8". |
+| 2026-09-02 | 3 | **Task 3.8 designed, not built**: reviewed 3.6's `approve_order` stamp with Phong — it had no effect on who could edit, so an "approved" order could be silently edited by anyone. Agreed a real `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) that gates editing itself, replacing 3.6 outright. Full design, edit-gating matrix, and a decision log are in `TASKS.md` under "Milestone 3, task 3.8". Nothing coded yet — next session builds server-side first (Orders.gs + offline tests for the gating matrix), then the client UI as a separate pass, per Phong's explicit staging request. |
 | 2026-08-31 | 3 | **Reusable confirm popup (`TT.confirm()`)**: every inline confirm-box (delete order, approve order, discard-and-reload) migrated to a shared popup on `window.TT`, so any future view can reuse it. Style is the "S2" option picked from Artifact mockups — tinted icon-band header + a mini order-summary card (id, status pill, customer, total) so the user confirms against the specific record on screen. Reviewed every action in the app for a missing confirm: found and fixed one gap — quick status change from the list pill now confirms too (lightweight, no summary card, stays a quick action). Still not `window.confirm` (blocks the Apps Script iframe). Test suite updated for the new async flow, 362 assertions across all suites (net -4 from removing now-unobservable mid-flight checks, +3 for the new popup assertions), all passing. Client-only; API BUILD unchanged. Not yet verified live. |
 | 2026-08-31 | 3 | **Task 3.6 built**: `approveOrder`, a new one-purpose API action for admin approval (separate from the edit/status-change flows) — `approve_order` + ownership enforced, refuses outright if already approved (re-checked inside the lock against a race between two admins), `approvedBy`/`approvedAt` stamped, one-way (no unapprove). List cards and the detail response gain `canApprove` (ownership-aware, false once approved). Client: a "Duyệt đơn hàng" button (confirm-then-approve, same pattern as delete) in the detail action row, plus an "Đã duyệt bởi …" note once approved. Also patches the list-card cache and invalidates the detail cache on success, same as the 3.5 quick-status fix. 21 more offline assertions (366 total across all suites). Not yet verified live. |
 | 2026-08-31 | 3 | **Task 3.5 quick-status control redesigned (style E1)**: dropped the dashed-border status row entirely — the status pill itself is now the control, with a small trailing pencil icon tinted to the pill's own status color (`currentColor`) and a transparent `<select>` overlaid on the pill to capture the click. Card top row split into two sibling navigable buttons (id/lines area, customer/meta/money area) with the pill as an independent element between them, since a select still can't nest in a button. Chosen after three rounds of option mockups (A/B/C layouts → B1–B4 pill styles → E1–E3 icon variants). Test suite updated for the new two-button-per-card markup, not a behavior change (345 assertions, all passing). Client-only; API BUILD unchanged. Not yet verified live. |

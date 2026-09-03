@@ -92,7 +92,8 @@ function guardSetup_() {
   // in the Run dropdown. None may ever become reachable over HTTP.
   var editorOnly = ['setupMilestone1', 'setupMilestone2', 'rotateSecret', 'revokeSecret',
                     'securityStatus', 'installExpiryReminder', 'checkSecretExpiry',
-                    'seedTestOrders', 'deleteSeedTestOrders', 'migrateAddLineCount', 'setupDevLog'];
+                    'seedTestOrders', 'deleteSeedTestOrders', 'migrateAddLineCount',
+                    'migrateAddApproveStatus', 'setupDevLog'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

@@ -34,7 +34,9 @@
     // each field; they combine as AND. Kept separate from the list cache:
     // any change resets orders/loadedAt so the next fetch always goes to the
     // API, filters included.
-    filters: { month: '', customer: '', status: '', createdBy: '', q: '' },
+    // approveStatus: Milestone 3 / 3.8 — combines AND with everything else,
+    // same as every other filter here.
+    filters: { month: '', customer: '', status: '', createdBy: '', q: '', approveStatus: '' },
     // Milestone 3 / 3.4 fix — the LIVE text of the search box, separate from
     // state.filters.q (the last value actually searched for). Every repaint
     // (toggling the filter panel, "Làm mới", background refreshes...)
@@ -52,6 +54,17 @@
     // can't navigate into an order whose status the server hasn't
     // confirmed yet, and always sees that a change is happening.
     statusUpdatingIds: {},
+    // UI revision (2026-09-03, "Option A") — which fused-marker dropdown is
+    // currently open, or null for none. A string key: an orderId for a
+    // list-card marker, or the literal 'detail' for the one in the detail
+    // title. Only one open at a time, same as any menu of this kind.
+    approveMenuOpenFor: null,
+    // Same idea as statusUpdatingIds, for an approve action fired from a
+    // LIST CARD's marker (the detail title's own in-flight state keeps
+    // using state.busyAction — there is only ever one order open there).
+    // While orderId sits in here, that card's marker renders its pending
+    // (spinner) state and cannot be clicked again.
+    approveUpdatingIds: {},
     // Milestone 3 / 3.2-3.4 UI, "Bảng lọc thu gọn" — purely a display toggle
     // for the panel of dropdowns; never read by fetchOrders()/listPayload().
     filterPanelOpen: false,
@@ -152,6 +165,189 @@
 
   function statusPillClass(key) {
     return 'status-pill status-pill--' + (STATUS_STYLE[key] || 'default');
+  }
+
+  /**
+   * Milestone 3 / 3.8 — the approve-status workflow, config-gated. When the
+   * flag is off, every helper below stays inert (approveStatusEnabled()
+   * false), so a deployment that hasn't turned this on keeps exactly
+   * today's screen: no badge, no buttons, no filter — the server itself
+   * behaves the same way (approvalFlowEnabled_() in Orders.gs), so client
+   * and server agree on when this workflow exists at all.
+   */
+  function approveStatusEnabled() {
+    var v = config().approvalFlowEnabled;
+    return v === true || v === 'TRUE' || v === 'true';
+  }
+
+  function approveStatusList() {
+    var list = config().approveStatusList;
+    return (list && list.length) ? list : [
+      { key: 'draft', label: 'Nháp' },
+      { key: 'wait_approval', label: 'Chờ duyệt' },
+      { key: 'approved', label: 'Đã duyệt' },
+      { key: 'rejected', label: 'Từ chối' }
+    ];
+  }
+
+  function approveStatusLabel(key) {
+    var found = approveStatusList().filter(function (s) { return s.key === key; })[0];
+    return found ? found.label : (key || '');
+  }
+
+  /**
+   * Same "colour + shape" reasoning as STATUS_STYLE above, but its OWN
+   * modifier classes (approve-status-pill--*, not status-pill--*): reusing
+   * a business-status class here would also drag in that class's other
+   * rules (status-pill--cancelled has a strikethrough, which reads as
+   * "this order is cancelled" — wrong for an approve status of "rejected").
+   */
+  var APPROVE_STATUS_STYLE = {
+    draft: 'draft',
+    wait_approval: 'waiting',
+    approved: 'approved',
+    rejected: 'rejected'
+  };
+
+  function approveStatusPillClass(key) {
+    return 'status-pill approve-status-pill approve-status-pill--' + (APPROVE_STATUS_STYLE[key] || 'default');
+  }
+
+  function approveStatusPillHtml(key) {
+    return '<span class="' + approveStatusPillClass(key) + '">' + T.esc(approveStatusLabel(key)) + '</span>';
+  }
+
+  /**
+   * UI revision (2026-09-02, "Option N") — small stroke icons distinguishing
+   * the four approve-status states by SHAPE, not just colour (same
+   * colour-blind-friendly reasoning as the business-status pill's dot).
+   * Pencil = draft (still being edited), hourglass = waiting on approval,
+   * check = approved, cross = rejected. Kept inline (not a sprite) since
+   * ViewsOrders.html has no build step to dedupe/inline external assets.
+   */
+  var APPROVE_STATUS_ICON = {
+    draft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+    wait_approval: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12M6 22h12M6 2c0 5 4 6 4 10s-4 5-4 10M18 2c0 5-4 6-4 10s4 5 4 10"/></svg>',
+    approved: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    rejected: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+  };
+
+  function approveStatusIconSvg(key) {
+    return APPROVE_STATUS_ICON[key] || APPROVE_STATUS_ICON.draft;
+  }
+
+  /**
+   * UI revision (2026-09-02, "Option N") — replaces the old .oc-approve-row
+   * (a separate pill on its own row below the id) with the approve-status
+   * marker fused directly onto the order id itself: two flush halves, each
+   * with its own border, chosen from the mockup round as the option that
+   * keeps id and status readable as separate signals while still reading
+   * as one object. `idHtml` is the already-escaped order-id markup (plain
+   * text on the list card, "Mã đơn {id}" prefix included by the caller for
+   * the detail title) — this only wraps it and appends the status half.
+   * Colour + icon only here; the caller decides whether a text label goes
+   * anywhere else (list: no label at all: detail: separate labelled badge
+   * from approveStatusPillHtml/approveStatusBannerHtml below the title).
+   *
+   * UI revision (2026-09-03, "Option A") — the marker doubles as the
+   * trigger for the approve actions themselves, replacing the separate
+   * Gửi duyệt/Duyệt/Từ chối/Về Nháp button row. `actions` is the ordered
+   * list of {key, label, cls} entries this order/user combination allows
+   * right now (see approveActionsFor below) — when it's empty the marker
+   * renders exactly as before this revision: no chevron, not clickable,
+   * nothing to notice. When it's non-empty, the status half grows a small
+   * chevron and becomes a real button (data-act="toggle-approve-menu"),
+   * and — only when `menuOpen` says THIS marker is the open one — a
+   * dropdown of those actions is rendered right under it. `menuOpen` is
+   * state.approveMenuOpenFor === menuKey, computed by the caller so this
+   * function stays a pure renderer.
+   */
+  function fusedOrderIdHtml(idHtml, approveStatus, idClass, actions, menuKey, menuOpen, pending) {
+    var styleKey = APPROVE_STATUS_STYLE[approveStatus] || 'default';
+    var label = approveStatusLabel(approveStatus);
+    actions = actions || [];
+    // While an action fired from THIS marker is in flight, it always shows
+    // the pending spinner regardless of the (now stale) actions list — same
+    // "no second click on top of the first" reasoning as the business-
+    // status pill's .status-pill--pending state.
+    var actionable = !pending && actions.length > 0;
+
+    var statHtml;
+    if (pending) {
+      statHtml = '<span class="oc-id-stat" aria-live="polite" aria-label="Đang cập nhật trạng thái duyệt">' +
+        '<span class="pill-spinner" aria-hidden="true"></span>' +
+      '</span>';
+    } else if (actionable) {
+      var chev = '<svg class="oc-approve-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+      statHtml = '<button type="button" class="oc-id-stat" data-act="toggle-approve-menu" ' +
+          'data-menu-key="' + T.esc(menuKey) + '" aria-haspopup="true" aria-expanded="' + (menuOpen ? 'true' : 'false') + '" ' +
+          'title="' + T.esc(label) + ' — bấm để xem thao tác" aria-label="' + T.esc(label) + ', có thao tác khả dụng">' +
+          approveStatusIconSvg(approveStatus) + chev +
+        '</button>';
+    } else {
+      statHtml = '<span class="oc-id-stat" title="' + T.esc(label) + '" aria-label="' + T.esc(label) + '">' +
+          approveStatusIconSvg(approveStatus) +
+        '</span>';
+    }
+
+    var menuHtml = (actionable && menuOpen)
+      ? '<div class="oc-approve-menu" role="menu">' +
+          actions.map(function (a) {
+            return '<button type="button" class="oc-approve-menu-item' + (a.cls ? ' oc-approve-menu-item--' + a.cls : '') +
+              '" role="menuitem" data-act="' + T.esc(a.key) + '" data-menu-key="' + T.esc(menuKey) + '">' +
+              a.icon + T.esc(a.label) +
+            '</button>';
+          }).join('') +
+        '</div>'
+      : '';
+
+    var wrapClass = 'oc-id-fused oc-id-fused--' + styleKey + (actionable ? ' oc-id-fused--actionable' : '');
+    var idSpan = '<span class="' + idClass + '">' + idHtml + '</span>';
+
+    if (!actionable) {
+      return '<span class="' + wrapClass + '">' + idSpan + statHtml + '</span>';
+    }
+    return '<span class="' + wrapClass + '"><span class="oc-approve-menu-wrap" data-menu-key="' + T.esc(menuKey) + '">' +
+      idSpan + statHtml + menuHtml +
+    '</span></span>';
+  }
+
+  /**
+   * The four possible approve-menu items, each carrying its own icon/label/
+   * colour class and the data-act it maps to in onClick — one place so the
+   * list card and the detail title never draw a different label for the
+   * same action.
+   */
+  // The state.busyAction values doApproveStatusAction sets — used by the
+  // detail title to know when to show the pending spinner instead of the
+  // normal marker/menu, without hard-coding an exclusion list against
+  // every OTHER busyAction (saving, deleting, reloading, ...) that isn't
+  // approve-related.
+  var APPROVE_BUSY_LABELS = ['requesting-approve', 'approving', 'rejecting', 'setting-draft'];
+
+  var APPROVE_MENU_ITEM = {
+    requestApprove: { key: 'ask-request-approve', label: 'Gửi duyệt', cls: 'ok', icon: APPROVE_STATUS_ICON.wait_approval },
+    approve:        { key: 'ask-approve',         label: 'Duyệt',     cls: 'ok', icon: APPROVE_STATUS_ICON.approved },
+    reject:         { key: 'ask-reject',          label: 'Từ chối',   cls: 'danger', icon: APPROVE_STATUS_ICON.rejected },
+    setDraft:       { key: 'ask-set-draft',       label: 'Về Nháp',   cls: '', icon: APPROVE_STATUS_ICON.draft }
+  };
+
+  /**
+   * Builds the ordered action list fusedOrderIdHtml draws its menu from,
+   * straight off the four server-computed flags — never re-derives who is
+   * allowed to do what (that stays entirely server-side, see
+   * approveActionFlags_ in Orders.gs). An order with none of the four flags
+   * set returns [], which is what makes the marker render as plain/static.
+   */
+  function approveActionsFor(o) {
+    if (!approveStatusEnabled()) return [];
+    var actions = [];
+    if (o.canRequestApprove) actions.push(APPROVE_MENU_ITEM.requestApprove);
+    if (o.canApprove) actions.push(APPROVE_MENU_ITEM.approve);
+    if (o.canReject) actions.push(APPROVE_MENU_ITEM.reject);
+    if (o.canSetDraft) actions.push(APPROVE_MENU_ITEM.setDraft);
+    return actions;
   }
 
   /**
@@ -325,12 +521,13 @@
     if (state.filters.status) payload.status = state.filters.status;
     if (state.filters.createdBy) payload.createdBy = state.filters.createdBy;
     if (state.filters.q) payload.q = state.filters.q;
+    if (state.filters.approveStatus) payload.approveStatus = state.filters.approveStatus;
     return payload;
   }
 
   function hasActiveFilters() {
     var f = state.filters;
-    return !!(f.month || f.customer || f.status || f.createdBy || f.q);
+    return !!(f.month || f.customer || f.status || f.createdBy || f.q || f.approveStatus);
   }
 
   /**
@@ -435,7 +632,7 @@
     // the search chip) saw `changed === false` and returned before ever
     // updating state.filters or re-fetching — the enabled, clickable search
     // button did nothing because THIS check silently no-op'd it.
-    var changed = ['month', 'customer', 'status', 'createdBy', 'q'].some(function (k) {
+    var changed = ['month', 'customer', 'status', 'createdBy', 'q', 'approveStatus'].some(function (k) {
       return merged[k] !== state.filters[k];
     });
     if (!changed) return;
@@ -454,7 +651,7 @@
     // Same bug's other half: 'q' was missing here too, so "Xóa lọc" cleared
     // every dropdown filter but left the search query actually applied
     // (state.filters.q) untouched, even though the chip/input looked cleared.
-    applyFilters({ month: '', customer: '', status: '', createdBy: '', q: '' });
+    applyFilters({ month: '', customer: '', status: '', createdBy: '', q: '', approveStatus: '' });
   }
 
   /**
@@ -638,6 +835,7 @@
             '</div>' +
             (fieldAllowed_('customer') ? '<select id="f-filter-customer">' + customerOptionsHtml(state.filters.customer) + '</select>' : '') +
             (fieldAllowed_('status') ? '<select id="f-filter-status">' + statusOptionsHtml(state.filters.status) + '</select>' : '') +
+            approveStatusFilterHtml() +
             creatorFilterHtml() +
             '<div class="filter-panel-actions">' +
               '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' +
@@ -672,6 +870,9 @@
     if (state.filters.q) {
       chips.push({ key: 'q', label: 'Tìm: "' + state.filters.q + '"' });
     }
+    if (state.filters.approveStatus) {
+      chips.push({ key: 'approveStatus', label: approveStatusLabel(state.filters.approveStatus) });
+    }
     if (!chips.length) return '';
     return '<div class="chip-row">' + chips.map(function (c) {
       return '<span class="chip">' + T.esc(c.label) +
@@ -698,6 +899,26 @@
              T.esc(s.label) + '</option>';
     });
     return out;
+  }
+
+  /**
+   * Milestone 3 / 3.8 (point 10) — approve-status filter, config-gated same
+   * as everywhere else in this file: while the flag is off the dropdown
+   * simply doesn't render, mirroring the server's own approvalFlowEnabled_()
+   * guard that ignores payload.approveStatus entirely in that case. Unlike
+   * the customer/status filters above, this is never gated on
+   * fieldAllowed_() — approveStatus is always visible (spec point 2), so
+   * every account gets this dropdown once the flag is on.
+   */
+  function approveStatusFilterHtml() {
+    if (!approveStatusEnabled()) return '';
+    var out = '<option value="">Tất cả trạng thái duyệt</option>';
+    approveStatusList().forEach(function (s) {
+      out += '<option value="' + T.esc(s.key) + '"' +
+             (s.key === state.filters.approveStatus ? ' selected' : '') + '>' +
+             T.esc(s.label) + '</option>';
+    });
+    return '<select id="f-filter-approveStatus">' + out + '</select>';
   }
 
   /**
@@ -848,18 +1069,59 @@
     // flight, both navigable buttons are disabled (not just blocked in JS):
     // gives a visible cue and stops focus/keyboard activation, not just
     // clicks.
-    var updating = !!state.statusUpdatingIds[o.orderId];
+    // Approve-action in-flight also disables the card's open buttons —
+    // same reasoning as a status change: the server hasn't confirmed the
+    // new approveStatus yet, and opening the (possibly stale) detail view
+    // invites acting on it again before the change actually lands.
+    var updating = !!state.statusUpdatingIds[o.orderId] || !!state.approveUpdatingIds[o.orderId];
     var openAttrs = updating ? ' disabled' : '';
+
+    // UI revision (2026-09-02, "Option N"; 2026-09-03, "Option A") —
+    // approve status, always shown (spec point 2) once the flag is on,
+    // fused directly onto the order id (see fusedOrderIdHtml above) and —
+    // when at least one approve action is available — clickable as the
+    // quick-action trigger for it, same component and behaviour as the
+    // detail title. Buttons cannot nest (invalid HTML), so as soon as the
+    // marker is actionable it has its own <button>/<div> inside it and
+    // must sit OUTSIDE oc-open-id, the same way statusQuickPillHtml's
+    // pill+<select> already does — only the plain, non-interactive marker
+    // (or the plain id text, flag off) is safe to draw inside the button.
+    // has(o, 'approveStatus') is really just a config-flag guard here since
+    // the field is server-side ALWAYS_VISIBLE, but keeping the has() check
+    // means a pre-migration/flag-off response (field simply absent)
+    // degrades to a plain id — no stray marker.
+    var approveOn = approveStatusEnabled() && has(o, 'approveStatus');
+    var approvePending = !!state.approveUpdatingIds[o.orderId];
+    // Locking, point 1 (2026-09-03 feedback) — the business-status
+    // quick-select and the approve-menu trigger act on the same order at
+    // the same time, so firing one while the other is still resolving
+    // risks a real conflict (e.g. approving an order whose status just
+    // changed under it). Same-order-only lock, per Phong's answer: while
+    // THIS order's status quick-change is in flight, its approve marker
+    // is drawn as plain/non-interactive (no actions passed in at all —
+    // same "no actions" branch fusedOrderIdHtml already has), and
+    // vice versa below in statusQuickPillHtml. Other orders in the list
+    // are unaffected.
+    var statusPendingSameOrder = !!state.statusUpdatingIds[o.orderId];
+    var idActions = (approveOn && !statusPendingSameOrder) ? approveActionsFor(o) : [];
+    var idIsActionable = !approvePending && idActions.length > 0;
+    var idHtml = approveOn
+      ? fusedOrderIdHtml(T.esc(o.orderId), o.approveStatus, 'oc-id', idActions, o.orderId,
+                        state.approveMenuOpenFor === o.orderId, approvePending)
+      : '<span class="oc-id">' + T.esc(o.orderId) + '</span>';
 
     return '' +
       '<div class="order-card' + (updating ? ' order-card--updating' : '') + '">' +
         '<div class="oc-top">' +
-          '<button type="button" class="oc-open oc-open-id" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
-            '<span class="oc-top-left">' +
-              '<span class="oc-id">' + T.esc(o.orderId) + '</span>' +
-              linesChip +
-            '</span>' +
-          '</button>' +
+          (idIsActionable
+            ? '<span class="oc-top-left">' + idHtml +
+                '<button type="button" class="oc-open oc-open-id" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
+                  linesChip +
+                '</button>' +
+              '</span>'
+            : '<button type="button" class="oc-open oc-open-id" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
+                '<span class="oc-top-left">' + idHtml + linesChip + '</span>' +
+              '</button>') +
           statusQuickPillHtml(o) +
         '</div>' +
         '<button type="button" class="oc-open oc-open-rest" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
@@ -892,8 +1154,15 @@
         '<span class="pill-spinner" aria-hidden="true"></span>Đang cập nhật…' +
         '</span>';
     }
+    // Locking, point 1 (2026-09-03 feedback) — same-order lock, mirror of
+    // idActions above: while an approve action on THIS order is in
+    // flight, the status quick-select is dropped (plain pill, no overlay)
+    // so the two can't fire on top of each other. No spinner here — the
+    // status itself isn't what's changing, the pill just isn't a control
+    // right now.
+    var approvePendingSameOrder = !!state.approveUpdatingIds[o.orderId];
     var pill = '<span class="' + statusPillClass(o.status) + '">' + T.esc(statusLabel(o.status));
-    if (!o.canChangeStatus) return pill + '</span>';
+    if (!o.canChangeStatus || approvePendingSameOrder) return pill + '</span>';
     pill += PENCIL_ICON_SVG + '</span>';
     var options = statusList().map(function (s) {
       return '<option value="' + T.esc(s.key) + '"' + (s.key === o.status ? ' selected' : '') + '>' +
@@ -1057,15 +1326,33 @@
     var busy = isBusy();                  // save/delete/reload in flight right now
     var fieldsLocked = permRo || busy;    // either reason locks every input the same way
 
+    // UI revision (2026-09-02, "Option N"; 2026-09-03, "Option A") — the
+    // detail title fuses the same colour+icon marker onto "Mã đơn {id}"
+    // (same component as the list card, see fusedOrderIdHtml), and it is
+    // now ALSO the trigger for the approve actions themselves — the
+    // separate Gửi duyệt/Duyệt/Từ chối/Về Nháp button row that used to sit
+    // in actionsHtml() is gone; see the doc comment there. The full text
+    // label still appears separately in approveStatusBannerHtml just below
+    // — spec point 3 (text in detail) is satisfied there, not by the title
+    // icon. 'detail' is this marker's fixed menu key (there is only ever
+    // one detail title open at a time, unlike list cards).
+    var titleHtml = isNew
+      ? 'Tạo đơn hàng'
+      : (approveStatusEnabled() && has(o, 'approveStatus'))
+        ? 'Mã đơn ' + fusedOrderIdHtml(T.esc(o.orderId), o.approveStatus, 'oc-id',
+                                       approveActionsFor(o), 'detail', state.approveMenuOpenFor === 'detail',
+                                       APPROVE_BUSY_LABELS.indexOf(state.busyAction) >= 0)
+        : 'Mã đơn ' + T.esc(o.orderId);
+
     root.innerHTML = '' +
       '<div class="view-head">' +
-        '<h2>' + (isNew ? 'Tạo đơn hàng' : 'Mã đơn ' + T.esc(o.orderId)) + '</h2>' +
+        '<h2>' + titleHtml + '</h2>' +
         '<button type="button" class="link-btn" data-act="back"' +
           (busy ? ' disabled' : '') + '>← Danh sách</button>' +
       '</div>' +
       (isNew ? '' : detailFreshHtml(busy)) +
       (permRo ? '<p class="ro-note">Bạn chỉ có quyền xem đơn hàng này.</p>' : '') +
-      approvedNoteHtml(o) +
+      approveStatusBannerHtml(o) +
       headerCardHtml(o, fieldsLocked) +
       linesCardHtml(fieldsLocked) +
       totalsHtml() +
@@ -1099,17 +1386,43 @@
   }
 
   /**
-   * Milestone 3 / 3.6 — once an order is approved, say so plainly at the
-   * top of the detail view (not just in a data column nobody scrolls to).
-   * Gated by has(o, 'approvedBy'): a role without that field in
-   * visible_fields never receives it from the server at all, so this note
-   * simply doesn't render for them — same pattern as every other optional
-   * field on this screen.
+   * Milestone 3 / 3.8 — REPLACES the 3.6 approvedNoteHtml() outright (same
+   * "Replace outright" decision as the server side): approve status is now
+   * a first-class badge shown for every order regardless of state (not just
+   * "say so once approved"), plus the last-updated-by line the spec asks
+   * for (point 4). Both pieces are independent of approveStatusEnabled()
+   * for the "last updated by" half — that's just plain audit info, useful
+   * whether or not the approval workflow itself is turned on; the approve
+   * badge itself is still gated, same as the list card.
    */
-  function approvedNoteHtml(o) {
-    if (!has(o, 'approvedBy') || !o.approvedBy) return '';
-    return '<p class="approved-note">Đã duyệt bởi ' + T.esc(o.approvedBy) +
-      (o.approvedAt ? ' · ' + T.formatDate(o.approvedAt) : '') + '</p>';
+  function approveStatusBannerHtml(o) {
+    var badge = (approveStatusEnabled() && has(o, 'approveStatus'))
+      ? '<p class="approve-status-banner">' + approveStatusPillHtml(o.approveStatus) + '</p>'
+      : '';
+    var updated = (has(o, 'updatedBy') && o.updatedBy)
+      ? '<p class="updated-note">Cập nhật lần cuối bởi ' + T.esc(o.updatedBy) +
+        (o.updatedAt ? ' · ' + T.formatDate(o.updatedAt) : '') + '</p>'
+      : '';
+    return badge + rejectReasonHtml(o) + updated;
+  }
+
+  // Revision 2026-09-03b — "B2" compact reject-reason line. StatusHistory
+  // captures the note on reject (see actionRejectOrder_) but nothing ever
+  // showed it; buildOrderResponse_ now attaches rejectReason/rejectedBy/
+  // rejectedAt to the order payload only when approveStatus is 'rejected'.
+  function rejectReasonHtml(o) {
+    if (o.approveStatus !== 'rejected' || !has(o, 'rejectReason') || !o.rejectReason) return '';
+    var who = (has(o, 'rejectedBy') && o.rejectedBy) ? '— ' + T.esc(o.rejectedBy) : '';
+    var when = (has(o, 'rejectedAt') && o.rejectedAt) ? ', ' + T.formatDate(o.rejectedAt) : '';
+    return '' +
+      '<p class="reject-reason-line">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+          '<path d="M6 6l12 12M18 6L6 18"/>' +
+        '</svg>' +
+        '<span>"' + T.esc(o.rejectReason) + '"' +
+          (who || when ? '<span class="reject-reason-who">' + who + when + '</span>' : '') +
+        '</span>' +
+      '</p>';
   }
 
   function detailFreshLabel() {
@@ -1268,6 +1581,17 @@
    * disabled — save while deleting, delete while saving, and a second click
    * on the same button are all blocked the same way. See isBusy() and the
    * guard at the top of onClick().
+   *
+   * UI revision (2026-09-03, "Option A") — REPLACES the 3.8 request-
+   * approve/approve/reject/set-draft button row entirely: those four
+   * actions now live behind the fused id+status marker in the title
+   * itself (fusedOrderIdHtml, approveActionsFor — see paintForm()), the
+   * same trigger the list card uses. This function is left with only
+   * save/Huỷ/Xoá — permRo can still suppress it completely, since those
+   * three really do require canEdit/canDelete, and there is nothing left
+   * here that a read-only-but-approving user needs (their approve actions
+   * are reachable through the title marker regardless of permRo, exactly
+   * as the old approve/reject buttons were).
    */
   function actionsHtml(isNew, permRo, busy) {
     if (permRo) return '';
@@ -1278,18 +1602,6 @@
       (busy ? ' disabled' : '') + '>' +
       (savingNow ? 'Đang lưu...' : (isNew ? 'Lưu đơn hàng' : 'Lưu thay đổi')) + '</button>';
 
-    // Milestone 3 / 3.6, migrated to T.confirm() popup: one-way (canApprove
-    // is already false server-side once approvedBy is set, so the control
-    // disappears for good after a successful approve, same as the server
-    // enforces). No inline confirm markup anymore — see doApprove(), which
-    // calls the shared popup with an order-summary card.
-    var approvingNow = state.busyAction === 'approving';
-    var approve = (!isNew && state.order.canApprove)
-      ? '<button type="button" class="btn btn-ok" data-act="ask-approve"' +
-          (busy ? ' disabled' : '') + '>' +
-          (approvingNow ? 'Đang duyệt...' : 'Duyệt đơn hàng') + '</button>'
-      : '';
-
     var deletingNow = state.busyAction === 'deleting';
     var del = (!isNew && state.order.canDelete)
       ? '<button type="button" class="btn btn-danger" data-act="ask-delete"' +
@@ -1299,7 +1611,8 @@
 
     return '<div class="form-actions">' + save +
       '<button type="button" class="btn" data-act="back"' +
-      (busy ? ' disabled' : '') + '>Huỷ</button>' + approve + del + '</div>';
+      (busy ? ' disabled' : '') + '>Huỷ</button>' +
+      del + '</div>';
   }
 
   function customerDatalistHtml() {
@@ -1313,8 +1626,37 @@
      Behaviour — one delegated listener per event, bound once in render()
      ===================================================================== */
 
+  /**
+   * Repaint whichever screen is currently showing after the approve-menu
+   * open/close state changes. state.order is the existing discriminator
+   * the rest of this module already relies on (showList() clears it,
+   * openForm()/applyOrderData() set it) — NOT root.querySelector('.view-
+   * head'), which depended on a DOM query the harness's DOM stub can't
+   * answer and real browsers would too, just less obviously (a detail
+   * view mid-transition has no .view-head for one paint cycle either).
+   */
+  function repaintAfterApproveMenuChange() {
+    if (state.order) paintForm(); else paintList();
+  }
+
   function onClick(e) {
     var target = e.target.closest ? e.target.closest('[data-act], [data-open]') : null;
+
+    // UI revision (2026-09-03, "Option A") — close any open approve-menu on
+    // a click outside its own wrapper (the usual "click outside to
+    // dismiss" contract for a dropdown). A click on the wrapper's own
+    // toggle button, or on one of its menu items, is handled below instead
+    // — both close the menu themselves as part of handling the click, so
+    // skip the repaint here to avoid doing it twice.
+    if (state.approveMenuOpenFor !== null) {
+      var insideOpenMenu = e.target.closest &&
+        e.target.closest('[data-menu-key="' + state.approveMenuOpenFor + '"]');
+      if (!insideOpenMenu) {
+        state.approveMenuOpenFor = null;
+        repaintAfterApproveMenuChange();
+      }
+    }
+
     if (!target) return;
     // Milestone 2.5c follow-up: one order-detail action (save/delete/reload)
     // at a time. The disabled attribute already stops most clicks; this is
@@ -1322,13 +1664,29 @@
     // the disabled repaint lands, Enter-to-submit, etc).
     if (isBusy()) return;
 
+    if (target.getAttribute('data-act') === 'toggle-approve-menu') {
+      var key = target.getAttribute('data-menu-key');
+      // A list card whose approve action is already in flight shows the
+      // pending spinner instead of this button at all (fusedOrderIdHtml),
+      // but guard here too in case a click landed a moment before that
+      // repaint — same belt-and-suspenders as the data-open guard below.
+      // Locking, point 1 (2026-09-03 feedback) — also refuse to open the
+      // menu while THIS order's status quick-change is in flight (the
+      // marker isn't even drawn as a button in that case; this is the same
+      // belt-and-suspenders layer as the line above, for the same reason).
+      if (state.approveUpdatingIds[key] || state.statusUpdatingIds[key]) return;
+      state.approveMenuOpenFor = (state.approveMenuOpenFor === key) ? null : key;
+      repaintAfterApproveMenuChange();
+      return;
+    }
+
     var open = target.getAttribute('data-open');
     if (open) {
       // Milestone 3 / 3.5 — don't let the user open an order whose status
       // change is still in flight: the server hasn't confirmed it yet, and
       // opening the (possibly stale) detail form invites acting on it
       // before the change actually lands.
-      if (state.statusUpdatingIds[open]) return;
+      if (state.statusUpdatingIds[open] || state.approveUpdatingIds[open]) return;
       openForm(open);
       return;
     }
@@ -1355,9 +1713,36 @@
       case 'ask-delete':
         confirmDelete();
         break;
+      // UI revision (2026-09-03, "Option A") — these four now fire from a
+      // menu item under the fused marker, on either the detail title
+      // (data-menu-key="detail") or a list card (data-menu-key=<orderId>).
+      // Resolve which order + which driver (doApproveStatusAction for the
+      // detail title, doApproveStatusActionQuick for a list card) applies
+      // before calling the SAME confirm* function either way — see the doc
+      // comment on confirmRequestApprove and friends above.
+      case 'ask-request-approve':
       case 'ask-approve':
-        confirmApprove();
+      case 'ask-reject':
+      case 'ask-set-draft': {
+        var menuKeyForAsk = target.getAttribute('data-menu-key');
+        var askOrder, askRun;
+        if (menuKeyForAsk === 'detail') {
+          askOrder = state.order;
+          askRun = doApproveStatusAction;
+        } else {
+          askOrder = state.orders.filter(function (o) { return o.orderId === menuKeyForAsk; })[0];
+          if (!askOrder) break;
+          askRun = function (apiFn, busyLabel, newApproveStatus, successToast, note) {
+            doApproveStatusActionQuick(askOrder, apiFn, busyLabel, newApproveStatus, successToast, note);
+          };
+        }
+        var askActCase = target.getAttribute('data-act');
+        if (askActCase === 'ask-request-approve') confirmRequestApprove(askOrder, askRun);
+        else if (askActCase === 'ask-approve') confirmApprove(askOrder, askRun);
+        else if (askActCase === 'ask-reject') confirmReject(askOrder, askRun);
+        else confirmSetDraft(askOrder, askRun);
         break;
+      }
       case 'save':
         save();
         break;
@@ -1387,6 +1772,7 @@
         var customerSel = root.querySelector('#f-filter-customer');
         var statusSel = root.querySelector('#f-filter-status');
         var createdBySel = root.querySelector('#f-filter-createdBy');
+        var approveStatusSel = root.querySelector('#f-filter-approveStatus');
         // Phong's spec 2026-08-31 (2d): the dropdown panel's "Áp dụng" is
         // independent of the search box. A query typed but never submitted
         // via the 🔍 button/Enter is discarded here, not silently applied —
@@ -1398,7 +1784,8 @@
           month: (mv && yv) ? (yv + '-' + mv) : '',
           customer: customerSel ? customerSel.value : '',
           status: statusSel ? statusSel.value : '',
-          createdBy: createdBySel ? createdBySel.value : ''
+          createdBy: createdBySel ? createdBySel.value : '',
+          approveStatus: approveStatusSel ? approveStatusSel.value : ''
         });
         break;
       }
@@ -1731,13 +2118,54 @@
 
   /* ---------------- save / delete ---------------- */
 
+  /**
+   * Milestone 3 / 3.8 (point 9), extended 2026-09-03 (point 1) — every save
+   * by a user holding approve_order asks "approve this now, or go to
+   * draft?" BEFORE the save call — the user's answer becomes
+   * payload.confirmApprove, which actionUpdateOrder_ AND (as of this
+   * revision) actionCreateOrder_ both read server-side: approved only when
+   * true, draft otherwise, no exceptions. Fires on every save while
+   * approvalFlowEnabled(), not only when the order is currently
+   * wait_approval/approved — "Every save by an edit+approve user".
+   *
+   * Create used to be skipped here because a new order was always born a
+   * draft; it now honours confirmApprove exactly like an update does, so an
+   * approver can create an already-approved order in one step instead of
+   * creating it and immediately approving it again.
+   */
   function save() {
     if (isBusy()) return;
     collect();
 
+    if (approveStatusEnabled() && T.can('approve_order')) {
+      confirmSaveApprove(!state.order.orderId);
+      return;
+    }
+    doSave(false);
+  }
+
+  function confirmSaveApprove(isNew) {
+    T.confirm({
+      title: isNew ? 'Tạo và duyệt luôn đơn này?' : 'Duyệt luôn đơn này?',
+      message: isNew
+        ? 'Xác nhận: đơn sẽ được tạo và duyệt luôn. Không xác nhận: đơn vẫn được tạo, ở trạng thái Nháp.'
+        : 'Xác nhận: đơn sẽ được lưu và duyệt luôn. Không xác nhận: đơn vẫn được lưu, nhưng sẽ chuyển về trạng thái Nháp.',
+      summary: orderSummaryFor(state.order),
+      okLabel: isNew ? 'Tạo và duyệt' : 'Lưu và duyệt',
+      cancelLabel: isNew ? 'Chỉ tạo (Nháp)' : 'Chỉ lưu (về Nháp)',
+      danger: false
+    }).then(function (confirmApproveOnSave) { doSave(confirmApproveOnSave); });
+  }
+
+  function doSave(confirmApproveOnSave) {
     var isNew = !state.order.orderId;
     var payload = { order: state.order, lines: state.lines };
     if (!isNew) payload.orderId = state.order.orderId;
+    // 2026-09-03 (point 1) — sent on create as well as update now; both
+    // server actions read it with the same "approved only when true" rule.
+    if (approveStatusEnabled() && T.can('approve_order')) {
+      payload.confirmApprove = !!confirmApproveOnSave;
+    }
     var seq = viewSeq;
 
     state.busyAction = 'saving';
@@ -1758,7 +2186,7 @@
         state.busyAction = null; // reset unconditionally — a stale busyAction would lock every future save
         if (seq !== viewSeq) return;
         applyOrderData(data);
-        T.toast(isNew ? 'Đã tạo đơn ' + data.order.orderId : 'Đã lưu thay đổi.');
+        T.toast(saveToast(isNew, data.order));
         paintForm();
       })
       .catch(function (err) {
@@ -1767,6 +2195,20 @@
         paintForm();
         T.toast(err.message, true);
       });
+  }
+
+  /**
+   * Milestone 3 / 3.8 — the save toast says what actually happened to the
+   * approve status when relevant, so "Chỉ lưu (về Nháp)" or an auto-approve
+   * confirm doesn't leave the user guessing which one took effect.
+   */
+  function saveToast(isNew, order) {
+    if (isNew) return 'Đã tạo đơn ' + order.orderId;
+    if (approveStatusEnabled() && has(order, 'approveStatus')) {
+      if (order.approveStatus === 'approved') return 'Đã lưu thay đổi và duyệt đơn.';
+      if (order.approveStatus === 'draft') return 'Đã lưu thay đổi (đơn ở trạng thái Nháp).';
+    }
+    return 'Đã lưu thay đổi.';
   }
 
   function doDelete() {
@@ -1792,52 +2234,173 @@
       });
   }
 
+  /** Milestone 3 / 3.8 — "Gửi duyệt": draft/rejected -> wait_approval. */
   /**
-   * Milestone 3 / 3.6, migrated to the T.confirm() popup — was an inline
-   * confirm-box.
+   * UI revision (2026-09-03, "Option A") — these four confirm* functions
+   * now take the order they act on (and a `run` callback that actually
+   * fires the request) instead of reaching for state.order directly, so
+   * the SAME confirm copy/wording serves both the detail title's marker
+   * (order = state.order, run = doApproveStatusAction) and a list card's
+   * marker (order = that card, run = doApproveStatusActionQuick) — see
+   * onClick's ask-request-approve/ask-approve/ask-reject/ask-set-draft
+   * cases, which pick which pair to pass based on data-menu-key.
    */
-  function confirmApprove() {
+  function confirmRequestApprove(order, run) {
+    T.confirm({
+      title: 'Gửi duyệt đơn hàng?',
+      message: 'Đơn sẽ chuyển sang trạng thái Chờ duyệt.',
+      summary: orderSummaryFor(order),
+      okLabel: 'Gửi duyệt', cancelLabel: 'Không', danger: false
+    }).then(function (ok) { if (ok) run('apiRequestApprove', 'requesting-approve',
+                                        'wait_approval', 'Đã gửi duyệt.'); });
+  }
+
+  /** Milestone 3 / 3.8 — REPLACES the 3.6 confirmApprove/doApprove outright:
+   *  wait_approval -> approved, approve_order only. */
+  function confirmApprove(order, run) {
     T.confirm({
       title: 'Duyệt đơn hàng?',
-      message: 'Không thể hoàn tác sau khi duyệt.',
-      summary: orderSummaryFor(state.order),
+      message: 'Đơn sẽ chuyển sang trạng thái Đã duyệt.',
+      summary: orderSummaryFor(order),
       okLabel: 'Duyệt', cancelLabel: 'Không', danger: false
-    }).then(function (ok) { if (ok) doApprove(); });
+    }).then(function (ok) { if (ok) run('apiApproveOrder', 'approving',
+                                        'approved', 'Đã duyệt đơn hàng.'); });
+  }
+
+  /** Milestone 3 / 3.8 — wait_approval -> rejected, with an optional note. */
+  function confirmReject(order, run) {
+    T.confirm({
+      title: 'Từ chối đơn hàng?',
+      message: 'Đơn sẽ chuyển sang trạng thái Từ chối.',
+      summary: orderSummaryFor(order),
+      noteField: { label: 'Lý do từ chối (không bắt buộc)', placeholder: 'Ví dụ: thiếu thông tin...' },
+      okLabel: 'Từ chối', cancelLabel: 'Không', danger: true
+    }).then(function (res) {
+      if (res && res.ok) {
+        run('apiRejectOrder', 'rejecting', 'rejected', 'Đã từ chối đơn hàng.', res.note);
+      }
+    });
   }
 
   /**
-   * Milestone 3 / 3.6 — approve the order on screen. Not optimistic: the
-   * server is the source of truth for approvedBy/approvedAt (it stamps the
-   * timestamp, and re-checks for a race against a second approver inside
-   * the lock), so the form is repainted from its actual response rather
-   * than guessed at locally. Also patches the list-card cache the same way
-   * changeStatusQuick does — if this order is in state.orders, its
-   * canApprove flips off there too so "← Danh sách" doesn't show a stale
-   * still-approvable card.
+   * 2026-09-03 (point 5) — "Về Nháp": any status -> draft, self-approver
+   * only. No note field (the user's explicit answer): Duyệt and Gửi duyệt
+   * both confirm without one, and only Từ chối asks for a reason.
    */
-  function doApprove() {
+  function confirmSetDraft(order, run) {
+    T.confirm({
+      title: 'Chuyển đơn về Nháp?',
+      message: 'Đơn sẽ chuyển sang trạng thái Nháp và có thể sửa lại bình thường.',
+      summary: orderSummaryFor(order),
+      okLabel: 'Về Nháp', cancelLabel: 'Không', danger: false
+    }).then(function (ok) { if (ok) run('apiSetDraftOrder', 'setting-draft',
+                                        'draft', 'Đã chuyển đơn về Nháp.'); });
+  }
+
+  /**
+   * Mirror of the server's approveActionFlags_ (Orders.gs) for the local
+   * repaint right after an approve-status action lands — the server
+   * re-decides for real on the next request, this only keeps the buttons
+   * honest in the meantime. Kept as one function for the same reason the
+   * server has one: the two copies of these rules had already drifted once.
+   */
+  function localApproveFlags(approveStatus) {
+    var selfApprover = T.can('edit_order') && T.can('approve_order');
+    if (selfApprover) {
+      return {
+        canRequestApprove: false,
+        canApprove: approveStatus !== 'approved',
+        canReject: approveStatus !== 'rejected',
+        canSetDraft: approveStatus !== 'draft'
+      };
+    }
+    return {
+      canRequestApprove: (approveStatus === 'draft' || approveStatus === 'rejected'),
+      canApprove: T.can('approve_order') && approveStatus === 'wait_approval',
+      canReject: T.can('approve_order') && approveStatus === 'wait_approval',
+      canSetDraft: false
+    };
+  }
+
+  /**
+   * Milestone 3 / 3.8 — shared driver for requestApprove/approveOrder/
+   * rejectOrder/setDraftOrder: same shape as the old doApprove() (3.6),
+   * generalized to the four actions. Not optimistic: the server is the source of truth
+   * for the new approveStatus (it re-checks state inside the lock against a
+   * race), so the form is repainted from the actual response rather than
+   * guessed at locally. Also patches the list-card cache the same way
+   * changeStatusQuick/the old doApprove did, so "← Danh sách" never shows a
+   * stale approveStatus or stale canRequestApprove/canApprove/canReject.
+   */
+  function doApproveStatusAction(apiFn, busyLabel, newApproveStatus, successToast, note) {
     if (isBusy()) return;
     var seq = viewSeq;
     var orderId = state.order.orderId;
-    state.busyAction = 'approving';
+    var payload = { orderId: orderId };
+    if (note !== undefined) payload.note = note;
+    state.busyAction = busyLabel;
+    state.approveMenuOpenFor = null; // the action is firing — menu closes, spinner takes over
     paintForm();
-    T.call('apiApproveOrder', { orderId: orderId })
-      .then(function (res) {
+    T.call(apiFn, payload)
+      .then(function () {
         state.busyAction = null;
-        state.order.approvedBy = res.approvedBy;
-        state.order.approvedAt = res.approvedAt;
-        state.order.canApprove = false;
+        state.order.approveStatus = newApproveStatus;
+        // Recompute every action flag from scratch rather than trust a
+        // guessed patch — see localApproveFlags above.
+        var flags = localApproveFlags(newApproveStatus);
+        state.order.canRequestApprove = flags.canRequestApprove;
+        state.order.canApprove = flags.canApprove;
+        state.order.canReject = flags.canReject;
+        state.order.canSetDraft = flags.canSetDraft;
         delete orderCache[orderId]; // stale otherwise, same reasoning as changeStatusQuick
         var card = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
-        if (card) card.canApprove = false;
+        if (card) card.approveStatus = newApproveStatus;
         if (seq !== viewSeq) return;
-        T.toast('Đã duyệt đơn hàng.');
+        T.toast(successToast);
         paintForm();
       })
       .catch(function (err) {
         state.busyAction = null;
         if (seq !== viewSeq) return;
         paintForm();
+        T.toast(err.message, true);
+      });
+  }
+
+  /**
+   * UI revision (2026-09-03, "Option A") — list-card twin of
+   * doApproveStatusAction above, for an approve action fired from a LIST
+   * CARD's fused-marker menu rather than the detail title's. Same shape as
+   * doChangeStatusQuick: tracks in-flight state per orderId (not a single
+   * global busyAction, since more than one card exists at once), patches
+   * state.orders in place on success, and drops both caches so neither the
+   * list nor a later-opened detail view shows a stale approveStatus.
+   */
+  function doApproveStatusActionQuick(order, apiFn, busyLabel, newApproveStatus, successToast, note) {
+    var orderId = order.orderId;
+    if (state.approveUpdatingIds[orderId]) return;
+    var payload = { orderId: orderId };
+    if (note !== undefined) payload.note = note;
+    state.approveUpdatingIds[orderId] = true;
+    state.approveMenuOpenFor = null;
+    paintList();
+    T.call(apiFn, payload)
+      .then(function () {
+        order.approveStatus = newApproveStatus;
+        var flags = localApproveFlags(newApproveStatus);
+        order.canRequestApprove = flags.canRequestApprove;
+        order.canApprove = flags.canApprove;
+        order.canReject = flags.canReject;
+        order.canSetDraft = flags.canSetDraft;
+        if (state.ordersLoadedAt) state.ordersLoadedAt = Date.now(); // keep the list cache fresh, same as doChangeStatusQuick
+        delete orderCache[orderId]; // stale otherwise — see doApproveStatusAction
+        delete state.approveUpdatingIds[orderId];
+        paintList();
+        T.toast(successToast);
+      })
+      .catch(function (err) {
+        delete state.approveUpdatingIds[orderId];
+        paintList();
         T.toast(err.message, true);
       });
   }

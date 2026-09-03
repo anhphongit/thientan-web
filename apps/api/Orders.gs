@@ -74,10 +74,17 @@ function actionListOrders_(user, payload) {
   // level) and line description (needs a second sheet). Substring, not
   // exact — normalizeFilter_ trims/lowercases like customer/createdBy do.
   var searchQuery = normalizeFilter_(payload && payload.q);
+  // Milestone 3 / 3.8 — approveStatus filter. approveStatus is ALWAYS
+  // visible (ALWAYS_VISIBLE_FIELDS), so unlike customer/status above this is
+  // never gated on fieldVisible_; it only makes sense while the flag is on.
+  var approveConfig = readPublicConfig_();
+  var approveStatusFilter = approvalFlowEnabled_(approveConfig)
+    ? normalizeFilter_(payload && payload.approveStatus, { keepCase: true }) : '';
 
   var version = getOrdersVersion_();
   var cacheKey = listCacheKey_(version, user.email, page, pageSize,
-                                dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery);
+                                dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery,
+                                approveStatusFilter);
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
 
@@ -93,6 +100,11 @@ function actionListOrders_(user, payload) {
   }
   if (createdByFilter) {
     orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === createdByFilter; });
+  }
+  if (approveStatusFilter) {
+    orders = orders.filter(function (row) {
+      return String(row.approveStatus || 'draft') === approveStatusFilter;
+    });
   }
   if (searchQuery) {
     // Security fix, found live 2026-08-31: search must never become an
@@ -259,13 +271,31 @@ function listCardView_(user, row, lineCount) {
   var view = filterVisibleFields_(user, slim);
   view.orderId = row.orderId;                       // always identifiable
   view.lineCount = lineCount;
-  view.canEdit = mayAct_(user, row, 'edit_order');
+
+  // Milestone 3 / 3.8 — approveStatus is NOT in LIST_CARD_FIELDS (that list
+  // only trims what the CARD LAYOUT draws), so it never reaches `slim` and
+  // ALWAYS_VISIBLE_FIELDS never gets a chance to act on it here. Set it
+  // directly instead, same as orderId just above — this is what actually
+  // guarantees "every card, every user" (spec point 2), independent of both
+  // LIST_CARD_FIELDS and visible_fields. Defaults to 'draft' for a
+  // pre-migration row that has no value yet.
+  var approveStatus = String(row.approveStatus || 'draft');
+  view.approveStatus = approveStatus;
+
+  var config = readPublicConfig_();
+  var editGateOk = canEditForApproveStatus_(user, approveStatus, config);
+  view.canEdit = mayAct_(user, row, 'edit_order') && editGateOk;
   view.canDelete = mayAct_(user, row, 'delete_order');
   view.canChangeStatus = mayAct_(user, row, 'change_status'); // Milestone 3 / 3.5
-  // Milestone 3 / 3.6 — same permission+ownership shape as the others, plus
-  // "not already approved": approving is one-way, so a card that's already
-  // approved never offers the control again, even to an admin.
-  view.canApprove = mayAct_(user, row, 'approve_order') && !row.approvedBy;
+
+  // Logic revision 2026-09-03 — all four flags come from approveActionFlags_
+  // now (self-approvers get the free transitions; everyone else keeps the
+  // original wait_approval gate). See that helper for the full matrix.
+  var flags = approveActionFlags_(user, row, approveStatus, config);
+  view.canRequestApprove = flags.canRequestApprove;
+  view.canApprove = flags.canApprove;
+  view.canReject = flags.canReject;
+  view.canSetDraft = flags.canSetDraft;
   return view;
 }
 
@@ -300,6 +330,19 @@ function actionCreateOrder_(user, payload) {
   // written, so the only way to set a field is to be allowed to see it.
   clampHiddenOrderFields_(user, clean);
 
+  // Logic revision 2026-09-03 (point 1) — the save-time auto-approve rule
+  // now applies to create as well: an approve_order holder who confirmed
+  // the "Duyệt luôn đơn này?" prompt gets an order that is born approved,
+  // instead of having to create it and immediately approve it again. Same
+  // contract as actionUpdateOrder_ — approved ONLY on an explicit
+  // payload.confirmApprove === true, draft in every other case, and inert
+  // entirely while the flag is off.
+  var createConfig = readPublicConfig_();
+  var bornApproved = approvalFlowEnabled_(createConfig) &&
+                     hasPermission_(user, 'approve_order') &&
+                     !!(payload && payload.confirmApprove === true);
+  var initialApproveStatus = bornApproved ? 'approved' : 'draft';
+
   var result = withOrderLock_(function () {
     var orderId = nextOrderId_();
     var now = new Date();
@@ -328,12 +371,26 @@ function actionCreateOrder_(user, payload) {
       updatedBy: user.email,
       updatedAt: now,
       approvedBy: '',
-      approvedAt: ''
+      approvedAt: '',
+      // Milestone 3 / 3.8 — a new order starts life as a draft unless the
+      // creating user is an approver who explicitly asked to approve it on
+      // the spot (see initialApproveStatus above). Still inert when the
+      // flag is off: bornApproved is false there, so this stays 'draft' and
+      // the column just sits unused (see the design note in TASKS.md,
+      // "Flag only hides UI/permissions; approveStatus data stays
+      // untouched").
+      approveStatus: initialApproveStatus
     });
 
     lines.forEach(function (line) { appendRecord_(SHEETS.ORDER_LINES, line); });
 
-    appendStatusHistory_(orderId, '', clean.status, 'Tạo đơn hàng', user);
+    appendStatusHistory_(orderId, '', clean.status, 'Tạo đơn hàng', user, 'status');
+    // Only log an approveStatus row when the order did NOT take the default
+    // birth state: '' -> 'draft' on every create would be pure noise, but
+    // '' -> 'approved' is a real approval event and must be auditable.
+    if (bornApproved) {
+      appendStatusHistory_(orderId, '', 'approved', 'Tạo và duyệt đơn hàng', user, 'approveStatus');
+    }
     return orderId;
   });
 
@@ -349,11 +406,130 @@ function actionCreateOrder_(user, payload) {
  * appended, removed ones deleted. Deliberately not delete-all-then-reinsert —
  * that would churn ids and drop the `invoiceId` of a line nobody touched.
  */
+/**
+ * Milestone 3 / 3.8 — approve-status helpers.
+ *
+ * approvalFlowEnabled_() reads the feature flag straight from Config (via
+ * readPublicConfig_(), which is itself cached — see CACHE.CONFIG_KEY). When
+ * the flag is off, every function below that checks it must fall back to
+ * today's plain "edit_order + ownership" behavior, never to a stricter rule
+ * — the flag existing at all must not change behavior for a deployment that
+ * hasn't turned it on. See TASKS.md, "Milestone 3, task 3.8" for the full
+ * design and its decision log.
+ */
+function approvalFlowEnabled_(config) {
+  var v = config && config.approvalFlowEnabled;
+  return v === true || v === 'TRUE' || v === 'true';
+}
+
+function isKnownApproveStatus_(status) {
+  return ['draft', 'wait_approval', 'approved', 'rejected'].indexOf(status) >= 0;
+}
+
+/**
+ * Whether `user` may edit an order currently at `approveStatus`, given the
+ * edit-gating matrix agreed in TASKS.md:
+ *   draft / rejected   → edit_order (+ ownership, same as always)
+ *   wait_approval /
+ *   approved           → edit_order AND (approve_order OR can_edit_approved_order)
+ * Ownership (requireOwnershipOrAll_) is layered on separately by the caller,
+ * exactly as it always has been — this only decides the approve-status part.
+ * When the feature flag is off, every status is treated as draft-like, so
+ * this always returns true once edit_order itself has been checked by the
+ * caller (kept as a real check here too, so a direct call is still correct
+ * on its own).
+ */
+function canEditForApproveStatus_(user, approveStatus, config) {
+  if (!hasPermission_(user, 'edit_order')) return false;
+  if (!approvalFlowEnabled_(config)) return true;
+
+  if (approveStatus === 'wait_approval' || approveStatus === 'approved') {
+    return hasPermission_(user, 'approve_order') || hasPermission_(user, 'can_edit_approved_order');
+  }
+  return true; // draft, rejected, or unrecognized (treated leniently, same as before 3.8)
+}
+
+/**
+ * Logic revision 2026-09-03 (points 2-5) — a "self-approver" is a user who
+ * holds BOTH edit_order and approve_order on THIS order (mayAct_ layers
+ * ownership on top of the raw permission, same as everywhere else). Such a
+ * user writes and signs off their own work, so the request-approval hop is
+ * pointless busywork for them: they skip wait_approval entirely (point 2)
+ * and may move an order straight into any approve status it is not already
+ * in (points 3-5).
+ *
+ * Deliberately NOT extended to a user holding approve_order alone (the
+ * user's explicit answer, 2026-09-03): a pure approver — someone who can
+ * sign off but cannot edit — stays on the original rule, approving or
+ * rejecting only what has actually been submitted for approval. Widening
+ * that would let a review-only account push an order nobody ever submitted
+ * straight to approved, which is exactly the control the wait_approval gate
+ * exists to enforce.
+ */
+function isSelfApprover_(user, row, config) {
+  return approvalFlowEnabled_(config) &&
+         mayAct_(user, row, 'edit_order') &&
+         mayAct_(user, row, 'approve_order');
+}
+
+/**
+ * The four approve-action flags the client draws its buttons from, computed
+ * in ONE place because listCardView_ and buildOrderResponse_ both need them
+ * and had drifted into duplicated copies of the same three lines before
+ * this revision.
+ *
+ * Self-approver (edit_order + approve_order):
+ *   canRequestApprove — never (point 2: they have no use for the hop)
+ *   canApprove        — any status except 'approved'  (point 3)
+ *   canReject         — any status except 'rejected'  (point 4)
+ *   canSetDraft       — any status except 'draft'     (point 5)
+ * Everyone else keeps the pre-existing rules:
+ *   canRequestApprove — edit_order, on a draft/rejected order
+ *   canApprove/Reject — approve_order, on a wait_approval order only
+ *   canSetDraft       — never (this action is self-approver-only)
+ */
+function approveActionFlags_(user, row, approveStatus, config) {
+  var flowOn = approvalFlowEnabled_(config);
+  if (!flowOn) {
+    return { canRequestApprove: false, canApprove: false, canReject: false, canSetDraft: false };
+  }
+
+  var selfApprover = isSelfApprover_(user, row, config);
+  var mayApprove = mayAct_(user, row, 'approve_order');
+
+  if (selfApprover) {
+    return {
+      canRequestApprove: false,
+      canApprove: approveStatus !== 'approved',
+      canReject: approveStatus !== 'rejected',
+      canSetDraft: approveStatus !== 'draft'
+    };
+  }
+
+  return {
+    canRequestApprove: mayAct_(user, row, 'edit_order') &&
+      (approveStatus === 'draft' || approveStatus === 'rejected'),
+    canApprove: mayApprove && approveStatus === 'wait_approval',
+    canReject: mayApprove && approveStatus === 'wait_approval',
+    canSetDraft: false
+  };
+}
+
 function actionUpdateOrder_(user, payload) {
   requirePermission_(user, 'edit_order');
 
   var row = findOrderRow_(payload && payload.orderId);
   requireOwnershipOrAll_(user, row);
+
+  // Milestone 3 / 3.8 — the approve-status edit gate. This is a SERVER check,
+  // not a UI hint: a user whose edit_order is real but who lacks both
+  // approve_order and can_edit_approved_order must be refused here even if
+  // they call updateOrder directly, bypassing whatever the client hides.
+  var config = readPublicConfig_();
+  var previousApproveStatus = String(row.approveStatus || 'draft');
+  if (!canEditForApproveStatus_(user, previousApproveStatus, config)) {
+    throw new Error(MSG.APPROVE_STATUS_EDIT_DENIED);
+  }
 
   var clean = validateOrderPayload_(payload, user);
   var previousStatus = String(row.status || '');
@@ -362,14 +538,37 @@ function actionUpdateOrder_(user, payload) {
     requirePermission_(user, 'change_status');
   }
 
+  // Milestone 3 / 3.8 — save-time approve-status transition (points 8/9).
+  // Every save defaults to 'draft' UNLESS the saving user holds approve_order
+  // AND explicitly confirmed the auto-approve prompt on the client (payload.
+  // confirmApprove === true). This check runs on every save by an
+  // approve_order holder, not only saves of a wait_approval/approved order
+  // (per the user's explicit answer: "Every save by an edit+approve user").
+  // When the flag is off, approveStatus is left exactly as it was — the
+  // column is inert until a deployment turns the flow on.
+  var nextApproveStatus = previousApproveStatus;
+  if (approvalFlowEnabled_(config)) {
+    if (hasPermission_(user, 'approve_order') && payload && payload.confirmApprove === true) {
+      nextApproveStatus = 'approved';
+    } else {
+      nextApproveStatus = 'draft';
+    }
+  }
+
   // A user who cannot SEE money must not be able to erase it. Their form has no
   // price inputs, so anything it sends for those columns is a zero by omission —
   // the stored value wins instead.
   var blindToMoney = !seesMoney_(user);
 
   withOrderLock_(function () {
-    // Re-read inside the lock: another save may have landed since the check above.
+    // Re-read inside the lock: another save may have landed since the check
+    // above — including someone else's approve/reject/request-approve, which
+    // could have moved this order into a stricter approveStatus. Re-check the
+    // edit gate against the FRESH row, not the one read before the lock.
     var current = findOrderRow_(row.orderId);
+    if (!canEditForApproveStatus_(user, String(current.approveStatus || 'draft'), config)) {
+      throw new Error(MSG.APPROVE_STATUS_EDIT_DENIED);
+    }
     var existing = linesForOrder_(current.orderId);
     var byId = {};
     existing.forEach(function (line) { byId[String(line.lineId)] = line; });
@@ -460,13 +659,22 @@ function actionUpdateOrder_(user, payload) {
       totalExVat: totals.exVat,
       totalIncVat: totals.incVat,
       lineCount: saved.length,
+      approveStatus: nextApproveStatus,
       updatedBy: user.email,
       updatedAt: new Date()
     });
 
     if (clean.status !== previousStatus) {
       appendStatusHistory_(current.orderId, previousStatus, clean.status,
-                           clean.statusNote, user);
+                           clean.statusNote, user, 'status');
+    }
+    // current.approveStatus (not previousApproveStatus, read before the lock)
+    // is the value the gate above just re-verified against — logging against
+    // it keeps the history row honest even if something changed in between.
+    var approveStatusBefore = String(current.approveStatus || 'draft');
+    if (nextApproveStatus !== approveStatusBefore) {
+      appendStatusHistory_(current.orderId, approveStatusBefore, nextApproveStatus,
+                           '', user, 'approveStatus');
     }
   });
 
@@ -491,7 +699,7 @@ function actionDeleteOrder_(user, payload) {
 
     deleteRecord_(SHEETS.ORDERS, current._row);
     appendStatusHistory_(current.orderId, String(current.status || ''), 'deleted',
-                         'Xoá đơn hàng', user);
+                         'Xoá đơn hàng', user, 'status');
   });
 
   bumpOrdersVersion_();
@@ -537,7 +745,7 @@ function actionChangeStatus_(user, payload) {
       updatedBy: user.email,
       updatedAt: new Date()
     });
-    appendStatusHistory_(current.orderId, previousStatus, newStatus, note, user);
+    appendStatusHistory_(current.orderId, previousStatus, newStatus, note, user, 'status');
     wroteChange = true;
   });
 
@@ -546,13 +754,47 @@ function actionChangeStatus_(user, payload) {
 }
 
 /**
- * Milestone 3 / 3.6 — admin approval. One-purpose and one-way, same shape
- * as actionChangeStatus_: no full-order payload, just the id. approve_order
- * + ownership (requireOwnershipOrAll_ — in practice every profile granting
- * approve_order also grants view_all_orders, but this stays consistent with
- * every other action here rather than special-casing "admin only"). An
- * already-approved order refuses a second approval outright — approvedBy/
- * approvedAt are a first-approval record, not something to overwrite.
+ * Milestone 3 / 3.8 — request approval. Moves a draft/rejected order into
+ * wait_approval. REPLACES the 3.6 actionApproveOrder_ outright (per the
+ * user's explicit "Replace outright" answer) rather than living alongside
+ * it. Requires only edit_order (+ ownership) — this is the "Gửi duyệt"
+ * button every editor sees on their own draft/rejected orders, not an
+ * approver-only action.
+ */
+function actionRequestApprove_(user, payload) {
+  requirePermission_(user, 'edit_order');
+
+  var row = findOrderRow_(payload && payload.orderId);
+  requireOwnershipOrAll_(user, row);
+
+  var config = readPublicConfig_();
+  if (!approvalFlowEnabled_(config)) {
+    throw new Error(MSG.APPROVAL_FLOW_DISABLED);
+  }
+
+  var now = new Date();
+  withOrderLock_(function () {
+    var current = findOrderRow_(row.orderId);
+    var before = String(current.approveStatus || 'draft');
+    if (before !== 'draft' && before !== 'rejected') {
+      throw new Error(MSG.APPROVE_STATUS_NOT_DRAFTLIKE);
+    }
+    updateRecord_(SHEETS.ORDERS, current._row, {
+      approveStatus: 'wait_approval',
+      updatedBy: user.email,
+      updatedAt: now
+    });
+    appendStatusHistory_(current.orderId, before, 'wait_approval', '', user, 'approveStatus');
+  });
+
+  bumpOrdersVersion_();
+  return { orderId: row.orderId, approveStatus: 'wait_approval' };
+}
+
+/**
+ * Milestone 3 / 3.8 — approve. Requires approve_order (+ ownership) only;
+ * can_edit_approved_order alone does not grant this (per the user's explicit
+ * "can_approve only" answer). Only a wait_approval order may be approved.
  */
 function actionApproveOrder_(user, payload) {
   requirePermission_(user, 'approve_order');
@@ -560,29 +802,119 @@ function actionApproveOrder_(user, payload) {
   var row = findOrderRow_(payload && payload.orderId);
   requireOwnershipOrAll_(user, row);
 
-  if (row.approvedBy) {
-    throw new Error(MSG.ORDER_ALREADY_APPROVED);
+  var config = readPublicConfig_();
+  if (!approvalFlowEnabled_(config)) {
+    throw new Error(MSG.APPROVAL_FLOW_DISABLED);
   }
 
-  var approvedAt = new Date();
+  var now = new Date();
   withOrderLock_(function () {
-    // Re-read INSIDE the lock: two admins approving the same order at
-    // nearly the same moment must not both succeed and silently overwrite
-    // each other's approvedBy/approvedAt.
     var current = findOrderRow_(row.orderId);
-    if (current.approvedBy) {
-      throw new Error(MSG.ORDER_ALREADY_APPROVED);
+    var before = String(current.approveStatus || 'draft');
+    // Logic revision 2026-09-03 (point 3) — a self-approver may approve from
+    // ANY status except one already approved; everyone else still needs the
+    // order to be sitting at wait_approval. Re-derived inside the lock
+    // against the FRESH row for the same reason the edit gate is.
+    if (isSelfApprover_(user, current, config)) {
+      if (before === 'approved') throw new Error(MSG.APPROVE_STATUS_ALREADY_APPROVED);
+    } else if (before !== 'wait_approval') {
+      throw new Error(MSG.APPROVE_STATUS_NOT_PENDING);
     }
     updateRecord_(SHEETS.ORDERS, current._row, {
-      approvedBy: user.email,
-      approvedAt: approvedAt,
+      approveStatus: 'approved',
       updatedBy: user.email,
-      updatedAt: approvedAt
+      updatedAt: now
     });
+    appendStatusHistory_(current.orderId, before, 'approved', '', user, 'approveStatus');
   });
 
   bumpOrdersVersion_();
-  return { orderId: row.orderId, approvedBy: user.email, approvedAt: approvedAt };
+  return { orderId: row.orderId, approveStatus: 'approved' };
+}
+
+/**
+ * Milestone 3 / 3.8 — reject, with an optional note (per the user's explicit
+ * "Optional note on reject" answer). Same permission as approve: approve_order
+ * only. Only a wait_approval order may be rejected.
+ */
+function actionRejectOrder_(user, payload) {
+  requirePermission_(user, 'approve_order');
+
+  var row = findOrderRow_(payload && payload.orderId);
+  requireOwnershipOrAll_(user, row);
+
+  var config = readPublicConfig_();
+  if (!approvalFlowEnabled_(config)) {
+    throw new Error(MSG.APPROVAL_FLOW_DISABLED);
+  }
+
+  var note = text_(payload && payload.note);
+  var now = new Date();
+  withOrderLock_(function () {
+    var current = findOrderRow_(row.orderId);
+    var before = String(current.approveStatus || 'draft');
+    // Logic revision 2026-09-03 (point 4) — mirror of the approve gate: a
+    // self-approver may reject from ANY status except one already rejected.
+    if (isSelfApprover_(user, current, config)) {
+      if (before === 'rejected') throw new Error(MSG.APPROVE_STATUS_ALREADY_REJECTED);
+    } else if (before !== 'wait_approval') {
+      throw new Error(MSG.APPROVE_STATUS_NOT_PENDING);
+    }
+    updateRecord_(SHEETS.ORDERS, current._row, {
+      approveStatus: 'rejected',
+      updatedBy: user.email,
+      updatedAt: now
+    });
+    appendStatusHistory_(current.orderId, before, 'rejected', note, user, 'approveStatus');
+  });
+
+  bumpOrdersVersion_();
+  return { orderId: row.orderId, approveStatus: 'rejected' };
+}
+
+/**
+ * Logic revision 2026-09-03 (point 5) — send an order back to Nháp. New in
+ * this revision; there was no way to undo an approve/reject before, short
+ * of saving the order again (which forced a draft as a side effect rather
+ * than as an explicit, auditable action).
+ *
+ * Self-approver ONLY (edit_order AND approve_order, plus ownership): this
+ * reopens an order for editing, so it needs the same authority as approving
+ * it in the first place — requiring both permissions here, rather than
+ * either one, is what keeps a pure approver from quietly unapproving work
+ * they cannot edit, and a plain editor from bypassing a rejection.
+ */
+function actionSetDraftOrder_(user, payload) {
+  requirePermission_(user, 'edit_order');
+  requirePermission_(user, 'approve_order');
+
+  var row = findOrderRow_(payload && payload.orderId);
+  requireOwnershipOrAll_(user, row);
+
+  var config = readPublicConfig_();
+  if (!approvalFlowEnabled_(config)) {
+    throw new Error(MSG.APPROVAL_FLOW_DISABLED);
+  }
+
+  var now = new Date();
+  withOrderLock_(function () {
+    var current = findOrderRow_(row.orderId);
+    if (!isSelfApprover_(user, current, config)) {
+      throw new Error(MSG.APPROVE_STATUS_SET_DRAFT_DENIED);
+    }
+    var before = String(current.approveStatus || 'draft');
+    if (before === 'draft') throw new Error(MSG.APPROVE_STATUS_ALREADY_DRAFT);
+
+    updateRecord_(SHEETS.ORDERS, current._row, {
+      approveStatus: 'draft',
+      updatedBy: user.email,
+      updatedAt: now
+    });
+    appendStatusHistory_(current.orderId, before, 'draft', '', user, 'approveStatus');
+  });
+
+  bumpOrdersVersion_();
+  return { orderId: row.orderId, approveStatus: 'draft' };
 }
 
 /* =======================================================================
@@ -610,10 +942,39 @@ function buildOrderResponse_(user, row) {
 
   var order = filterVisibleFields_(user, row);
   order.orderId = row.orderId;
-  order.canEdit = mayAct_(user, row, 'edit_order');
+
+  // Milestone 3 / 3.8 — approveStatus/updatedBy/updatedAt are already kept
+  // by ALWAYS_VISIBLE_FIELDS, defaulted here for a pre-migration row.
+  var approveStatus = String(row.approveStatus || 'draft');
+  order.approveStatus = approveStatus;
+
+  var config = readPublicConfig_();
+  var editGateOk = canEditForApproveStatus_(user, approveStatus, config);
+  order.canEdit = mayAct_(user, row, 'edit_order') && editGateOk;
   order.canDelete = mayAct_(user, row, 'delete_order');
   order.canChangeStatus = hasPermission_(user, 'change_status');
-  order.canApprove = mayAct_(user, row, 'approve_order') && !row.approvedBy; // Milestone 3 / 3.6
+
+  // Logic revision 2026-09-03 — same shared helper as listCardView_, so the
+  // list card and the detail screen can never disagree about which approve
+  // actions this user has on this order.
+  var flags = approveActionFlags_(user, row, approveStatus, config);
+  order.canRequestApprove = flags.canRequestApprove;
+  order.canApprove = flags.canApprove;
+  order.canReject = flags.canReject;
+  order.canSetDraft = flags.canSetDraft;
+
+  // Revision 2026-09-03b — surface the latest reject reason on the detail
+  // screen (B2 banner). StatusHistory was write-only before this; we only
+  // look it up when the order is currently rejected, since that's the only
+  // state the UI needs to explain.
+  if (approveStatus === 'rejected') {
+    var rejectInfo = latestRejectInfo_(row.orderId);
+    if (rejectInfo) {
+      order.rejectReason = rejectInfo.note;
+      order.rejectedBy = rejectInfo.changedBy;
+      order.rejectedAt = rejectInfo.changedAt;
+    }
+  }
 
   return { order: order, lines: lines, hiddenMoney: !seesMoney_(user) };
 }
@@ -701,7 +1062,7 @@ function bumpOrdersVersion_() {
   }
 }
 
-function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery) {
+function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery, approveStatusFilter) {
   var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
   // Milestone 3 / 3.2-3.4: fold every filter into the key so a filtered and an
   // unfiltered (or differently-filtered) request for the same page never
@@ -715,12 +1076,13 @@ function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilte
   var st = statusFilter ? (':st' + safeToken_(statusFilter)) : '';
   var cb = createdByFilter ? (':cb' + safeToken_(createdByFilter)) : '';
   var q = searchQuery ? (':q' + safeToken_(searchQuery)) : '';
+  var ap = approveStatusFilter ? (':ap' + safeToken_(approveStatusFilter)) : '';
   return CACHE.LIST_KEY_PREFIX +
          'v' + version +
          ':u' + safeEmail +
          ':p' + page +
          ':s' + pageSize +
-         f + c + st + cb + q;
+         f + c + st + cb + q + ap;
 }
 
 /** Cache-key-safe token: anything not alphanumeric/@._- collapses to '_'. */
@@ -974,7 +1336,7 @@ function ensureInvoice_(invoiceNo, invoiceDate, customer, user) {
   return id;
 }
 
-function appendStatusHistory_(orderId, oldStatus, newStatus, note, user) {
+function appendStatusHistory_(orderId, oldStatus, newStatus, note, user, field) {
   appendRecord_(SHEETS.STATUS_HISTORY, {
     historyId: 'LS-' + Utilities.getUuid().substring(0, 8).toUpperCase(),
     orderId: orderId,
@@ -982,8 +1344,43 @@ function appendStatusHistory_(orderId, oldStatus, newStatus, note, user) {
     newStatus: newStatus,
     note: text_(note),
     changedBy: user.email,
-    changedAt: new Date()
+    changedAt: new Date(),
+    // Milestone 3 / 3.8 — disambiguates which of an order's two status
+    // columns this row describes. Every existing call site passes 'status'
+    // explicitly now; a row written before this column existed reads back
+    // with an empty field cell, which historyField_ below treats as 'status'.
+    field: field || 'status'
   });
+}
+
+/** @return {string} 'status' or 'approveStatus' — see appendStatusHistory_. */
+function historyField_(row) {
+  var f = String((row && row.field) || '').trim();
+  return f === 'approveStatus' ? 'approveStatus' : 'status';
+}
+
+/**
+ * Revision 2026-09-03b — the most recent 'rejected' StatusHistory row for
+ * this order, or null. Used by buildOrderResponse_ to show the reject
+ * reason on the detail screen; StatusHistory itself stays append-only.
+ */
+function latestRejectInfo_(orderId) {
+  var id = String(orderId || '').trim().toLowerCase();
+  var rows = readAll_(SHEETS.STATUS_HISTORY).filter(function (row) {
+    return String(row.orderId || '').trim().toLowerCase() === id &&
+      historyField_(row) === 'approveStatus' &&
+      String(row.newStatus || '') === 'rejected';
+  });
+  if (!rows.length) return null;
+  // Sheet order is append order, so the LAST matching row is the latest —
+  // more reliable than sorting by changedAt, which can tie at 1s resolution
+  // when two rejects happen back-to-back (e.g. in tests, or a fast user).
+  var latest = rows[rows.length - 1];
+  return {
+    note: text_(latest.note),
+    changedBy: latest.changedBy,
+    changedAt: latest.changedAt
+  };
 }
 
 /**

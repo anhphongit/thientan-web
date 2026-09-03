@@ -148,9 +148,35 @@ function apiChangeStatus(payload) {
   });
 }
 
+/** Milestone 3 / 3.8 — "Gửi duyệt": draft/rejected → wait_approval.
+ *  @param {{orderId:string}} payload */
+function apiRequestApprove(payload) {
+  return handle_('apiRequestApprove', function () {
+    return apiCall_('requestApprove', payload || {});
+  });
+}
+
+/** @param {{orderId:string}} payload */
 function apiApproveOrder(payload) {
   return handle_('apiApproveOrder', function () {
     return apiCall_('approveOrder', payload || {});
+  });
+}
+
+/** Milestone 3 / 3.8 — reject with an optional note.
+ *  @param {{orderId:string, note:string}} payload */
+function apiRejectOrder(payload) {
+  return handle_('apiRejectOrder', function () {
+    return apiCall_('rejectOrder', payload || {});
+  });
+}
+
+/** Logic revision 2026-09-03 — "Về Nháp": any status → draft. Requires
+ *  edit_order AND approve_order server-side (see actionSetDraftOrder_).
+ *  @param {{orderId:string}} payload */
+function apiSetDraftOrder(payload) {
+  return handle_('apiSetDraftOrder', function () {
+    return apiCall_('setDraftOrder', payload || {});
   });
 }
 

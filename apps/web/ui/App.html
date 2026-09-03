@@ -505,8 +505,16 @@
    *     without money-visible fields just omits `money`).
    *   okLabel / cancelLabel: strings, default "Xác nhận" / "Không"
    *   danger: boolean — true colors the OK button/icon with --c-danger
-   *     instead of --c-ok (delete vs. approve/reload)
-   * @return {Promise<boolean>} resolves true if the user confirmed
+   *     instead of --c-ok (delete vs. approve/reject/reload)
+   *   noteField: optional {label, placeholder} — Milestone 3 / 3.8, added for
+   *     "Từ chối" (reject with an optional note). When given, renders a
+   *     <textarea> above the actions and the promise resolves to
+   *     {ok, note} instead of a plain boolean. Every existing caller that
+   *     omits noteField still gets a plain boolean back (note is simply
+   *     absent), so nothing already using T.confirm() needed to change.
+   * @return {Promise<boolean>|Promise<{ok:boolean, note:string}>} resolves
+   *   true/false, or {ok, note} when noteField was given (note is '' on
+   *   cancel too, never meaningful then — always check ok first)
    */
   function confirm_(opts) {
     return new Promise(function (resolve) {
@@ -519,6 +527,8 @@
         : '<path d="M9 11l3 3L22 4"></path>' +
           '<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>';
 
+      var noteField = opts && opts.noteField;
+
       el('confirm-modal-body').innerHTML = '' +
         '<div class="confirm-band' + (danger ? ' confirm-band--danger' : '') + '">' +
           '<span class="confirm-icon">' +
@@ -529,6 +539,12 @@
         '</div>' +
         (opts.summary ? confirmSummaryHtml(opts.summary) : '') +
         '<p class="confirm-message">' + esc(opts.message) + '</p>' +
+        (noteField
+          ? '<label class="field confirm-note-field"><span class="field-label">' +
+            esc(noteField.label || '') + '</span>' +
+            '<textarea id="confirm-modal-note" rows="2" placeholder="' +
+            esc(noteField.placeholder || '') + '"></textarea></label>'
+          : '') +
         '<div class="confirm-actions">' +
           '<button type="button" class="btn" data-confirm-choice="cancel">' + esc(cancelLabel) + '</button>' +
           '<button type="button" class="btn ' + (danger ? 'btn-danger' : 'btn-ok') +
@@ -541,7 +557,12 @@
         modal.classList.add('hidden');
         modal.removeEventListener('click', onClick);
         document.removeEventListener('keydown', onKeydown);
-        resolve(result);
+        if (noteField) {
+          var noteInput = el('confirm-modal-note');
+          resolve({ ok: result, note: (result && noteInput) ? noteInput.value : '' });
+        } else {
+          resolve(result);
+        }
       }
       function onClick(e) {
         var choice = e.target.closest && e.target.closest('[data-confirm-choice]');

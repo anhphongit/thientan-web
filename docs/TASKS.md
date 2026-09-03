@@ -327,8 +327,362 @@ and the admin (`*`) path both still work exactly as before. `BUILD` is
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☑ |
 | 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☑ |
 | 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☐ |
+| 3.8 | Approve-status workflow | New `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) gating who can edit, replacing the plain `approve_order` stamp from 3.6; behind a feature flag | Full matrix below, `CHECKLIST_M3_VI.md` §I | ☑ |
 
 ---
+
+## Milestone 3, task 3.8 — approve-status workflow (built 2026-09-02)
+
+**Design agreed 2026-09-02, implemented the same day** (server pass, then
+client pass, per Phong's "server first" preference). Full offline suite:
+404 assertions across 7 files, all green — `orders-approvestatus.test.js`
+(49, server logic) and `orders-approvestatus-ui.test.js` (14, client
+rendering) are new; every pre-existing file still passes unchanged.
+
+Server-side (`apps/api`):
+- `Config.gs`: `approveStatus` header on Orders, `field` header on
+  StatusHistory, `can_edit_approved_order` permission key, `ALWAYS_VISIBLE_FIELDS`
+  (`approveStatus`/`updatedBy`/`updatedAt`), `approvalFlowEnabled` +
+  `approveStatusList` config defaults, new `MSG` entries. `BUILD`:
+  `api-2026-09-02-approvestatus`.
+- `Permissions.gs`: `filterVisibleFields_` now layers `ALWAYS_VISIBLE_FIELDS`
+  on top of the allowlist — those fields are never excludable by a role's
+  `visible_fields`.
+- `Migrations.gs`: `migrateAddApproveStatus()` — adds both new columns to an
+  existing sheet and backfills (`approvedBy` set → `approved`, else `draft`;
+  every existing StatusHistory row → `field: 'status'`). **Not yet run
+  against the live sheet — run it once before enabling the flag on a real
+  deployment** (registered in `guardSetup_`'s editor-only allowlist).
+- `Orders.gs`: `canEditForApproveStatus_`/`approvalFlowEnabled_`/
+  `isKnownApproveStatus_` helpers; `actionUpdateOrder_` enforces the edit
+  gate (checked twice — before and inside the lock) and the save-time
+  draft/auto-approve transition; `actionCreateOrder_` defaults to
+  `approveStatus: 'draft'`; `actionRequestApprove_`/`actionRejectOrder_` are
+  new, `actionApproveOrder_` is rewritten in place (3.6's version fully
+  replaced, per "Replace outright"); `appendStatusHistory_` takes a `field`
+  argument; `listCardView_`/`buildOrderResponse_` expose `approveStatus`
+  (always) plus `canRequestApprove`/`canApprove`/`canReject`;
+  `actionListOrders_`/`listCacheKey_` gained the `approveStatus` filter.
+- `Router.gs`: registers `requestApprove`/`rejectOrder`, keeps `approveOrder`
+  pointed at the rewritten handler.
+
+Client-side (`apps/web`):
+- `Main.gs`: thin pass-throughs `apiRequestApprove`/`apiRejectOrder` added;
+  `apiApproveOrder` kept, now calls the rewritten server action.
+- `App.html`: `T.confirm()` gained an optional `noteField` option
+  ({label, placeholder}) — when given, the promise resolves `{ok, note}`
+  instead of a plain boolean (every existing caller that omits it is
+  unaffected). Used by the reject flow's optional note.
+- `ViewsOrders.html`: approve-status pill (own `approve-status-pill--*`
+  classes, not reusing business-status classes — `status-pill--cancelled`'s
+  strikethrough would wrongly bleed into "rejected") shown on every list
+  card and in the detail view, always, once the flag is on; a
+  "Cập nhật lần cuối bởi …" line in the detail view (independent of the
+  flag — plain audit info); "Gửi duyệt"/"Duyệt"/"Từ chối" buttons driven by
+  `canRequestApprove`/`canApprove`/`canReject`; the auto-approve-vs-draft
+  confirm prompt on every save by an `approve_order` holder (`confirmApprove`
+  in the payload); an approve-status filter dropdown, combining AND with
+  every other filter. The 3.6 `approvedNoteHtml()`/"Đã duyệt bởi …" block
+  and its `state.order.approvedBy`/`approvedAt` wiring are fully removed
+  (replaced outright).
+- **Fixed a gap inherited from 3.6**: `actionApproveOrder_`/
+  `actionRejectOrder_` only require `approve_order`, not `edit_order`, but
+  the old `actionsHtml()` hid the whole action row (including the approve
+  button) whenever the server said `canEdit: false`. A user who could
+  approve/reject but not edit would never have seen the button. Fixed by
+  drawing request-approve/approve/reject independent of the read-only gate;
+  save/Huỷ/delete stay gated on it since those really do need `canEdit`/
+  `canDelete`. Covered by `orders-approvestatus-ui.test.js`'s "read-only
+  order still shows Duyệt/Từ chối button" assertions.
+- `Styles.html`: `.approve-status-pill--*` palette, `.oc-approve-row`,
+  `.approve-status-banner`/`.updated-note` (replacing `.approved-note`),
+  `.confirm-note-field` for the reject textarea. `BUILD`:
+  `web-2026-09-02-approvestatus`.
+
+Docs: `docs/PERMISSIONS.md` gained the `can_edit_approved_order` row, an
+updated preset matrix (off for every preset — an admin opts a role in
+explicitly), and a §4 rule 8 documenting the edit-gating matrix.
+
+Still pending before turning the flag on for real users:
+- Run `migrateAddApproveStatus()` on the live sheet once (see Migrations.gs
+  doc comment for the exact steps).
+- Walk `CHECKLIST_M3_VI.md` §I on a real deployment with the flag on.
+- Deploy order as always: push+publish `apps/api` first, then `apps/web`.
+
+### Revision 2026-09-03 — self-approver flow + UI placement
+
+Two rounds of feedback from Phong after seeing 3.8 live, both implemented
+the same day. Full offline suite now **456 assertions across 7 files**, all
+green (`orders-approvestatus.test.js` 84, `orders-approvestatus-ui.test.js`
+31).
+
+**A. Approve-status marker moved next to the order id** (UI only, no logic
+change). The 3.8 pill sat on its own row under the id and read as clutter.
+Replaced with a fused id+status component picked from four rounds of
+mockups ("Option N"): the order id and a small bordered status half sit
+flush against each other as one object, each with its own border.
+- `Styles.html`: `.oc-id-fused` + `.oc-id-fused--*` added, `.oc-approve-row`
+  removed. `.approve-status-pill--*` is kept — it still styles the labelled
+  badge in the detail banner.
+- `ViewsOrders.html`: `APPROVE_STATUS_ICON` (pencil / hourglass / check /
+  cross — shape, not just colour, same colour-blind reasoning as the
+  business-status dot) and `fusedOrderIdHtml()`; used by `orderCardHtml()`
+  and by the detail title in `paintForm()`.
+- Per Phong's spec: **list cards show colour + icon only** (the label lives
+  in `title`/`aria-label`, not as visible text), **the detail view keeps the
+  full text label** — supplied by the existing `approveStatusBannerHtml()`
+  pill below the title, not by the title marker.
+
+**B. Self-approver flow** (points 1-5 of Phong's 2026-09-03 message). A user
+holding BOTH `edit_order` and `approve_order` writes and signs off their own
+work, so the request-approval hop is busywork for them.
+- `Orders.gs`: `isSelfApprover_()` (both permissions, ownership layered on
+  via `mayAct_` as everywhere else) and `approveActionFlags_()` — the four
+  button flags now computed in ONE place, because `listCardView_` and
+  `buildOrderResponse_` had drifted into duplicate copies of the same rules.
+- Point 1 — `actionCreateOrder_` now honours `payload.confirmApprove` exactly
+  as `actionUpdateOrder_` does, so an approver can create an
+  already-approved order in one step. Writes an `''` → `approved`
+  StatusHistory row when it fires; a plain draft create still writes none.
+- Point 2 — `canRequestApprove` is always false for a self-approver.
+- Points 3/4/5 — a self-approver may approve from any status except
+  `approved`, reject from any except `rejected`, and send back to `draft`
+  from any except `draft`. New action `actionSetDraftOrder_` +
+  `setDraftOrder` route + `apiSetDraftOrder` pass-through; new `canSetDraft`
+  flag and "Về Nháp" button (plain `.btn` — reopening an order is neither an
+  approval nor a refusal). No note field on it, unlike reject.
+- **A pure approver (`approve_order` WITHOUT `edit_order`) keeps the original
+  wait_approval-only rule** — Phong's explicit answer. Widening it would let
+  a review-only account push an order nobody ever submitted straight to
+  approved, which is the exact control `wait_approval` exists to enforce.
+- `ViewsOrders.html`: `localApproveFlags()` mirrors `approveActionFlags_()`
+  for the local repaint right after an action lands (the old hand-rolled
+  three-line patch encoded the pre-revision rules); the save prompt now
+  fires on create too, with create-specific wording.
+- New `MSG` entries for the no-op transitions
+  (`APPROVE_STATUS_ALREADY_APPROVED`/`_REJECTED`/`_DRAFT`) and
+  `APPROVE_STATUS_SET_DRAFT_DENIED`.
+
+### Why this replaces 3.6
+
+3.6 added `approve_order` as a one-shot stamp (`approvedBy`/`approvedAt`)
+with no effect on who could edit an order. Phong's review: that has no
+teeth — an order can be approved and then silently edited by anyone with
+`edit_order`, which defeats the point of an approval. 3.8 replaces it with
+a real state machine that actually gates editing, and the standalone
+"Duyệt đơn hàng" button/action from 3.6 goes away entirely (not kept
+alongside — confirmed explicitly, see decision log below).
+
+### Data model
+
+- New `Orders` column `approveStatus`: `draft` | `wait_approval` | `approved`
+  | `rejected`. Defaults to `draft` on create. **Always visible** to every
+  role — outside `visible_fields` gating entirely, unlike money fields — so
+  every list card and detail view shows it (point 2 of the review).
+- `approvedBy`/`approvedAt` columns and `actionApproveOrder_` are retired.
+  Who/when of the most recent approval is read back from the history trail
+  below instead of a denormalized pair of columns.
+- `StatusHistory` gains a `field` column: `'status'` (the existing business
+  status) or `'approveStatus'` (new). Both kinds of transition share the
+  same sheet, the same `appendStatusHistory_`-style append function, and
+  the same history UI — reusing the row shape (`oldStatus`/`newStatus`/
+  `note`/`changedBy`/`changedAt`) rather than adding a second sheet.
+- Order detail shows "Cập nhật lần cuối bởi `updatedBy` · `updatedAt`"
+  (point 4) — both columns already exist on every order today, this is
+  purely a display addition.
+- New `Config` sheet flag, e.g. `approvalFlowEnabled` (point 11), read via
+  `readPublicConfig_()`. OFF today (this task hasn't shipped); once ON,
+  every rule below applies. Turning it back OFF only stops enforcing/
+  showing `approveStatus` — existing values already written to the column
+  stay in the sheet untouched and reappear if the flag is turned back on
+  (explicit decision, see log).
+
+### Permissions
+
+- `approve_order` (existing key, kept — Phong's explicit naming choice,
+  not renamed to `can_approve`): may approve or reject a `wait_approval`
+  order, and gets the auto-approve-on-save behavior below.
+- `can_edit_approved_order` (new key): may edit a `wait_approval` or
+  `approved` order's contents WITHOUT approve/reject rights. Editing this
+  way always drops the order back to `draft` (see Save behavior).
+
+### Edit-gating (server-enforced in `actionUpdateOrder_`, mirrored client-side
+for UI only — the client-side check is cosmetic, same as every other
+permission in this app)
+
+Only in effect when `approvalFlowEnabled` is true. When false: today's
+rule stands unchanged (`edit_order` + ownership, no `approveStatus` check
+at all).
+
+| `approveStatus` | Who may edit |
+|---|---|
+| `draft` | `edit_order` (+ ownership, same as today) |
+| `rejected` | `edit_order` (+ ownership, same as today) |
+| `wait_approval` | `edit_order` AND (`approve_order` OR `can_edit_approved_order`) |
+| `approved` | `edit_order` AND (`approve_order` OR `can_edit_approved_order`) |
+
+(`wait_approval` and `approved` ended up with the identical gate — Phong's
+final call after reviewing the first draft, which had `approved` requiring
+`approve_order` alone; widened to match `wait_approval`'s rule instead.)
+
+### Save behavior
+
+- Every save defaults `approveStatus` to `draft` (point 8) — the baseline
+  for anyone without `approve_order`, and for a `can_edit_approved_order`
+  edit specifically (explicit: "when edit by can_edit_approve, approve
+  status will go to draft").
+- Exception: a saving user who HAS `approve_order` gets a confirm popup on
+  **every** save (not just saves of `wait_approval`/`approved` orders) —
+  "Duyệt luôn đơn này?" Confirm → saved as `approved` (auto-approve).
+  Cancel/dismiss → saved as `draft`, and the popup explicitly says that's
+  what will happen before the user chooses (point 9's "if user not
+  confirm, show alert that it will become draft").
+
+### Request-approval action (point 5)
+
+- A separate "Gửi duyệt" button next to Save, visible only on a `draft` or
+  `rejected` order, requiring `edit_order` (the same population that can
+  edit a draft at all). Moves `draft`/`rejected` → `wait_approval`. Not
+  folded into Save itself — kept as an explicit, deliberate step once the
+  editor is done (Phong's answer: "separate explicit button").
+
+### Approve / reject actions (only reachable from `wait_approval`)
+
+- **Approve**: `approve_order` only → `approved`.
+- **Reject**: `approve_order` only (not `can_edit_approved_order` — Phong's
+  answer: symmetric with approve) → `rejected`, with an **optional** note
+  stored on the `StatusHistory` row (Phong's answer: optional, not
+  required, not omitted).
+- Both go through the existing `T.confirm()` popup (built for 3.6, now
+  reused rather than orphaned) with the order-summary card.
+
+### Filter (point 10)
+
+- A new `approveStatus` dropdown in the filter bar, combinable (AND) with
+  the existing month/customer/status/createdBy/search filters. Since
+  `approveStatus` is always visible (point 2), this filter is available to
+  every role — not gated by `visible_fields` the way the 3.3 customer/
+  status filters are. Still gated by the feature flag: the dropdown does
+  not render at all when `approvalFlowEnabled` is false.
+
+### Feature flag (point 11)
+
+`approvalFlowEnabled` (or similar `Config` key) wraps every rule above.
+OFF: no `approveStatus` column shown anywhere, no approve/reject/
+request-approve controls, no filter dropdown, edit-gating is exactly
+today's `edit_order` + ownership check — i.e. the app behaves exactly as
+it does right now, task 3.6 fully reverted in effect (though its code is
+being replaced, not kept dormant). ON: every rule above applies. This
+roughly doubles the paths through `actionUpdateOrder_`'s authorization
+logic (flag on vs. off) and needs offline test coverage for both — flagged
+here so that cost is visible up front, not discovered mid-implementation.
+
+### Decision log (from the review conversation)
+
+- Auto-approve prompt (point 9) fires on **every** save by an
+  `approve_order` user, not only saves of `wait_approval`/`approved`
+  orders.
+- 3.6's `approvedBy`/`approvedAt` and `actionApproveOrder_` are replaced
+  outright, not kept alongside `approveStatus`.
+- The transition history reuses `StatusHistory` with a new `field` column,
+  rather than a separate `ApprovalHistory` sheet.
+- Turning the flag off only hides/stops enforcing `approveStatus`; existing
+  data on the column is preserved, not cleared.
+- "Gửi duyệt" is a separate button from Save, not a save-time prompt.
+- Reject requires `approve_order` only, with an optional note.
+- `approved` orders are editable by `edit_order` AND (`approve_order` OR
+  `can_edit_approved_order`) — same gate as `wait_approval`, per Phong's
+  final amendment (the first draft had required `approve_order` alone for
+  `approved`).
+- Permission key names: kept `approve_order` (not renamed to `can_approve`)
+  and `can_edit_approved_order` (not `can_edit_approved`) — Phong's exact
+  wording.
+- Build order for the next session: **server first** (Config/Permissions/
+  Orders.gs + full offline test coverage for the edit-gating matrix above),
+  confirmed green, **then** the client UI (ViewsOrders.html/Styles.html) as
+  a separate pass — not one combined change.
+
+### Revision 2026-09-03b — reject reason surfaced on detail (B2 banner)
+
+Follow-up feedback after 2026-09-03's marker/self-approver work: (1) the
+reject note WAS captured (`actionRejectOrder_` already wrote it to
+`StatusHistory`) but never shown anywhere — the only way to see why an
+order was rejected was opening the raw sheet; (2) quick actions should
+lock each other out during an in-flight call, still to be scoped/built.
+This entry covers (1) only.
+
+Went through two rounds of mockups (`reject-reason-display.html`, four
+concepts: inline line / full history list / tooltip / combined banner; then
+`reject-reason-banner-v2.html`, six variants B1–B6 on the banner concept
+Phong picked). Landed on **B2**: a single compact line — icon, quoted
+reason, "— who, when" trailing on the same line — no separate title row.
+
+- `Orders.gs`: new `latestRejectInfo_(orderId)` reads `StatusHistory`
+  filtered to this order's `approveStatus`-field `rejected` rows and
+  returns the LAST one (append order, not a `changedAt` sort — two rejects
+  in the same second would tie under sort, append order never does).
+  `buildOrderResponse_` now attaches `rejectReason`/`rejectedBy`/
+  `rejectedAt` to the order payload, but only when `approveStatus ===
+  'rejected'` — `StatusHistory` itself is unchanged, still append-only,
+  this is a read path added on top of it.
+- `ViewsOrders.html`: `rejectReasonHtml(o)` renders the B2 line, called
+  from `approveStatusBannerHtml()` between the status pill and the
+  "Cập nhật lần cuối bởi…" note. Empty string (renders nothing) unless
+  `approveStatus === 'rejected'` AND a reason is actually present — an
+  older rejected row from before this shipped has no `rejectReason` on it
+  and correctly shows no banner rather than an empty one.
+- `Styles.html`: `.reject-reason-line` / `.reject-reason-who` — reuses the
+  exact rejected palette already in use for `.approve-status-pill--rejected`
+  (`#fdecea` / `#f3c2bd` / `--c-danger`) rather than inventing new tokens,
+  so the banner and the pill above it read as the same "rejected" state.
+- Offline tests: `orders-approvestatus.test.js` section 11 (5 new
+  assertions — reason/who/when present on a rejected order's detail
+  response, absent on a draft order, and "latest wins" across two rejects
+  of the same order). `orders-approvestatus-ui.test.js` extended with a
+  fourth fixture order (`DH-2026-0003`, pre-rejected with a reason) and 3
+  assertions that opening its detail actually paints the banner with the
+  right text and who. Full suite: **136 assertions across the two
+  approvestatus files** (89 + 47), all green; whole-repo offline suite
+  (7 files) all green. `BUILD` is `api-2026-09-03b-rejectreason` /
+  `web-2026-09-03b-rejectreason`. Not yet verified live.
+
+### Revision 2026-09-03c — lock the other quick action on the same order
+
+Point 1 of the same 2026-09-03 feedback: firing the approve-menu action and
+the business-status quick-select on the same order at the same time risks
+a real conflict (e.g. approving an order whose status just changed under
+it, or vice versa). Phong's answer on scope: **same order only** — other
+orders in the list are unaffected; this is purely a same-card cross-lock
+between two controls that already sat side by side.
+
+- `ViewsOrders.html` `orderCardHtml()`: while `state.statusUpdatingIds[o.orderId]`
+  is set, the approve marker is passed an empty actions array (not just
+  "pending" — genuinely no actions), so `fusedOrderIdHtml` draws it as the
+  plain, non-interactive marker — same branch as "no actions available at
+  all", not the spinner branch (nothing about approveStatus itself is
+  changing, so a spinner would misdescribe what's happening).
+- `statusQuickPillHtml()`: while `state.approveUpdatingIds[o.orderId]` is
+  set, the pill drops its overlaid `<select>` and pencil icon the same way
+  it already does for `!o.canChangeStatus` — plain pill, no control.
+- `onClick`'s `toggle-approve-menu` case: added `state.statusUpdatingIds[key]`
+  to the existing `state.approveUpdatingIds[key]` guard, same
+  belt-and-suspenders reasoning as the `data-open` guard beside it (the
+  button isn't rendered in that state at all, but a click landing a moment
+  before the repaint lands is still refused).
+- No server-side change — this is purely a UI race-prevention measure; the
+  server already serializes writes to a given order via `withOrderLock_`
+  regardless.
+- Offline tests: `orders-approvestatus-ui.test.js` gained 4 assertions
+  under a temporarily swapped-in deferred (manually-resolved) response for
+  `apiRejectOrder`/`apiChangeStatus`, since both fixtures normally resolve
+  immediately via `Promise.resolve()` and a same-order lock only exists in
+  the narrow window before that resolution — a plain `await tick()` lets
+  the whole round trip finish before there's anything to observe, so the
+  call under test is intercepted and held pending instead. Full suite:
+  **51 assertions in `orders-approvestatus-ui.test.js`** (up from 47);
+  whole-repo offline suite (7 files, 481 assertions total) all green.
+  `BUILD` is `web-2026-09-03c-lockquickactions` (client-only). Not yet
+  verified live.
 
 ## Milestone 3, task 3.5 — quick status change from the list
 

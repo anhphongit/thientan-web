@@ -17,7 +17,8 @@ Stored per user in `Users.permissions` as a JSON object.
 | `edit_order` | Edit an existing order (own only, unless `view_all_orders`) |
 | `delete_order` | Delete an order and its lines |
 | `change_status` | Change order status |
-| `approve_order` | Approve an order |
+| `approve_order` | Milestone 3 / 3.8: request-approve is gated on `edit_order` alone, but approve/reject an order (wait_approval → approved/rejected) require `approve_order`. Also grants editing a `wait_approval`/`approved` order (together with `edit_order`), same as `can_edit_approved_order` below. Only takes effect when the `approvalFlowEnabled` Config flag is on. |
+| `can_edit_approved_order` | Milestone 3 / 3.8: together with `edit_order`, allows editing an order in approve status `wait_approval` or `approved` WITHOUT being able to approve/reject it. Editing this way auto-reverts the order to `draft` on save (see §4 below). Only takes effect when `approvalFlowEnabled` is on. |
 | `search_filter` | Use search and filters |
 | `export` | Export the filtered order list (CSV / XLSX / PDF) |
 | `view_statistics` | See the revenue statistics screen |
@@ -57,6 +58,7 @@ keeps the stored value instead of trusting a blank the client never showed).
   "delete_order": false,
   "change_status": true,
   "approve_order": false,
+  "can_edit_approved_order": false,
   "search_filter": true,
   "export": false,
   "view_statistics": false,
@@ -83,6 +85,7 @@ Presets only — the Admin can override any individual checkbox.
 | delete_order | ✅ | ❌ | ❌ | ❌ |
 | change_status | ✅ | ✅ (own) | ✅ | ✅ |
 | approve_order | ✅ | ❌ | ❌ | ❌ |
+| can_edit_approved_order | ❌ | ❌ | ❌ | ❌ |
 | search_filter | ✅ | ✅ | ✅ | ✅ |
 | export | ✅ | ✅ | ❌ | ✅ |
 | view_statistics | ✅ | ❌ | ❌ | ✅ |
@@ -115,6 +118,25 @@ Presets only — the Admin can override any individual checkbox.
 7. **Unknown email → reject.** Not in the `Users` sheet, or `active = FALSE` →
    a clean Vietnamese message: *"Tài khoản của bạn chưa được cấp quyền truy cập.
    Vui lòng liên hệ quản trị viên."*
+8. **Milestone 3 / 3.8 — approve-status edit gate, ON TOP of rule 3 above,
+   only while the `approvalFlowEnabled` Config flag is on** (`Config.gs` →
+   `apps/api/Orders.gs`'s `canEditForApproveStatus_`):
+
+   | Order's `approveStatus` | Who may edit (in addition to ownership) |
+   |---|---|
+   | `draft` | `edit_order` alone — same as flag-off behavior |
+   | `rejected` | `edit_order` alone — same as flag-off behavior |
+   | `wait_approval` | `edit_order` AND (`approve_order` OR `can_edit_approved_order`) |
+   | `approved` | `edit_order` AND (`approve_order` OR `can_edit_approved_order`) |
+
+   Enforced server-side in `actionUpdateOrder_` (checked twice: before and
+   again inside the write lock, since another user's approve/reject/
+   request-approve could land in between). `approve_order` also independently
+   gates the `approveOrder`/`rejectOrder` actions themselves (wait_approval
+   only); `can_edit_approved_order` grants none of those three actions by
+   itself — only the ability to edit without them, which then reverts the
+   order to `draft` on save. When the flag is off, this rule does not apply
+   at all — every `approveStatus` behaves like `draft` above.
 
 ---
 

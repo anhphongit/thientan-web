@@ -24,6 +24,7 @@ const session = {
 let lastCall = null;
 let lastToast = null;
 let lastConfirmOpts = null;
+let lastConfirmNote = '';
 const callCounts = {};
 const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -58,7 +59,14 @@ const TT_BRIDGE = {
   // here since the popup's own accept/cancel UI isn't real DOM in this
   // harness. lastConfirmOpts records what was PASSED to T.confirm() so a
   // test can assert on title/message/summary without a real popup.
-  confirm(opts) { lastConfirmOpts = opts; return Promise.resolve(true); },
+  // Milestone 3 / 3.8 — mirrors the real confirm_()'s contract: with a
+  // noteField, resolve {ok, note} instead of a plain boolean. lastConfirmNote
+  // lets a test control what "the user typed" without a real textarea.
+  confirm(opts) {
+    lastConfirmOpts = opts;
+    if (opts && opts.noteField) return Promise.resolve({ ok: true, note: lastConfirmNote });
+    return Promise.resolve(true);
+  },
   config: () => session.config,
   session: () => session
 };

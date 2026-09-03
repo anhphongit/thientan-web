@@ -149,7 +149,16 @@ function getActions_() {
     updateOrder: actionUpdateOrder_,
     deleteOrder: actionDeleteOrder_,
     changeStatus: actionChangeStatus_,
+
+    /* Milestone 3 / 3.8 — approve-status workflow. approveOrder is REUSED
+       (same action name as 3.6) but rewritten server-side for the new
+       wait_approval-only gate; requestApprove/rejectOrder are new. */
+    requestApprove: actionRequestApprove_,
     approveOrder: actionApproveOrder_,
+    rejectOrder: actionRejectOrder_,
+    /* Logic revision 2026-09-03 (point 5) — send an approved/rejected/
+       pending order back to Nháp. Self-approver only; see Orders.gs. */
+    setDraftOrder: actionSetDraftOrder_,
 
     logDev: actionLogDev_
   };

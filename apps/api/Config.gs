@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-08-31-approveorder';
+var BUILD = 'api-2026-09-03b-rejectreason';
 
 /** Script Property keys. */
 var PROP = {
@@ -61,10 +61,18 @@ var HEADERS = {
   // adding it here does NOT reorder anything on a sheet that already exists —
   // an existing Orders sheet needs the header cell added once by
   // `migrateAddLineCount()` (Migrations.gs) before this is real.
+  // approveStatus: Milestone 3 / 3.8 — replaces the old approvedBy/approvedAt
+  // stamp entirely (that pair is no longer written; see Migrations.gs for
+  // the one-time column add on an existing sheet). approvedBy/approvedAt
+  // are kept in this header list so an existing sheet's columns still line
+  // up positionally with old data during the transition, but nothing in
+  // Orders.gs writes to them anymore — who/when of an approval now lives in
+  // StatusHistory (field='approveStatus') instead of a denormalized pair.
   Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
            'customerDeposit', 'supplierName', 'supplierPaid',
            'totalExVat', 'totalIncVat', 'lineCount',
-           'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt'],
+           'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt',
+           'approveStatus'],
 
   OrderLines: ['lineId', 'orderId', 'lineNo', 'productCode', 'description',
                'unitPrice', 'qty', 'uom', 'vatRate', 'amountExVat', 'amountIncVat',
@@ -73,8 +81,13 @@ var HEADERS = {
   Invoices: ['invoiceId', 'invoiceNo', 'invoiceDate', 'customer', 'note',
              'createdBy', 'createdAt'],
 
+  // field: Milestone 3 / 3.8 — 'status' (business status, existing) or
+  // 'approveStatus' (new) disambiguates which of an order's two independent
+  // status columns a row describes. A row written before this column
+  // existed has an empty field cell; readers treat that as 'status' (see
+  // appendStatusHistory_'s default and historyField_ in Orders.gs).
   StatusHistory: ['historyId', 'orderId', 'oldStatus', 'newStatus', 'note',
-                  'changedBy', 'changedAt']
+                  'changedBy', 'changedAt', 'field']
 };
 
 /** Order/line limits. A cap keeps one bad request from writing 10,000 rows. */
@@ -131,7 +144,7 @@ var DEV_LOG_MAX_ROWS = 300;
 
 var PERMISSION_KEYS = [
   'view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
-  'change_status', 'approve_order', 'search_filter', 'export',
+  'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
   'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'
 ];
 
@@ -142,8 +155,24 @@ var PERMISSION_KEYS = [
 var DEFAULT_VISIBLE_FIELDS = [
   'orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
   'supplierName', 'lineId', 'lineNo', 'productCode', 'description', 'qty', 'uom',
-  'invoiceId', 'invoiceNo', 'invoiceDate', 'note'
+  'invoiceId', 'invoiceNo', 'invoiceDate', 'note',
 ];
+
+/**
+ * Milestone 3 / 3.8 — fields that are part of the visible_fields ALLOWLIST
+ * mechanism but must show for every user regardless of what their role's
+ * visible_fields array contains (or omits). Unlike DEFAULT_VISIBLE_FIELDS
+ * (a fallback used only when visible_fields is unset/empty), this list is
+ * enforced unconditionally inside filterVisibleFields_ in Permissions.gs —
+ * it overrides an explicit array that simply forgot to list these columns.
+ *
+ * approveStatus/updatedBy/updatedAt: the approve-status workflow's spec
+ * (point 2) requires the approve status to be visible on every list card and
+ * detail screen for every account, and point 4 requires a "last updated by"
+ * line likewise visible to everyone. Money/PO/customer visibility rules are
+ * unaffected — this list does not include anything from MONEY_FIELDS.
+ */
+var ALWAYS_VISIBLE_FIELDS = ['approveStatus', 'updatedBy', 'updatedAt'];
 
 /** Money-ish columns, listed so the UI can explain what a user is not seeing. */
 var MONEY_FIELDS = [
@@ -215,7 +244,23 @@ var CONFIG_DEFAULTS = [
     'Các mức thuế VAT. Mức đầu tiên là mặc định.'],
   ['customerList', JSON.stringify(CUSTOMER_SEED),
     'Danh sách khách hàng dùng cho gợi ý khi nhập đơn. Tên mới sẽ được thêm tự động.'],
-  ['currency', 'VND', 'Đơn vị tiền tệ']
+  ['currency', 'VND', 'Đơn vị tiền tệ'],
+
+  /* ---- Milestone 3 / 3.8 — approve-status workflow ---- */
+  // Off by default: an existing deployment keeps today's plain edit/view
+  // behavior (no approve status, no approve permissions in effect) until an
+  // admin deliberately flips this on in the Config sheet.
+  ['approvalFlowEnabled', 'FALSE',
+    'Bật/tắt luồng duyệt đơn (trạng thái duyệt Nháp/Chờ duyệt/Đã duyệt/Từ chối). ' +
+    'TRUE = bật, FALSE = tắt (giữ hành vi sửa/xem đơn giản như trước).'],
+  ['approveStatusList',
+    JSON.stringify([
+      { key: 'draft', label: 'Nháp' },
+      { key: 'wait_approval', label: 'Chờ duyệt' },
+      { key: 'approved', label: 'Đã duyệt' },
+      { key: 'rejected', label: 'Từ chối' }
+    ]),
+    'Danh sách trạng thái duyệt đơn hàng']
 ];
 
 /** Vietnamese messages. These travel to the browser, so keep them user-facing. */
@@ -250,7 +295,20 @@ var MSG = {
   LINE_INVOICE_NO_DATE: ': đã nhập số hoá đơn thì phải nhập ngày hoá đơn.',
   LINE_INVOICE_BAD_DATE: ': ngày hoá đơn không hợp lệ.',
   ORDER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
-  ORDER_ALREADY_APPROVED: 'Đơn hàng này đã được duyệt.',
+
+  /* ---- approve-status workflow (Milestone 3 / 3.8) ---- */
+  ORDER_BAD_APPROVE_STATUS: 'Trạng thái duyệt không hợp lệ.',
+  APPROVE_STATUS_EDIT_DENIED: 'Bạn không có quyền sửa đơn hàng ở trạng thái duyệt hiện tại.',
+  APPROVE_STATUS_NOT_PENDING: 'Chỉ có thể duyệt/từ chối đơn đang ở trạng thái Chờ duyệt.',
+  APPROVE_STATUS_NOT_DRAFTLIKE: 'Chỉ có thể gửi duyệt đơn đang ở trạng thái Nháp hoặc Từ chối.',
+  APPROVAL_FLOW_DISABLED: 'Luồng duyệt đơn hiện đang tắt.',
+  /* UI/logic revision 2026-09-03 — an edit+approve user may move an order
+     freely between approve statuses, so the only thing left to refuse is a
+     no-op transition into the status it is already in. */
+  APPROVE_STATUS_ALREADY_APPROVED: 'Đơn hàng đã ở trạng thái Đã duyệt.',
+  APPROVE_STATUS_ALREADY_REJECTED: 'Đơn hàng đã ở trạng thái Từ chối.',
+  APPROVE_STATUS_ALREADY_DRAFT: 'Đơn hàng đã ở trạng thái Nháp.',
+  APPROVE_STATUS_SET_DRAFT_DENIED: 'Bạn không có quyền chuyển đơn hàng về trạng thái Nháp.',
 
   /* ---- security gate: what a normal employee sees ---- */
   LOCKED_USER: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',

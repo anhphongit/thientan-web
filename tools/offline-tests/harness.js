@@ -7,13 +7,23 @@ const fs = require('fs');
 const vm = require('vm');
 const path = __dirname + '/../../apps/api/';
 
-function makeEnv() {
+function makeEnv(configOverrides) {
   const store = { Orders: [], OrderLines: [], Invoices: [], StatusHistory: [],
                   Config: [
                     { key: 'customerList', value: JSON.stringify(['Yamato']) }
                   ] };
   const props = {};
   let uuid = 0;
+  // Milestone 3 / 3.8 — approvalFlowEnabled defaults to false, same as a
+  // real freshly-seeded deployment (CONFIG_DEFAULTS in Config.gs). Tests
+  // that exercise the approve-status workflow pass { approvalFlowEnabled: true }.
+  const publicConfig = Object.assign({
+    statusList: [{ key: 'draft', label: 'Nháp' }, { key: 'confirmed', label: 'Đã xác nhận' }],
+    uomList: ['Cái', 'Cuộn'],
+    vatRates: [0.08, 0.1],
+    customerList: ['Yamato'],
+    approvalFlowEnabled: false
+  }, configOverrides || {});
 
   const sandbox = {
     console: { log(){}, warn(){}, error(){} },
@@ -57,12 +67,7 @@ function makeEnv() {
       if (!store[name][rowNumber - 2]) throw new Error('deleteRecord_: no row ' + rowNumber);
       store[name].splice(rowNumber - 2, 1);
     },
-    readPublicConfig_: () => ({
-      statusList: [{ key: 'draft', label: 'Nháp' }, { key: 'confirmed', label: 'Đã xác nhận' }],
-      uomList: ['Cái', 'Cuộn'],
-      vatRates: [0.08, 0.1],
-      customerList: ['Yamato']
-    }),
+    readPublicConfig_: () => publicConfig,
     invalidateConfigCache_() {}
   };
   sandbox.global = sandbox;
@@ -81,6 +86,13 @@ function user(email, overrides) {
   }, overrides || {});
   permissions.visible_fields = permissions.visible_fields || ['*'];
   return { email: email, displayName: email, role: 'admin', permissions: permissions };
+}
+
+/** True flag helper: makeEnv({ approvalFlowEnabled: true }). Also usable to
+ *  flip it back off mid-test since publicConfig is captured live per-env. */
+function withApprovalFlow(env, enabled) {
+  const cfg = env.readPublicConfig_();
+  cfg.approvalFlowEnabled = enabled;
 }
 
 let pass = 0, fail = 0;
@@ -104,4 +116,4 @@ function done() {
   process.exit(fail ? 1 : 0);
 }
 
-module.exports = { makeEnv, user, check, eq, throws, done };
+module.exports = { makeEnv, user, check, eq, throws, done, withApprovalFlow };

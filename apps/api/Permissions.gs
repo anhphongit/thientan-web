@@ -44,6 +44,12 @@ function visibleFields_(user) {
  * Strip every field outside the user's `visible_fields`, plus internal keys.
  * Run this on the way OUT of the server — a hidden column must be absent from
  * the response, not merely hidden in the DOM.
+ *
+ * Milestone 3 / 3.8 — ALWAYS_VISIBLE_FIELDS (Config.gs) is layered on top of
+ * the allowlist: those columns are included even when the user's configured
+ * visible_fields array is explicit and simply omits them. This is NOT the
+ * same thing as DEFAULT_VISIBLE_FIELDS (the fallback for an unset/empty
+ * array) — it is an unconditional override, checked on every call.
  */
 function filterVisibleFields_(user, record) {
   if (!record) return record;
@@ -64,6 +70,11 @@ function filterVisibleFields_(user, record) {
       out[allowed[i]] = record[allowed[i]];
     }
   }
+  ALWAYS_VISIBLE_FIELDS.forEach(function (f) {
+    if (Object.prototype.hasOwnProperty.call(record, f)) {
+      out[f] = record[f];
+    }
+  });
   return out;
 }
 

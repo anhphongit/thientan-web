@@ -82,3 +82,100 @@ function ensureLineCountColumn_() {
   sheet.getRange(1, nextCol).setFontWeight('bold');
   return true;
 }
+/**
+ * Milestone 3 / 3.8 — add the `approveStatus` column to Orders and the
+ * `field` column to StatusHistory, then backfill both for rows that predate
+ * this migration. Same shape as migrateAddLineCount() above and for the same
+ * reason: appendRecord_/updateRecord_ address columns by the sheet's ACTUAL
+ * header row, not by HEADERS.Orders/HEADERS.StatusHistory in Config.gs, so an
+ * existing sheet needs its header row extended by hand once.
+ *
+ * Backfill rule for Orders.approveStatus:
+ *   - A row that already has approvedBy set (from the old 3.6 admin-approve
+ *     stamp) backfills to 'approved' — it really was approved under the old
+ *     one-way flow, and 3.8 replaces that flow outright rather than keeping
+ *     it alongside the new one (see TASKS.md, "Replace outright").
+ *   - Every other row backfills to 'draft', the new default for all orders.
+ *   - This runs regardless of whether approvalFlowEnabled is on — the column
+ *     is populated either way so turning the flag on later needs no further
+ *     backfill (TASKS.md: "Flag only hides UI/permissions; approveStatus
+ *     data stays untouched").
+ *
+ * Backfill rule for StatusHistory.field:
+ *   - Every existing row predates the approve-status workflow, so every one
+ *     of them describes the business `status` column. Backfill to 'status'.
+ *
+ * HOW TO RUN
+ *   1. Push apps/api with this migration included.
+ *   2. Select `migrateAddApproveStatus` in the editor's Run dropdown and
+ *      press Run — no arguments. Read the returned summary.
+ *   3. Safe to run again later: it recomputes from source data (approvedBy
+ *      presence, field blankness) and only rewrites rows that drifted.
+ */
+function migrateAddApproveStatus() {
+  guardSetup_();
+
+  var addedOrdersCol = ensureApproveStatusColumn_();
+  var addedHistoryCol = ensureStatusHistoryFieldColumn_();
+
+  var orders = readAll_(SHEETS.ORDERS);
+  var ordersUpdated = 0;
+  orders.forEach(function (row) {
+    var want = row.approvedBy ? 'approved' : 'draft';
+    if (String(row.approveStatus || '') !== want) {
+      updateRecord_(SHEETS.ORDERS, row._row, { approveStatus: want });
+      ordersUpdated++;
+    }
+  });
+
+  var history = readAll_(SHEETS.STATUS_HISTORY);
+  var historyUpdated = 0;
+  history.forEach(function (row) {
+    if (!String(row.field || '').trim()) {
+      updateRecord_(SHEETS.STATUS_HISTORY, row._row, { field: 'status' });
+      historyUpdated++;
+    }
+  });
+
+  var summary =
+    (addedOrdersCol ? 'Added the "approveStatus" column to Orders. '
+                    : 'Orders already has an "approveStatus" column. ') +
+    'Backfilled ' + ordersUpdated + ' of ' + orders.length + ' order(s). ' +
+    (addedHistoryCol ? 'Added the "field" column to StatusHistory. '
+                     : 'StatusHistory already has a "field" column. ') +
+    'Backfilled ' + historyUpdated + ' of ' + history.length + ' history row(s).';
+  console.log(summary);
+  return summary;
+}
+
+/**
+ * Adds the `approveStatus` header cell to the live Orders sheet if it isn't
+ * there yet.
+ * @return {boolean} true if the header cell was just added.
+ */
+function ensureApproveStatusColumn_() {
+  var sheet = getSheet_(SHEETS.ORDERS);
+  var headers = readHeaders_(sheet);
+  if (headers.indexOf('approveStatus') >= 0) return false;
+
+  var nextCol = headers.length + 1;
+  sheet.getRange(1, nextCol).setValue('approveStatus');
+  sheet.getRange(1, nextCol).setFontWeight('bold');
+  return true;
+}
+
+/**
+ * Adds the `field` header cell to the live StatusHistory sheet if it isn't
+ * there yet.
+ * @return {boolean} true if the header cell was just added.
+ */
+function ensureStatusHistoryFieldColumn_() {
+  var sheet = getSheet_(SHEETS.STATUS_HISTORY);
+  var headers = readHeaders_(sheet);
+  if (headers.indexOf('field') >= 0) return false;
+
+  var nextCol = headers.length + 1;
+  sheet.getRange(1, nextCol).setValue('field');
+  sheet.getRange(1, nextCol).setFontWeight('bold');
+  return true;
+}
