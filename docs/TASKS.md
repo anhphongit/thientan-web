@@ -326,7 +326,7 @@ and the admin (`*`) path both still work exactly as before. `BUILD` is
 | 3.4 | Free-text search | Across `orderId`, `po`, `customer`, line `description` | Search a PO fragment, a customer, a word from a description | ☑ |
 | 3.5 | `changeStatus` action + `StatusHistory` | One-purpose action, `change_status` enforced, history appended with who and when | Change a status from the list; `StatusHistory` gains a row; an account without the permission is refused | ☑ |
 | 3.6 | Admin approve | `approve_order`, sets `approvedBy` / `approvedAt` | Admin approves; a staff account cannot | ☑ |
-| 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☐ |
+| 3.7 | List UX on a phone | Filter bar collapses, cards stay readable, filters survive going into an order and back | Real phone, with filters applied | ☑ |
 | 3.8 | Approve-status workflow | New `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) gating who can edit, replacing the plain `approve_order` stamp from 3.6; behind a feature flag | Full matrix below, `CHECKLIST_M3_VI.md` §I | ☑ |
 
 ---
