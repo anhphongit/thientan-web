@@ -100,7 +100,7 @@ assertions — see `TASKS.md`.
 
 ---
 
-## ◐ Milestone 3 — List, filter, search, status
+## ☑ Milestone 3 — List, filter, search, status  *(done 2026-09-03)*
 
 Scope:
 - Paginated order list, sorted newest first
@@ -113,18 +113,43 @@ Scope:
 
 **Exit criteria**
 
-- [ ] List loads under ~3 seconds with a year of data
-- [ ] Every filter works alone and combined; filters are permission-scoped
-- [ ] Status change is recorded in `StatusHistory` with who and when
-- [ ] `change_status` is enforced server-side
-- [ ] The approve-status edit-gating matrix (`TASKS.md`, task 3.8) is
+- [x] List loads under ~3 seconds with a year of data — Phong confirmed
+      live 2026-09-03 after pushing/migrating; not independently
+      re-measured against a specific dataset size beyond that.
+- [x] Every filter works alone and combined; filters are permission-scoped
+      — `orders-filter.test.js` (60 assertions, month/customer/status/
+      createdBy/search/approveStatus, alone and ANDed together, scoped by
+      `visible_fields`/`view_all_orders`).
+- [x] Status change is recorded in `StatusHistory` with who and when —
+      `appendStatusHistory_` on every `status`/`approveStatus` transition;
+      `orders-changestatus.test.js` (28 assertions).
+- [x] `change_status` is enforced server-side — `actionChangeStatus_`
+      calls `requirePermission_('change_status')` before anything else;
+      covered in `orders-changestatus.test.js` and
+      `orders-permissions.test.js` (116 assertions).
+- [x] The approve-status edit-gating matrix (`TASKS.md`, task 3.8) is
       enforced server-side for every `approveStatus` × permission
-      combination, not just the UI hiding a button
-- [ ] The list is readable on a phone (cards, not a squashed table)
+      combination, not just the UI hiding a button —
+      `canEditForApproveStatus_`/`approveActionFlags_`, re-checked inside
+      `withOrderLock_` on every write; `orders-approvestatus.test.js` (97
+      assertions) and `orders-approvestatus-ui.test.js` (51 assertions).
+- [x] The list is readable on a phone (cards, not a squashed table) —
+      card-based list (`.order-card`) confirmed by design throughout 3.5/
+      3.8's UI revisions; Phong's live test 2026-09-03 covered the
+      current build but wasn't called out phone-specifically — flag if
+      that still needs a dedicated phone pass before fully trusting this
+      box.
+
+Closed out 2026-09-03 after Phong pushed, ran both pending migrations
+(`migrateAddRejectReasonColumns`, `migrateFixDatetimeColumns`), and live-
+tested the full approve-status/self-approver/reject-reason/locking build
+with no issues. 489 offline assertions passing across 7 files at close.
+Whole-repo total across every milestone: see `TASKS.md` for the
+per-revision breakdown.
 
 ---
 
-## ☐ Milestone 4 — Export + statistics
+## ◐ Milestone 4 — Export + statistics
 
 Scope:
 - `Export.gs`: export the **currently filtered** list to CSV / XLSX / PDF
