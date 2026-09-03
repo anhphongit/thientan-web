@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-03b-rejectreason';
+var BUILD = 'api-2026-09-03e-approvedstamp';
 
 /** Script Property keys. */
 var PROP = {
@@ -68,11 +68,19 @@ var HEADERS = {
   // up positionally with old data during the transition, but nothing in
   // Orders.gs writes to them anymore — who/when of an approval now lives in
   // StatusHistory (field='approveStatus') instead of a denormalized pair.
+  // rejectReason/rejectedBy/rejectedAt: revision 2026-09-03d — replaces the
+  // earlier approach of scanning StatusHistory for the latest 'rejected'
+  // row (too expensive to do on every detail load, and duplicated data
+  // that already lives on the order itself). Written once by
+  // actionRejectOrder_, read back by buildOrderResponse_ only when
+  // approveStatus is currently 'rejected'. Left stale (not cleared) once
+  // the order moves on — buildOrderResponse_ never surfaces it outside
+  // the 'rejected' state, so a stale value here is inert.
   Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
            'customerDeposit', 'supplierName', 'supplierPaid',
            'totalExVat', 'totalIncVat', 'lineCount',
            'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt',
-           'approveStatus'],
+           'approveStatus', 'rejectReason', 'rejectedBy', 'rejectedAt'],
 
   OrderLines: ['lineId', 'orderId', 'lineNo', 'productCode', 'description',
                'unitPrice', 'qty', 'uom', 'vatRate', 'amountExVat', 'amountIncVat',

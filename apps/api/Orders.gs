@@ -370,8 +370,11 @@ function actionCreateOrder_(user, payload) {
       createdAt: now,
       updatedBy: user.email,
       updatedAt: now,
-      approvedBy: '',
-      approvedAt: '',
+      // Revision 2026-09-03e — restored: a create that's born approved
+      // (bornApproved below) stamps these the same as actionApproveOrder_
+      // does; every other create still writes '' (unapproved at birth).
+      approvedBy: bornApproved ? user.email : '',
+      approvedAt: bornApproved ? now : '',
       // Milestone 3 / 3.8 — a new order starts life as a draft unless the
       // creating user is an approver who explicitly asked to approve it on
       // the spot (see initialApproveStatus above). Still inert when the
@@ -661,7 +664,17 @@ function actionUpdateOrder_(user, payload) {
       lineCount: saved.length,
       approveStatus: nextApproveStatus,
       updatedBy: user.email,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      // Revision 2026-09-03e — restored: a save that lands on 'approved'
+      // (the save-time auto-approve prompt) stamps these the same as
+      // actionApproveOrder_ and the create-time path do. A save that
+      // does NOT change approveStatus, or moves it to draft/rejected/
+      // wait_approval, leaves the existing stored value untouched
+      // (updateRecord_ only overwrites keys it's given — this key is
+      // simply omitted in that branch, same pattern as the other
+      // fieldVisible_-gated columns above).
+      approvedBy: nextApproveStatus === 'approved' ? user.email : current.approvedBy,
+      approvedAt: nextApproveStatus === 'approved' ? new Date() : current.approvedAt
     });
 
     if (clean.status !== previousStatus) {
@@ -823,7 +836,13 @@ function actionApproveOrder_(user, payload) {
     updateRecord_(SHEETS.ORDERS, current._row, {
       approveStatus: 'approved',
       updatedBy: user.email,
-      updatedAt: now
+      updatedAt: now,
+      // Revision 2026-09-03e — restored: written on every transition INTO
+      // 'approved' (same mirror as rejectReason/rejectedBy/rejectedAt on
+      // actionRejectOrder_ above). Retired at 3.8, brought back per
+      // Phong's explicit request — write-only for now, no UI change.
+      approvedBy: user.email,
+      approvedAt: now
     });
     appendStatusHistory_(current.orderId, before, 'approved', '', user, 'approveStatus');
   });
@@ -863,7 +882,13 @@ function actionRejectOrder_(user, payload) {
     updateRecord_(SHEETS.ORDERS, current._row, {
       approveStatus: 'rejected',
       updatedBy: user.email,
-      updatedAt: now
+      updatedAt: now,
+      // Revision 2026-09-03d — written directly on the order row instead
+      // of being read back from StatusHistory on every detail load (see
+      // Config.gs's HEADERS.Orders comment for why).
+      rejectReason: note,
+      rejectedBy: user.email,
+      rejectedAt: now
     });
     appendStatusHistory_(current.orderId, before, 'rejected', note, user, 'approveStatus');
   });
@@ -963,17 +988,24 @@ function buildOrderResponse_(user, row) {
   order.canReject = flags.canReject;
   order.canSetDraft = flags.canSetDraft;
 
-  // Revision 2026-09-03b — surface the latest reject reason on the detail
-  // screen (B2 banner). StatusHistory was write-only before this; we only
-  // look it up when the order is currently rejected, since that's the only
-  // state the UI needs to explain.
-  if (approveStatus === 'rejected') {
-    var rejectInfo = latestRejectInfo_(row.orderId);
-    if (rejectInfo) {
-      order.rejectReason = rejectInfo.note;
-      order.rejectedBy = rejectInfo.changedBy;
-      order.rejectedAt = rejectInfo.changedAt;
-    }
+  // Revision 2026-09-03b/d — surface the reject reason on the detail
+  // screen (B2 banner), read directly off the order row (see
+  // rejectReason/rejectedBy/rejectedAt in HEADERS.Orders) rather than
+  // scanned back out of StatusHistory. Only exposed when the approval
+  // flow is actually on AND the order is currently rejected — with the
+  // flag off there's no approve/reject workflow to explain a rejection
+  // for, even if a stale value happens to still be sitting on the row.
+  // filterVisibleFields_ above may already have copied these straight
+  // through for a '*' (admin) visible_fields profile, so they're always
+  // deleted first and only re-added when the gate actually passes —
+  // otherwise a flag-off response would still leak a stale reason.
+  delete order.rejectReason;
+  delete order.rejectedBy;
+  delete order.rejectedAt;
+  if (approvalFlowEnabled_(config) && approveStatus === 'rejected' && row.rejectReason) {
+    order.rejectReason = row.rejectReason;
+    order.rejectedBy = row.rejectedBy;
+    order.rejectedAt = row.rejectedAt;
   }
 
   return { order: order, lines: lines, hiddenMoney: !seesMoney_(user) };
@@ -1357,30 +1389,6 @@ function appendStatusHistory_(orderId, oldStatus, newStatus, note, user, field) 
 function historyField_(row) {
   var f = String((row && row.field) || '').trim();
   return f === 'approveStatus' ? 'approveStatus' : 'status';
-}
-
-/**
- * Revision 2026-09-03b — the most recent 'rejected' StatusHistory row for
- * this order, or null. Used by buildOrderResponse_ to show the reject
- * reason on the detail screen; StatusHistory itself stays append-only.
- */
-function latestRejectInfo_(orderId) {
-  var id = String(orderId || '').trim().toLowerCase();
-  var rows = readAll_(SHEETS.STATUS_HISTORY).filter(function (row) {
-    return String(row.orderId || '').trim().toLowerCase() === id &&
-      historyField_(row) === 'approveStatus' &&
-      String(row.newStatus || '') === 'rejected';
-  });
-  if (!rows.length) return null;
-  // Sheet order is append order, so the LAST matching row is the latest —
-  // more reliable than sorting by changedAt, which can tie at 1s resolution
-  // when two rejects happen back-to-back (e.g. in tests, or a fast user).
-  var latest = rows[rows.length - 1];
-  return {
-    note: text_(latest.note),
-    changedBy: latest.changedBy,
-    changedAt: latest.changedAt
-  };
 }
 
 /**

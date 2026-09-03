@@ -10,7 +10,7 @@
  */
 
 /** Bump on every meaningful web change. Shown in the footer when DEV_MODE is on. */
-var BUILD = 'web-2026-09-03c-lockquickactions';
+var BUILD = 'web-2026-09-03d-rejectcolumn';
 
 var PROP = {
   API_URL: 'API_URL',

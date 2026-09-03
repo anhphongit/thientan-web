@@ -430,6 +430,56 @@ console.log('\n11. buildOrderResponse_ surfaces the latest reject reason');
   env.actionRejectOrder_(approver, { orderId: orderId2, note: 'second note' }); // self-approver: reject allowed from approved
   const detail3 = env.actionGetOrder_(approver, { orderId: orderId2 });
   eq('latest reject reason wins over an earlier one', detail3.order.rejectReason, 'second note');
+
+  // Revision 2026-09-03d — turning the approval flow OFF must hide the
+  // reject reason from the detail response even though the order row
+  // itself still carries it (data stays on the row untouched, only the
+  // UI-facing gate flips).
+  H.withApprovalFlow(env, false);
+  const detailFlagOff = env.actionGetOrder_(approver, { orderId: orderId2 });
+  eq('flag off: rejectReason is not surfaced even though the order is rejected',
+     detailFlagOff.order.rejectReason, undefined);
+}
+
+/* ---------- 12. approvedBy/approvedAt restored (2026-09-03e) ---------- */
+console.log('\n12. approvedBy/approvedAt are written on every approve');
+{
+  const env = H.makeEnv({ approvalFlowEnabled: true });
+  const boss = user('boss@x.com', { edit_order: true, approve_order: true });
+
+  // Path 1: actionApproveOrder_
+  const id1 = env.actionCreateOrder_(boss, { order: order(), lines: [line()] }).order.orderId;
+  env.actionRequestApprove_(boss, { orderId: id1 });
+  env.store.Orders[0].approveStatus = 'wait_approval'; // pure-approver-style path, no self-approve shortcut needed here
+  env.actionApproveOrder_(boss, { orderId: id1 });
+  const row1 = env.store.Orders.filter(r => r.orderId === id1)[0];
+  eq('actionApproveOrder_ stamps approvedBy', row1.approvedBy, 'boss@x.com');
+  eq('actionApproveOrder_ stamps approvedAt', !!row1.approvedAt, true);
+
+  // Path 2: create with confirmApprove (born approved)
+  const created = env.actionCreateOrder_(boss, { order: order(), lines: [line()], confirmApprove: true });
+  const row2 = env.store.Orders.filter(r => r.orderId === created.order.orderId)[0];
+  eq('create born-approved stamps approvedBy', row2.approvedBy, 'boss@x.com');
+  eq('create born-approved stamps approvedAt', !!row2.approvedAt, true);
+
+  // A plain (not born-approved) create leaves both blank.
+  const createdPlain = env.actionCreateOrder_(boss, { order: order(), lines: [line()] });
+  const row3 = env.store.Orders.filter(r => r.orderId === createdPlain.order.orderId)[0];
+  eq('a plain create leaves approvedBy blank', row3.approvedBy, '');
+
+  // Path 3: save-time auto-approve (actionUpdateOrder_ with confirmApprove).
+  const editor = user('editor@x.com', { edit_order: true, approve_order: false });
+  const id4 = env.actionCreateOrder_(editor, { order: order(), lines: [line()] }).order.orderId;
+  const full = env.actionGetOrder_(boss, { orderId: id4 });
+  env.actionUpdateOrder_(boss, {
+    orderId: id4,
+    order: order(),
+    lines: full.lines,
+    confirmApprove: true
+  });
+  const row4 = env.store.Orders.filter(r => r.orderId === id4)[0];
+  eq('save-time auto-approve stamps approvedBy', row4.approvedBy, 'boss@x.com');
+  eq('save-time auto-approve stamps approvedAt', !!row4.approvedAt, true);
 }
 
 H.done();

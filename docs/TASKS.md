@@ -684,6 +684,169 @@ between two controls that already sat side by side.
   `BUILD` is `web-2026-09-03c-lockquickactions` (client-only). Not yet
   verified live.
 
+### Revision 2026-09-03d — reject reason: correction, off the StatusHistory scan
+
+Phong's review of 2026-09-03b/c caught two problems:
+
+1. **Reading the reject reason back from `StatusHistory` was a bad idea.**
+   `latestRejectInfo_` scanned the entire sheet, filtered, and sorted on
+   every single detail-screen load — an unnecessary full-table read for
+   something that only ever needs the CURRENT order's most recent value.
+2. **The banner showed even with `approvalFlowEnabled` OFF.**
+   `buildOrderResponse_`'s reject-reason block never checked the flag at
+   all — an oversight in 2026-09-03b, unlike every other approve-status
+   branch in that function, which does gate on it.
+
+Fix for both: store the reason directly on the `Orders` row instead of
+deriving it from history, and gate the read on the flag like everything
+else does.
+
+- `Config.gs`: `HEADERS.Orders` gains `rejectReason`/`rejectedBy`/
+  `rejectedAt` (three new columns, appended at the end — existing sheets
+  need `migrateAddRejectReasonColumns()`, `Migrations.gs`, run once).
+- `Orders.gs`: `actionRejectOrder_` now writes all three directly in the
+  same `updateRecord_` call that sets `approveStatus: 'rejected'` — no
+  extra sheet write, same lock, same transaction. `latestRejectInfo_` is
+  deleted outright; `StatusHistory` goes back to being purely an
+  append-only audit trail with no read path anywhere in the app, exactly
+  as it was before 2026-09-03b (the `note` is still written there too,
+  unchanged, for that audit trail — just no longer read back from it).
+- `buildOrderResponse_`: now reads `row.rejectReason` etc. directly (no
+  extra sheet scan), and the condition gained
+  `approvalFlowEnabled_(config) &&` up front. One more fix needed here
+  beyond just adding the check: `filterVisibleFields_` earlier in the
+  same function already copies EVERY row field through untouched for a
+  `visible_fields: ['*']` profile (the seeded admin role, and this repo's
+  test `user()` helper's default) — so the three fields were leaking
+  through from that generic copy regardless of the gate below it. Fixed by
+  explicitly `delete`-ing all three off `order` before the gated re-add,
+  so a flag-off (or non-rejected, or reason-less) response never carries
+  a stale value forward.
+- No client change needed — `rejectReasonHtml()` was already correctly
+  written to render nothing when the fields are simply absent from the
+  response; it was the server leaking them that was the bug.
+- Offline tests: `orders-approvestatus.test.js` section 11 gained one
+  assertion — flip `approvalFlowEnabled` off mid-test (`H.withApprovalFlow`)
+  on an order that IS rejected and confirm `rejectReason` comes back
+  `undefined`, not the reason it actually has stored. This assertion
+  failed against the fix's first draft (gate added but no `delete`) for
+  exactly the `visible_fields: ['*']` leak described above — real
+  regression coverage, not just a rubber stamp. Full suite: **90
+  assertions in `orders-approvestatus.test.js`** (up from 89); whole-repo
+  offline suite (7 files, 482 assertions total) all green. `BUILD` is
+  `api-2026-09-03d-rejectcolumn` / `web-2026-09-03d-rejectcolumn`. Not yet
+  verified live.
+
+### Revision 2026-09-03e — approvedBy/approvedAt restored
+
+Phong noticed `approvedBy`/`approvedAt` "not working anymore" — correct:
+they'd been write-only-retired since 3.8 (replaced by `approveStatus` +
+`StatusHistory` as the source of truth for who/when approved), a design
+decision from well before this session touched anything, not a
+regression from 2026-09-03b/c/d's reject-reason work (verified: those
+columns were never even read, and `appendRecord_`/`updateRecord_` map by
+the sheet's actual header row, so adding unrelated columns couldn't have
+shifted or clobbered them). Phong's answer: bring them back as real,
+actively-written fields — write-only for now, no UI change (unlike
+`rejectReason`, which does have a banner).
+
+- `Orders.gs`, all three places an order can land on `approveStatus:
+  'approved'` now stamp `approvedBy: user.email` / `approvedAt: now` in
+  the same `updateRecord_`/`appendRecord_` call:
+  - `actionApproveOrder_` — every explicit approve.
+  - `actionCreateOrder_` — a create born approved (`bornApproved`); a
+    plain create still writes `''`/`''`, unchanged.
+  - `actionUpdateOrder_` — the save-time auto-approve path
+    (`nextApproveStatus === 'approved'`, i.e. an `approve_order` holder
+    who confirmed the prompt). Re-stamps `approvedBy`/`approvedAt` on
+    every such save, even one that RE-confirms an already-approved
+    order — same "reflects the most recent approval action" semantics as
+    `updatedBy`/`updatedAt` refreshing on every save. A save that leaves
+    `approveStatus` at anything else (`draft`/`rejected`/`wait_approval`)
+    leaves the existing stored value untouched, not blanked.
+- No change to `buildOrderResponse_` — these two are ordinary
+  `visible_fields`-gated columns like any other order field (unlike
+  `rejectReason`, which needed an explicit gate/delete because of the
+  `ALWAYS_VISIBLE_FIELDS`-style handling `approveStatus` gets); nothing
+  new is forced into the response.
+- Offline tests: new section 12 in `orders-approvestatus.test.js` (7
+  assertions) covering all three write paths, plus confirming a plain
+  (non-approved) create still leaves the columns blank. Full suite: **97
+  assertions in `orders-approvestatus.test.js`** (up from 90); whole-repo
+  offline suite (7 files, 489 assertions total) all green. `BUILD` is
+  `api-2026-09-03e-approvedstamp` (server-only — `web` BUILD unchanged,
+  no client file touched). Not yet verified live.
+
+### Revision 2026-09-03f — approvedAt/rejectedAt showing date-only on the real sheet
+
+Phong: the real spreadsheet's `*At` audit columns show a bare date
+(mm/dd/yyyy) with no time, while old sample data shows a full datetime —
+asked for a review of every datetime write, a fix, then a migration to
+normalize existing date-only cells to `00:00:00`. Follow-up correction
+after the first pass: only `approvedAt`/`rejectedAt` actually show this;
+`createdAt`/`updatedAt`/`changedAt` display correctly and were never
+affected.
+
+**Review finding: every write site is already correct.** Every `*At`
+column (`Orders.createdAt/updatedAt/approvedAt/rejectedAt`,
+`Invoices.createdAt`, `StatusHistory.changedAt`) is written as a real
+`new Date()` JS object at every call site —
+`actionCreateOrder_`/`actionUpdateOrder_`/`actionApproveOrder_`/
+`actionRejectOrder_`/`actionRequestApprove_`/`actionSetDraftOrder_`/
+`appendStatusHistory_` (`Orders.gs`), the admin seed (`Setup.gs`), and
+`DevSeed.gs` (which seeds through `actionCreateOrder_` itself, the same
+path as real usage — confirming sample and real data share one write
+path, not two). `SheetsRepo.gs`'s `appendRecord_`/`updateRecord_` never
+reformat, stringify, or strip time off a Date before writing it. `grep`
+for `setNumberFormat` across the whole repo returned zero hits — nothing
+in the app code ever sets a date-only cell format either.
+
+`orderDate` was checked and confirmed to be a DIFFERENT, intentionally
+date-only field (`parseDate_` in `Orders.gs` builds
+`new Date(y, m-1, d)` at midnight from a client-supplied business date)
+— not one of the audit columns, and out of scope here.
+
+**Diagnosis, narrowed after Phong's correction**: the write path is
+correct everywhere, but only `approvedAt`/`rejectedAt` show the display
+bug — which lines up with WHY, not just confirms it's cosmetic.
+`createdAt`/`updatedAt`/`changedAt` have carried real datetime values
+continuously since long before this session. `approvedAt`/`rejectedAt`
+are the two columns that only just started being WRITTEN: `approvedAt`
+was added to the header at 3.8 but nothing wrote to it until revision
+2026-09-03e restored it; `rejectedAt` is brand new from 2026-09-03d.
+Both sat as blank, freshly-appended columns with no prior data for a
+long time — exactly the situation where Sheets' automatic format
+detection can land on date-only for the first values written into them,
+rather than the full datetime format the other columns picked up early
+on. `readAll_`'s `getValues()` reads the real underlying value
+regardless of display format either way, so app logic was never
+affected — this is cosmetic on the sheet, not a data-correctness bug.
+
+- **No code change was needed** for "make it work as expected" — there
+  was nothing broken in the write path to fix.
+- `Migrations.gs`: `migrateFixDatetimeColumns()`, scoped to
+  `Orders.approvedAt`/`Orders.rejectedAt` ONLY (narrowed from an initial
+  draft that also touched createdAt/updatedAt/changedAt/Invoices.createdAt
+  — pulled back out per Phong's correction, since touching columns that
+  already work risks nothing but isn't the fix he asked for). For each of
+  the two columns: (1) resets the column's number format to
+  `M/d/yyyy H:mm:ss`; (2) reads every existing cell — a cell that IS
+  already a real JS `Date` object is left completely untouched, its
+  actual time preserved exactly as stored; a cell that is NOT a Date
+  object (Sheets parsed it as plain text — no time was ever recorded) is
+  rewritten to `new Date(y, m, d, 0, 0, 0)`, an explicit midnight, per
+  Phong's instruction. Idempotent — safe to run more than once.
+- Not an offline-testable change (pure Google Sheets API calls —
+  `setNumberFormat`/`getRange`/`getValues`/`setValues` against a live
+  spreadsheet, no code path the Node harness's mock sheet models). No
+  `BUILD` bump — no application code changed, only `Migrations.gs`.
+
+**HOW TO RUN** (also in the function's own doc comment): push
+`apps/api`, select `migrateFixDatetimeColumns` in the Apps Script
+editor's Run dropdown, run with no arguments, read the returned summary
+(per-column: format fixed, N of M rows normalized). Not yet run against
+the live sheet.
+
 ## Milestone 3, task 3.5 — quick status change from the list
 
 **Built 2026-08-31.** `actionChangeStatus_` (`apps/api/Orders.gs`) is a new,

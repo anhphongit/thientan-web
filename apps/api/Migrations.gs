@@ -179,3 +179,150 @@ function ensureStatusHistoryFieldColumn_() {
   sheet.getRange(1, nextCol).setFontWeight('bold');
   return true;
 }
+
+/**
+ * Revision 2026-09-03d — add the rejectReason/rejectedBy/rejectedAt
+ * columns to Orders (see Config.gs's HEADERS.Orders comment). No backfill
+ * of historical rejections: an order rejected before this migration has
+ * no reason recorded anywhere on the row (only in StatusHistory, which
+ * this revision deliberately stops reading from on every detail load —
+ * see TASKS.md), so it simply shows no reject-reason banner until it is
+ * rejected again under the new code.
+ *
+ * HOW TO RUN
+ *   1. Push apps/api with this migration included.
+ *   2. Select `migrateAddRejectReasonColumns` in the editor's Run dropdown
+ *      and press Run — no arguments.
+ *   3. Safe to run again later: it only adds header cells that are
+ *      missing, never touches existing data.
+ */
+function migrateAddRejectReasonColumns() {
+  guardSetup_();
+
+  var sheet = getSheet_(SHEETS.ORDERS);
+  var headers = readHeaders_(sheet);
+  var toAdd = ['rejectReason', 'rejectedBy', 'rejectedAt'].filter(function (h) {
+    return headers.indexOf(h) < 0;
+  });
+
+  toAdd.forEach(function (h) {
+    var nextCol = readHeaders_(sheet).length + 1;
+    sheet.getRange(1, nextCol).setValue(h);
+    sheet.getRange(1, nextCol).setFontWeight('bold');
+  });
+
+  var summary = toAdd.length
+    ? 'Added column(s) to Orders: ' + toAdd.join(', ') + '.'
+    : 'Orders already has rejectReason/rejectedBy/rejectedAt columns.';
+  console.log(summary);
+  return summary;
+}
+
+/**
+ * Revision 2026-09-03f (corrected) — Phong confirmed only
+ * Orders.approvedAt/rejectedAt actually show date-only on the live
+ * sheet; createdAt/updatedAt/changedAt display correctly. That lines up
+ * with the code review: createdAt/updatedAt/changedAt have carried real
+ * datetime values continuously since long before this session, while
+ * approvedAt/rejectedAt are the two columns that only just started being
+ * WRITTEN today (approvedAt was added at 3.8 but never written until
+ * revision 2026-09-03e restored it; rejectedAt is brand new from
+ * 2026-09-03d) — both were blank, freshly-appended columns with no prior
+ * data, which is exactly the situation where Sheets' automatic format
+ * detection can land on date-only instead of full datetime. The write
+ * path itself was still confirmed correct (both stamp a real
+ * `new Date()` — see actionApproveOrder_/actionRejectOrder_/
+ * actionCreateOrder_/actionUpdateOrder_ in Orders.gs); this is purely
+ * the live column's cell FORMAT, or possibly a handful of cells that
+ * hold plain text with no time ever recorded. `readAll_`'s getValues()
+ * reads the real underlying value regardless of display format, so
+ * app logic was never affected either way — this is cosmetic on the
+ * sheet, not a data-correctness bug.
+ *
+ * This migration resets Orders.approvedAt/rejectedAt's number format to
+ * a full datetime pattern, and rewrites any cell that ISN'T already a
+ * real JS Date object (i.e. Sheets parsed it as plain text) into
+ * `new Date(y, m, d, 0, 0, 0)` — an explicit midnight — so every cell in
+ * these two columns is a genuine, unambiguous datetime value afterward.
+ * A cell that's already a real Date object (any time, including a
+ * genuine midnight) is left completely untouched.
+ *
+ * Columns covered: Orders.approvedAt, Orders.rejectedAt ONLY.
+ * createdAt/updatedAt/changedAt/Invoices.createdAt are untouched — they
+ * were never actually affected, no need to touch what already works.
+ * Deliberately excludes Orders.orderDate too — that one is meant to stay
+ * date-only by design.
+ *
+ * HOW TO RUN
+ *   1. Push apps/api with this migration included.
+ *   2. Select `migrateFixDatetimeColumns` in the editor's Run dropdown
+ *      and press Run — no arguments. Read the returned summary.
+ *   3. Safe to run again later: format-setting is idempotent, and a cell
+ *      already holding a real Date object is left completely untouched
+ *      (its actual time, whatever it is, is never overwritten) — only
+ *      cells that are NOT a Date object get rewritten, and only once,
+ *      since after the first run they become real Date objects too.
+ */
+function migrateFixDatetimeColumns() {
+  guardSetup_();
+
+  var DATETIME_FORMAT = 'M/d/yyyy H:mm:ss';
+  var targets = [
+    { sheetName: SHEETS.ORDERS, columns: ['approvedAt', 'rejectedAt'] }
+  ];
+
+  var summaryLines = [];
+
+  targets.forEach(function (target) {
+    var sheet = getSheet_(target.sheetName);
+    var headers = readHeaders_(sheet);
+    var lastRow = sheet.getLastRow();
+
+    target.columns.forEach(function (colName) {
+      var colIndex = headers.indexOf(colName);
+      if (colIndex < 0) {
+        summaryLines.push(target.sheetName + '.' + colName + ': column not found, skipped.');
+        return;
+      }
+      var col1based = colIndex + 1;
+
+      if (lastRow < 2) {
+        // Header only, no data rows yet — still worth fixing the format
+        // so every future write displays correctly from row 2 on.
+        sheet.getRange(2, col1based, 1, 1).setNumberFormat(DATETIME_FORMAT);
+        summaryLines.push(target.sheetName + '.' + colName + ': no data rows, format set for future rows.');
+        return;
+      }
+
+      var range = sheet.getRange(2, col1based, lastRow - 1, 1);
+      range.setNumberFormat(DATETIME_FORMAT);
+
+      var values = range.getValues();
+      var normalized = 0;
+      var rewritten = values.map(function (row) {
+        var v = row[0];
+        if (v === '' || v === null) return [v]; // genuinely blank — leave alone
+        if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
+          return [v]; // already a real datetime value — never touched, time preserved as-is
+        }
+        // Not a real Date object: Sheets read this back as text (or an
+        // unparsed number) — no time was ever recorded for it. Parse
+        // what we can and normalize to an explicit midnight.
+        var parsed = new Date(v);
+        var fixed = isNaN(parsed.getTime())
+          ? new Date() // last resort: unparsable garbage, stamp "now" rather than leave it broken
+          : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0);
+        normalized++;
+        return [fixed];
+      });
+      range.setValues(rewritten);
+
+      summaryLines.push(target.sheetName + '.' + colName + ': format fixed, ' +
+        normalized + ' of ' + values.length + ' row(s) normalized to 00:00:00 (rest were already real datetimes, untouched).');
+    });
+  });
+
+  var summary = summaryLines.join('\n');
+  console.log(summary);
+  return summary;
+}
