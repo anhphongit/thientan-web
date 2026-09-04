@@ -299,5 +299,46 @@ console.log('\n15. invoice-date basis: revenue totals are attributed per bucket,
   check('THÁNG 9 total reflects only Dòng B (200,000)', body.indexOf('DOANH SỐ THÁNG 9,200.000 / 216.000') >= 0);
 }
 
+/* ---------- 16. status column shows the Vietnamese label, not the raw key ---------- */
+console.log('\n16. TRẠNG THÁI column shows the config label, not the raw status key');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, { order: order({ status: 'draft' }), lines: [line()] });
+
+  const res = env.actionExportOrdersCsv_(admin, {});
+  const allRows = rows(res.csv);
+  const dataRow = allRows.filter(r => r[3] === 'Ống nhựa PVC 90')[0];
+  check('status cell shows "Nháp" (config label), not "draft" (the raw key)', dataRow[11] === 'Nháp');
+}
+
+/* ---------- 17. buildExportRows_ sets groupSize for XLSX merges (ExportSheet.gs's contract) ---------- */
+console.log('\n17. buildExportRows_ marks groupSize on the first line of each order — the XLSX merge contract');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, {
+    order: order(),
+    lines: [line({ description: 'Dòng 1' }), line({ description: 'Dòng 2' }), line({ description: 'Dòng 3' })]
+  });
+  env.actionCreateOrder_(admin, { order: order({ po: 'PO-SINGLE' }), lines: [line({ description: 'Chỉ 1 dòng' })] });
+
+  const buckets = env.bucketOrdersForExport_(
+    env.filteredOrderRowsForUser_(admin, env.computeOrderFilters_(admin, {}, env.readPublicConfig_())),
+    'orderDate'
+  );
+  const exportRows = env.buildExportRows_(admin, buckets);
+  const dataRows = exportRows.filter(r => r.kind === 'data');
+
+  const line1 = dataRows.find(r => r.cells[3] === 'Dòng 1');
+  const line2 = dataRows.find(r => r.cells[3] === 'Dòng 2');
+  const line3 = dataRows.find(r => r.cells[3] === 'Dòng 3');
+  const single = dataRows.find(r => r.cells[3] === 'Chỉ 1 dòng');
+
+  check('first line of a 3-line order carries groupSize 3', line1.groupSize === 3);
+  check('2nd/3rd lines of that order carry no groupSize (undefined)', line2.groupSize === undefined && line3.groupSize === undefined);
+  check('a single-line order\'s only line carries groupSize 1', single.groupSize === 1);
+}
+
 console.log('\n' + H.check.name); // no-op keeps `check` referenced if unused elsewhere
 H.done();

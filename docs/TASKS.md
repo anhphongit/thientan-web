@@ -1083,7 +1083,7 @@ any of this is built, so no task should hit an open question mid-work.
 |---|------|--------|
 | 4.1 | CSV export — filtered list, order-date grouping, `EXCEL_REFERENCE.md` §7 layout | ☑ |
 | 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☑ |
-| 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☐ |
+| 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☑ |
 | 4.4 | PDF export (same temp-Sheet, PDF print params) | ☐ |
 | 4.5 | Async/large-export infra — checkpoint+retrigger, status polling, Drive+email delivery, retention cleanup | ☐ |
 | 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
@@ -1297,3 +1297,139 @@ explicit `.export-hint[hidden] { display: none; }` override, plus calling
 render is correct regardless of which radio starts checked.
 
 `BUILD`: `web-2026-09-03h-exportdialogfix`.
+
+## Milestone 4, task 4.3 — XLSX export (built 2026-09-03)
+
+Adds `exportOrdersXlsx` (`actionExportOrdersXlsx_`, `apps/api/Export.gs`),
+sharing filters/basis/permission with `exportOrdersCsv` via a new
+`exportBucketsForRequest_(user, payload)` helper (resolve basis → filters
+→ buckets, permission check stays in each action per the codebase's
+"requirePermission_ as the first line" convention).
+
+**Shared row structure**: `buildExportCsv_` was refactored to consume a
+new `buildExportRows_(user, buckets)` — the ONE place that walks buckets
+into printable rows (`{kind:'group'|'data'|'total', cells}`), instead of
+CSV and XLSX independently re-deriving STT/PO placement, money gating,
+and DOANH SỐ totals. Numeric cells are now real JS numbers (`num_()`)
+rather than raw sheet values passed through — XLSX needs real numbers to
+write numeric cells (not text), and this is safe for CSV too since
+`qty`/`unitPrice` are always validated numeric at order-save time
+(`validateLine_`).
+
+**New file `apps/api/ExportSheet.gs`** — a deliberate, scoped exception to
+`CONVENTIONS.md`'s "business logic never calls SpreadsheetApp directly,
+only via SheetsRepo.gs": that rule is about the app's DATA spreadsheet.
+This file never touches it — it creates a throwaway temp Spreadsheet
+purely as an XLSX-writing mechanism (no XLSX-writer library runs in the
+V8 sandbox, per the 2026-09-03 platform research), and deletes
+(trashes) it before returning, success or failure (`finally`). Flow:
+`SpreadsheetApp.create()` → batch `setValues()` the shared row grid,
+bold header/group/total rows, freeze the header row, autosize columns →
+fetch the temp file's own `/export?format=xlsx` URL via `UrlFetchApp` +
+`ScriptApp.getOAuthToken()` → base64-encode the bytes (doPost's JSON
+response has no binary channel) → `DriveApp...setTrashed(true)` in a
+`finally`.
+
+Added `https://www.googleapis.com/auth/script.external_request` to
+`apps/api/appsscript.json`'s `oauthScopes` — needed for the new
+`UrlFetchApp.fetch` call (Apps Script's manifest scope list is derived by
+static analysis of API calls used; fetching a `docs.google.com` export
+URL is still an "external" request even though it's the app's own file).
+
+**Client**: an "Excel (.xlsx)" radio row added to the export dialog's
+format section (previously CSV-only). `runExportXlsx()` mirrors
+`runExportCsv()` but decodes the response's `base64` field back into
+bytes (`base64ToBlob_`, `atob()` + `Uint8Array`) before building the
+download Blob; both now share one `downloadBlob()` helper (Blob → `<a
+download>` → revoke) instead of duplicating that flow per format.
+
+**Bug caught by a test, not inspection**: `writeExportRowsToSheet_`
+originally guarded `sheet.getRange(...).setValues(grid)` behind
+`if (grid.length > 1)` — meaning a zero-line export (all filtered out, or
+an empty result) never wrote anything at all, not even the header row,
+leaving the temp sheet completely blank. Fixed by writing unconditionally
+(the header alone must still land).
+
+Tests: new `tools/offline-tests/exportsheet.test.js` (20 assertions) —
+covers `writeExportRowsToSheet_`'s grid construction (batched single
+`setValues` call, header/group/data/total rows all present and correctly
+shaped) and bold-row targeting (header + group + total rows bolded, plain
+data rows not), frozen header, column autosize, `padRow_` pad/truncate,
+and the zero-rows-still-writes-header case (the bug above). Does NOT
+attempt to test `buildExportXlsx_`/`fetchSpreadsheetExportBase64_`
+offline — those call real `SpreadsheetApp.create`/`DriveApp`/
+`UrlFetchApp`/`ScriptApp.getOAuthToken()` with no meaningful offline
+stand-in, same as every other Google-API-touching code path in this
+project; verify those live. Full suite: 552/552 passing (export 43,
+exportsheet 20, approvestatus-ui 51, approvestatus 97, changestatus 28,
+crud 54, filter 60, permissions 116, ui 83).
+
+`BUILD`: `api-2026-09-03h-exportxlsx` / `web-2026-09-03i-exportxlsx`.
+
+**Live-test checklist for Phong**: open the export dialog, pick "Excel
+(.xlsx)", confirm the downloaded file opens in Excel with bold
+header/month/total rows and real numeric columns (not text-formatted
+numbers); confirm no leftover temp files accumulate in the API project's
+Drive (the deploying account's Drive, not yours) after a few exports.
+
+### Fixes 2026-09-03 (Phong live-tested XLSX export) — 3 issues
+
+**1. Export dialog cut off on phone, "Xuất file" unreachable.** Root cause:
+`.confirm-modal-card` sets `overflow: hidden` (needed for the rounded top
+band), which silently killed `.modal-card`'s own `overflow-y: auto` /
+`max-height: 88vh` scroll — so once the dialog's content grew taller than
+the viewport (this dialog especially, once the invoice-date hint is
+showing), it just got clipped with nowhere to scroll. Fixed generally, not
+just for this dialog: `.export-modal-card` is now a capped-height flex
+column, and everything except the pinned action buttons moved into a new
+`.export-modal-scroll` wrapper that scrolls internally — "scrollable body,
+sticky footer," the shape any confirm-style dialog needs once its content
+can outgrow the viewport.
+
+**2. TRẠNG THÁI column showed the raw status KEY** (e.g.
+`delivered_not_invoiced`) instead of the Vietnamese label a person reads
+on the list/detail screens. `statusExportLabel_` was writing `view.status`
+straight through with no translation. Fixed with a new
+`statusLabelIndex_(config)` ({key: label} built once per export from
+`config.statusList`, same source `Config.gs`'s `CONFIG_DEFAULTS` seeds and
+the client's own `statusLabel()` reads) and `statusLabelText_()` doing the
+lookup with a same-key fallback if a status is somehow missing from the
+list.
+
+**3. XLSX should visually merge cells like the reference file, not just
+blank-repeat.** Resolved with Phong via AskUserQuestion first (the
+reference file's own description, EXCEL_REFERENCE.md §3, says it actually
+blank-repeats rather than truly merging — confirmed the ask before
+guessing): Phong wants real merged cells even though the source file
+doesn't have them — more finished-looking than a literal 1:1 reproduction.
+`buildExportRows_` now stamps `groupSize` (line count) on the first data
+row of each order; `writeExportRowsToSheet_` (ExportSheet.gs) merges STT,
+PO, KHÁCH HÀNG, and TRẠNG THÁI (`EXPORT_MERGE_COLS = [1,2,3,12]`) down
+that many rows for any order with more than one line, top-aligns the
+merged cells so labels sit with the first line rather than floating to
+the visual center, and also merges each THÁNG banner row across the full
+width and each DOANH SỐ row's blank lead-in (A:G) for a cleaner look.
+CSV is untouched — `groupSize` only means something to the sheet writer;
+a flat text format has no concept of a merged cell, so CSV keeps the
+blank-on-2nd-line pattern (matching the reference file's own plain-text
+behavior).
+
+Tests: `export.test.js` +3 (44→47) — status label translation (a real
+key/label mismatch, not a coincidental match), and `buildExportRows_`'s
+`groupSize` contract (set only on an order's first line, correct count,
+`undefined` elsewhere). `exportsheet.test.js` +10 (20→30) — THÁNG/DOANH
+SỐ banner-row merges, per-order STT/PO/KHÁCH HÀNG/TRẠNG THÁI merge spans
+for a multi-line order, no merge at all for a single-line order, CHI TIẾT
+never merged (every line keeps its own description), top-alignment.
+Full suite: 566/566 passing.
+
+`BUILD`: `api-2026-09-03i-exportfixes` / `web-2026-09-03j-exportfixes`.
+
+**Live-test checklist for Phong**: re-test the export dialog on phone with
+"Ngày hóa đơn" selected (the tallest state) — confirm both buttons are
+reachable and the dialog scrolls instead of clipping. Export CSV and XLSX
+for an order with a non-`draft`/non-`confirmed` status and confirm the
+Vietnamese label shows, not the key. Open the XLSX in Excel and confirm a
+multi-line order's STT/PO/KHÁCH HÀNG/TRẠNG THÁI appear as single merged
+cells spanning its rows, single-line orders look unchanged, and the
+THÁNG/DOANH SỐ banner rows read as full-width bars.

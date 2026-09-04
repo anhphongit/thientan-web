@@ -53,13 +53,7 @@ var EXPORT_NO_INVOICE_LABEL = 'CHƯA XUẤT HÓA ĐƠN';
  */
 function actionExportOrdersCsv_(user, payload) {
   requirePermission_(user, 'export');
-
-  var basis = exportBasis_(payload);
-  var config = readPublicConfig_();
-  var filters = computeOrderFilters_(user, payload, config);
-  var rows = filteredOrderRowsForUser_(user, filters);
-
-  var buckets = bucketOrdersForExport_(rows, basis);
+  var buckets = exportBucketsForRequest_(user, payload);
   var csv = buildExportCsv_(user, buckets);
 
   return {
@@ -69,6 +63,37 @@ function actionExportOrdersCsv_(user, payload) {
     // instead of guessing a legacy codepage and mangling them.
     csv: '﻿' + csv
   };
+}
+
+/**
+ * Milestone 4 / 4.3 — XLSX export of the currently-filtered order list.
+ * Same filters/basis/permission as exportOrdersCsv (exportBucketsForRequest_
+ * is the one shared resolve step for both), a temp Google Sheet does the
+ * writing (ExportSheet.gs — no XLSX-writer library runs in the V8 sandbox).
+ * Response carries the file as base64 (JSON has no binary channel); the
+ * client (apiExportOrdersXlsx, apps/web/Main.gs) decodes it into a
+ * download the same way CSV becomes one, just via atob()+Blob instead of
+ * a plain string Blob.
+ *
+ * @return {{filename:string, mimeType:string, base64:string}}
+ */
+function actionExportOrdersXlsx_(user, payload) {
+  requirePermission_(user, 'export');
+  var buckets = exportBucketsForRequest_(user, payload);
+  return buildExportXlsx_(user, buckets);
+}
+
+/** Shared by every export format action: resolve payload.basis, apply the
+ *  same filters/security gating actionListOrders_ uses, bucket the result.
+ *  Permission check stays in each action (not here) so it's visible right
+ *  at the top of each handler, matching every other action in this
+ *  codebase (requirePermission_ as the very first line). */
+function exportBucketsForRequest_(user, payload) {
+  var basis = exportBasis_(payload);
+  var config = readPublicConfig_();
+  var filters = computeOrderFilters_(user, payload, config);
+  var rows = filteredOrderRowsForUser_(user, filters);
+  return bucketOrdersForExport_(rows, basis);
 }
 
 /** Validates payload.basis, defaulting to order-date (matches the reference
@@ -198,16 +223,31 @@ var EXPORT_CSV_HEADER = [
  *   orderGroups: Array<{order:Object, lines:Object[]}>}>} buckets from
  *   bucketOrdersForExport_ — basis-agnostic by the time it gets here.
  */
-function buildExportCsv_(user, buckets) {
-  var lines = [EXPORT_CSV_HEADER.map(csvCell_).join(',')];
+/**
+ * Milestone 4 / 4.3 — the ONE place that walks buckets -> printable rows.
+ * CSV (buildExportCsv_) and XLSX (buildExportSheetRows_, ExportSheet.gs)
+ * both render this same row structure instead of re-deriving it from
+ * `buckets` themselves, so a layout decision (STT/PO on first line only,
+ * money gated by seesMoney_, DOANH SỐ per bucket) is made exactly once.
+ *
+ * @return {Array<{kind:'group'|'data'|'total', cells:Array}>} `cells`
+ *   always has EXPORT_CSV_HEADER.length entries for kind 'data'/'total'
+ *   (blank string for an empty cell); a numeric cell is a JS number (not a
+ *   formatted string) so XLSX can write it as a real number — csvCell_
+ *   stringifies it for CSV. kind 'group' is a single-cell month/bucket
+ *   label row (group.label) with the rest of `cells` empty.
+ */
+function buildExportRows_(user, buckets) {
+  var rows = [];
   // Read once, not once per order — readAll_ memoizes the sheet for the
   // request either way, but rebuilding the {invoiceId: row} index inside
   // the order loop was pure waste.
   var invoices = invoiceIndex_();
+  var statusLabels = statusLabelIndex_(readPublicConfig_());
   var showMoney = seesMoney_(user);
 
   buckets.forEach(function (bucket) {
-    lines.push(csvCell_(bucket.label));
+    rows.push({ kind: 'group', cells: [bucket.label] });
 
     var stt = 1;
     var bucketExVat = 0, bucketIncVat = 0;
@@ -221,20 +261,33 @@ function buildExportCsv_(user, buckets) {
         var first = i === 0;
         var invoice = (line && line.invoiceId) ? invoices[String(line.invoiceId)] : null;
 
-        lines.push([
-          first ? stt : '',
-          first && fieldVisible_(user, 'po') ? (view.po || '') : '',
-          fieldVisible_(user, 'customer') ? (view.customer || '') : '',
-          line ? lineDescriptionText_(user, line) : '',
-          line && showMoney ? line.unitPrice : '',
-          line ? line.qty : '',
-          line ? line.uom : '',
-          line && showMoney ? line.amountExVat : '',
-          line && showMoney ? line.amountIncVat : '',
-          invoice ? invoice.invoiceNo : '',
-          invoice ? formatExportDate_(invoice.invoiceDate) : '',
-          first && fieldVisible_(user, 'status') ? (statusExportLabel_(user, view) || '') : ''
-        ].map(csvCell_).join(','));
+        rows.push({
+          kind: 'data',
+          // Milestone 4 / 4.3 revision (Phong: XLSX should merge cells like
+          // the reference file, not just blank-repeat) — only the FIRST
+          // line of an order group carries groupSize, the count of rows
+          // this order occupies. writeExportRowsToSheet_ (ExportSheet.gs)
+          // reads it to merge STT/PO/KHÁCH HÀNG/TRẠNG THÁI down that many
+          // rows; CSV (buildExportCsv_) ignores this field entirely — a
+          // flat text format has no concept of a merged cell, so it keeps
+          // rendering the blank-on-2nd-line pattern the reference file
+          // itself uses in plain-text form.
+          groupSize: first ? orderLines.length : undefined,
+          cells: [
+            first ? stt : '',
+            first && fieldVisible_(user, 'po') ? (view.po || '') : '',
+            fieldVisible_(user, 'customer') ? (view.customer || '') : '',
+            line ? lineDescriptionText_(user, line) : '',
+            line && showMoney ? num_(line.unitPrice) : '',
+            line ? num_(line.qty) : '',
+            line ? line.uom : '',
+            line && showMoney ? num_(line.amountExVat) : '',
+            line && showMoney ? num_(line.amountIncVat) : '',
+            invoice ? invoice.invoiceNo : '',
+            invoice ? formatExportDate_(invoice.invoiceDate) : '',
+            first && fieldVisible_(user, 'status') ? (statusExportLabel_(user, view, statusLabels) || '') : ''
+          ]
+        });
 
         // Bucket total only counts money this user is actually allowed to
         // see — a price-blind role must not learn the revenue total either
@@ -248,14 +301,25 @@ function buildExportCsv_(user, buckets) {
       stt++;
     });
 
-    lines.push([
-      '', '', '', '', '', '', '',
-      'DOANH SỐ ' + bucket.label,
-      showMoney ? (formatExportMoney_(bucketExVat) + ' / ' + formatExportMoney_(bucketIncVat)) : '',
-      '', '', ''
-    ].map(csvCell_).join(','));
+    rows.push({
+      kind: 'total',
+      cells: [
+        '', '', '', '', '', '', '',
+        'DOANH SỐ ' + bucket.label,
+        showMoney ? (formatExportMoney_(bucketExVat) + ' / ' + formatExportMoney_(bucketIncVat)) : '',
+        '', '', ''
+      ]
+    });
   });
 
+  return rows;
+}
+
+function buildExportCsv_(user, buckets) {
+  var lines = [EXPORT_CSV_HEADER.map(csvCell_).join(',')];
+  buildExportRows_(user, buckets).forEach(function (row) {
+    lines.push(row.kind === 'group' ? csvCell_(row.cells[0]) : row.cells.map(csvCell_).join(','));
+  });
   return lines.join('\r\n');
 }
 
@@ -271,11 +335,36 @@ function lineDescriptionText_(user, line) {
 
 /** statusNote folded into the same cell as status, matching the reference
  *  file's own mixing of controlled status + free text (EXCEL_REFERENCE.md
- *  §6) — this export is meant to read the way that file already does. */
-function statusExportLabel_(user, view) {
-  var status = text_(view.status);
+ *  §6) — this export is meant to read the way that file already does.
+ *  Bug fix, 2026-09-03 (Phong live-tested: TRẠNG THÁI column showed the
+ *  raw status KEY, e.g. "delivered_not_invoiced", not the Vietnamese
+ *  label a person reads on the list/detail screens) — status is a
+ *  config-driven {key, label} list (CONFIG_DEFAULTS, Config.gs; the
+ *  client's own statusLabel() in ViewsOrders.html does the same lookup),
+ *  so the export must translate through it too instead of writing the
+ *  key straight through. Falls back to the raw key if it's somehow not
+ *  in the list, same fallback statusLabel() uses client-side. */
+function statusExportLabel_(user, view, statusLabels) {
+  var status = statusLabelText_(statusLabels, view.status);
   var note = fieldVisible_(user, 'statusNote') ? text_(view.statusNote) : '';
   return note ? (status + ' — ' + note) : status;
+}
+
+/** {key: label} lookup built once per export from config.statusList, not
+ *  once per row — same reasoning as invoiceIndex_() being hoisted out of
+ *  the per-order loop below. */
+function statusLabelIndex_(config) {
+  var index = {};
+  ((config && config.statusList) || []).forEach(function (s) {
+    if (s && s.key) index[String(s.key)] = String(s.label || s.key);
+  });
+  return index;
+}
+
+function statusLabelText_(statusLabels, key) {
+  var k = text_(key);
+  if (!k) return '';
+  return (statusLabels && statusLabels[k]) || k;
 }
 
 function formatExportDate_(value) {

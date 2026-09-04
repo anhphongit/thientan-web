@@ -773,7 +773,8 @@ exporting: false,
     if (state.exporting) return;
     openExportDialog().then(function (choice) {
       if (!choice || !choice.ok) return;
-      runExportCsv(choice.basis);
+      if (choice.format === 'xlsx') runExportXlsx(choice.basis);
+      else runExportCsv(choice.basis);
     });
   }
 
@@ -803,6 +804,14 @@ exporting: false,
         ? state.ordersMeta.total : state.orders.length;
 
       body.innerHTML = '' +
+        // Bug fix, 2026-09-03 (Phong screenshotted: dialog cut off on a
+        // phone layout, "Xuất file" unreachable) — everything but the
+        // action buttons now lives inside .export-modal-scroll (see
+        // Styles.html's .export-modal-card/.export-modal-scroll) so a
+        // tall dialog (this one especially once the invoice-date hint is
+        // showing) scrolls internally instead of being clipped by the
+        // card's own `overflow: hidden`.
+        '<div class="export-modal-scroll">' +
         '<div class="confirm-band">' +
           '<span class="confirm-icon">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
@@ -848,8 +857,14 @@ exporting: false,
               '<span><span class="rmain">CSV</span>' +
               '<span class="rsub">Mở được bằng Excel, Google Sheets</span></span>' +
             '</label>' +
+            '<label class="export-rrow">' +
+              '<input type="radio" name="export-format" value="xlsx">' +
+              '<span><span class="rmain">Excel (.xlsx)</span>' +
+              '<span class="rsub">Có định dạng in đậm dòng tổng/tháng sẵn</span></span>' +
+            '</label>' +
           '</div>' +
         '</div>' +
+        '</div>' + // .export-modal-scroll
         '<div class="confirm-actions">' +
           '<button type="button" class="btn" data-export-choice="cancel">Huỷ</button>' +
           '<button type="button" class="btn btn-ok" data-export-choice="ok">Xuất file</button>' +
@@ -867,19 +882,20 @@ exporting: false,
       // radio ends up being.
       syncHint();
 
-      function finish(result, basis) {
+      function finish(result, basis, format) {
         modal.classList.add('hidden');
         modal.removeEventListener('click', onClick);
         modal.removeEventListener('change', onChangeLocal);
         document.removeEventListener('keydown', onKeydown);
-        resolve(result ? { ok: true, basis: basis } : { ok: false });
+        resolve(result ? { ok: true, basis: basis, format: format } : { ok: false });
       }
       function onClick(e) {
         var choice = e.target.closest && e.target.closest('[data-export-choice]');
         if (choice) {
           if (choice.getAttribute('data-export-choice') === 'ok') {
             var basisEl = body.querySelector('input[name="export-basis"]:checked');
-            finish(true, basisEl ? basisEl.value : 'orderDate');
+            var formatEl = body.querySelector('input[name="export-format"]:checked');
+            finish(true, basisEl ? basisEl.value : 'orderDate', formatEl ? formatEl.value : 'csv');
           } else {
             finish(false);
           }
@@ -910,22 +926,65 @@ exporting: false,
       .then(function (res) {
         state.exporting = false;
         paintList();
-        var blob = new Blob([res.csv], { type: res.mimeType || 'text/csv' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = res.filename || 'orders.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        T.toast('Đã xuất file ' + (res.filename || 'orders.csv') + '.');
+        downloadBlob(new Blob([res.csv], { type: res.mimeType || 'text/csv' }),
+          res.filename || 'orders.csv');
       })
       .catch(function (err) {
         state.exporting = false;
         paintList();
         T.toast(err.message, true);
       });
+  }
+
+  /**
+   * Milestone 4 / 4.3 — XLSX export. Same flow as runExportCsv, but the
+   * server has no binary channel in its JSON response (apiExportOrdersXlsx
+   * returns base64, built by a temp-Sheet export in ExportSheet.gs) — this
+   * decodes it back into real bytes before building the Blob.
+   */
+  function runExportXlsx(basis) {
+    state.exporting = true;
+    paintList();
+    var payload = listPayload(1);
+    payload.basis = basis;
+    T.call('apiExportOrdersXlsx', payload)
+      .then(function (res) {
+        state.exporting = false;
+        paintList();
+        downloadBlob(base64ToBlob_(res.base64, res.mimeType), res.filename || 'orders.xlsx');
+      })
+      .catch(function (err) {
+        state.exporting = false;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  /** atob() + Uint8Array — the standard base64-to-Blob conversion; binary
+   *  data survives a round trip through JSON only as base64 text
+   *  (apiExportOrdersXlsx's response), so this undoes that on the way
+   *  into a real downloadable file. */
+  function base64ToBlob_(base64, mimeType) {
+    var binary = atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+  }
+
+  /** Shared by CSV and XLSX export: Blob -> temporary <a download> click ->
+   *  revoke. google.script.run has no way to hand back a browser download
+   *  directly, so this is the one place both formats turn a Blob into an
+   *  actual saved file. */
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    T.toast('Đã xuất file ' + filename + '.');
   }
 
   function paintList() {

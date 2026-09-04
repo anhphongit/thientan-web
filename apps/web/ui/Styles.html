@@ -203,7 +203,25 @@
      band/icon/actions look; the body below the band is bespoke (filter
      chips, two radio lists, a conditional hint box) since TT.confirm()'s
      fixed shape has no room for live, interactive content. */
-  .export-modal-card { max-width: 380px; }
+  /* Bug fix, 2026-09-03 (Phong screenshotted: dialog cut off on a phone
+     layout, "Xuất file" button unreachable) — .confirm-modal-card sets
+     `overflow: hidden` (needed so the rounded band doesn't square off at
+     the corners) which also silently killed .modal-card's own
+     `overflow-y: auto` / `max-height: 88vh` scroll. A tall dialog (this
+     one especially, once the invoice-date hint is showing) has nowhere
+     left to scroll and just gets clipped. Fixed the general way, not just
+     for this one dialog: the card becomes a column with a capped height,
+     keeps its own `overflow: hidden` for the rounded corners, and moves
+     scrolling to an inner wrapper (.export-modal-scroll) that holds
+     everything BUT the pinned action buttons — same "scrollable body,
+     sticky footer" shape any confirm-style dialog needs once its content
+     can outgrow the viewport, not specific to the export dialog's
+     content. */
+  .export-modal-card {
+    max-width: 380px; max-height: 88vh;
+    display: flex; flex-direction: column;
+  }
+  .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
   .export-section { padding: 0 20px 4px; text-align: left; }
   .export-section-label {
     display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;

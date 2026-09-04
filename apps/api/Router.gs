@@ -161,8 +161,12 @@ function getActions_() {
     setDraftOrder: actionSetDraftOrder_,
 
     /* Milestone 4 / 4.1 — CSV export of the currently-filtered list. See
-       Export.gs; XLSX/PDF (4.3/4.4) register their own actions later. */
+       Export.gs. */
     exportOrdersCsv: actionExportOrdersCsv_,
+
+    /* Milestone 4 / 4.3 — XLSX export, same filters/basis, via a temp
+       Google Sheet (ExportSheet.gs). PDF (4.4) registers its own action. */
+    exportOrdersXlsx: actionExportOrdersXlsx_,
 
     logDev: actionLogDev_
   };

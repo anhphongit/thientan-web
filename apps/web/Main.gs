@@ -192,6 +192,19 @@ function apiExportOrdersCsv(payload) {
   });
 }
 
+/** Milestone 4 / 4.3 — XLSX export of the currently-filtered order list.
+ *  Same payload shape as apiExportOrdersCsv. Returns
+ *  {filename, mimeType, base64} — the client decodes base64 into a Blob
+ *  and triggers a download the same way CSV does; nothing is written to
+ *  Drive on the client side, the temp Sheet on the server is already
+ *  deleted by the time this returns (ExportSheet.gs).
+ *  @param {Object} payload */
+function apiExportOrdersXlsx(payload) {
+  return handle_('apiExportOrdersXlsx', function () {
+    return apiCall_('exportOrdersXlsx', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {
