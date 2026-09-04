@@ -217,9 +217,45 @@
      sticky footer" shape any confirm-style dialog needs once its content
      can outgrow the viewport, not specific to the export dialog's
      content. */
+  /* Bug fix round 2, 2026-09-03 (Phong: still cut off, still couldn't
+     scroll) — round 1's fix wasn't enough. `.modal` is ALSO a flex
+     container (`align-items: center`), and a flex ITEM without its own
+     `min-height: 0` can refuse to shrink below its content's natural
+     height on WebKit (the engine behind Safari/most phone browsers) — it
+     grows past `max-height` instead of being capped, so the inner
+     `.export-modal-scroll` never gets a constrained box to scroll within
+     in the first place. `min-height: 0` on the card itself is what
+     actually lets `max-height: 88vh` take effect as a real cap on a flex
+     item — `max-height` alone reliably caps a block-level box, but not
+     always a flex item with content taller than that cap. */
   .export-modal-card {
-    max-width: 380px; max-height: 88vh;
+    max-width: 380px; max-height: 88vh; min-height: 0;
     display: flex; flex-direction: column;
+  }
+  /* Bug fix round 3, 2026-09-04 (Phong: STILL cut off / couldn't scroll
+     after round 2's min-height:0 fix) — rounds 1-2 both assumed
+     .export-modal-scroll was a direct flex child of .export-modal-card,
+     but it isn't: Index.html's #export-modal markup is
+     `.export-modal-card > #export-modal-body > (.export-modal-scroll +
+     .confirm-actions)` — openExportDialog() (ViewsOrders.html) fills
+     #export-modal-body, it never touches .export-modal-card directly.
+     That extra wrapper div is a plain block box with no flex properties
+     of its own, so `.export-modal-scroll`'s `flex: 1 1 auto` was inert
+     (flex properties only do anything on an element that IS a flex
+     item — #export-modal-body isn't flexed, so its own children aren't
+     flex items either) and the wrapper grew to its full unclamped
+     content height, which the OUTER card then clipped via its `overflow:
+     hidden` (from .confirm-modal-card) instead of scrolling. Verified the
+     failure and the fix against a byte-for-byte repro of this exact
+     three-level structure (card > #export-modal-body > scroll + actions)
+     rendered in a real browser before touching this file, not by
+     reasoning about the CSS alone a third time. Fix: make the wrapper
+     itself the flex column that fills the card, so ITS children
+     (.export-modal-scroll and the actions row) become the real flex
+     items — same idea as rounds 1-2, just applied one level deeper,
+     where the actual DOM nesting requires it. */
+  .export-modal-card > #export-modal-body {
+    display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
   }
   .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
   .export-section { padding: 0 20px 4px; text-align: left; }

@@ -774,6 +774,7 @@ exporting: false,
     openExportDialog().then(function (choice) {
       if (!choice || !choice.ok) return;
       if (choice.format === 'xlsx') runExportXlsx(choice.basis);
+      else if (choice.format === 'pdf') runExportPdf(choice.basis);
       else runExportCsv(choice.basis);
     });
   }
@@ -861,6 +862,11 @@ exporting: false,
               '<input type="radio" name="export-format" value="xlsx">' +
               '<span><span class="rmain">Excel (.xlsx)</span>' +
               '<span class="rsub">Có định dạng in đậm dòng tổng/tháng sẵn</span></span>' +
+            '</label>' +
+            '<label class="export-rrow">' +
+              '<input type="radio" name="export-format" value="pdf">' +
+              '<span><span class="rmain">PDF</span>' +
+              '<span class="rsub">Sẵn sàng để in hoặc gửi qua email</span></span>' +
             '</label>' +
           '</div>' +
         '</div>' +
@@ -952,6 +958,32 @@ exporting: false,
         state.exporting = false;
         paintList();
         downloadBlob(base64ToBlob_(res.base64, res.mimeType), res.filename || 'orders.xlsx');
+      })
+      .catch(function (err) {
+        state.exporting = false;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  /**
+   * Milestone 4 / 4.4 — PDF export. Same flow and response shape as
+   * runExportXlsx (base64 -> Blob -> download); only the server action
+   * and default filename differ, so this is a near copy rather than a
+   * further-shared helper — the two are already as DRY as they can be
+   * without the flow itself becoming harder to follow than three near-
+   * identical lines saved.
+   */
+  function runExportPdf(basis) {
+    state.exporting = true;
+    paintList();
+    var payload = listPayload(1);
+    payload.basis = basis;
+    T.call('apiExportOrdersPdf', payload)
+      .then(function (res) {
+        state.exporting = false;
+        paintList();
+        downloadBlob(base64ToBlob_(res.base64, res.mimeType), res.filename || 'orders.pdf');
       })
       .catch(function (err) {
         state.exporting = false;

@@ -10,7 +10,7 @@
  */
 
 /** Bump on every meaningful web change. Shown in the footer when DEV_MODE is on. */
-var BUILD = 'web-2026-09-03j-exportfixes';
+var BUILD = 'web-2026-09-04b-modalscroll';
 
 var PROP = {
   API_URL: 'API_URL',

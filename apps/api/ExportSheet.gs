@@ -31,16 +31,66 @@
  * @return {{filename:string, mimeType:string, base64:string}}
  */
 function buildExportXlsx_(user, buckets) {
+  return withTempExportSheet_(user, buckets, function (ss, sheet) {
+    return {
+      filename: exportFilename_('orders', 'xlsx'),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      base64: fetchSpreadsheetExportBase64_(ss.getId(), 'xlsx', {})
+    };
+  });
+}
+
+/**
+ * Milestone 4 / 4.4 — PDF export. Same temp-Sheet build as XLSX
+ * (buildExportXlsx_) — only the final export step differs: PDF-specific
+ * print params instead of format=xlsx, and the used range must be passed
+ * explicitly (`range`) or Drive's PDF export renders the sheet's full
+ * default grid — mostly blank pages — instead of just the written rows.
+ *
+ * @return {{filename:string, mimeType:string, base64:string}}
+ */
+function buildExportPdf_(user, buckets) {
+  return withTempExportSheet_(user, buckets, function (ss, sheet) {
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
+    var params = {
+      gid: sheet.getSheetId(),
+      // Portrait A4, fit width to page, gridlines on, print titles
+      // (frozen header repeats per page) — the readable-report defaults
+      // for a long, many-row export; not user-configurable in 4.4 (no UI
+      // control for it), same "ship the sensible default first" approach
+      // 4.1/4.2 took before their own options were added.
+      size: 'A4', portrait: 'true', fitw: 'true', gridlines: 'true',
+      printtitle: 'false', sheetnames: 'false', pagenumbers: 'true',
+      fzr: 'true', // repeat frozen row(s) on every page
+      top_margin: '0.5', bottom_margin: '0.5', left_margin: '0.5', right_margin: '0.5',
+      horizontal_alignment: 'CENTER',
+      // Explicit used range — see the doc comment above for why this is
+      // required, not optional, for PDF specifically.
+      range: sheet.getRange(1, 1, lastRow, lastCol).getA1Notation()
+    };
+    return {
+      filename: exportFilename_('orders', 'pdf'),
+      mimeType: 'application/pdf',
+      base64: fetchSpreadsheetExportBase64_(ss.getId(), 'pdf', params)
+    };
+  });
+}
+
+/**
+ * Shared by XLSX (4.3) and PDF (4.4): build the temp spreadsheet, write
+ * the shared row structure into it, hand (ss, sheet) to `fn` to produce
+ * the format-specific result, then clean up — success or failure — no
+ * matter what `fn` does or throws. One place owns "create, populate,
+ * always delete" so the two formats can't drift on the cleanup guarantee.
+ */
+function withTempExportSheet_(user, buckets, fn) {
   var rows = buildExportRows_(user, buckets);
   var ss = SpreadsheetApp.create('export-' + Utilities.getUuid());
   try {
     var sheet = ss.getSheets()[0];
     writeExportRowsToSheet_(sheet, rows);
-    return {
-      filename: exportFilename_('orders', 'xlsx'),
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      base64: fetchSpreadsheetExportBase64_(ss.getId(), 'xlsx')
-    };
+    return fn(ss, sheet);
   } finally {
     // Runs on the success path too, not just on error — this file must
     // never leave a temp spreadsheet behind in the deploying account's
@@ -48,7 +98,7 @@ function buildExportXlsx_(user, buckets) {
     // delete: recoverable for a short window if something goes wrong,
     // still gets out of the way immediately either way.
     try { DriveApp.getFileById(ss.getId()).setTrashed(true); }
-    catch (cleanupErr) { console.error('buildExportXlsx_: temp file cleanup failed for ' +
+    catch (cleanupErr) { console.error('withTempExportSheet_: temp file cleanup failed for ' +
       ss.getId() + ': ' + (cleanupErr && cleanupErr.message)); }
   }
 }
@@ -71,6 +121,30 @@ function buildExportXlsx_(user, buckets) {
  *  than a 1:1 text reproduction. 1-indexed, matches EXPORT_CSV_HEADER. */
 var EXPORT_MERGE_COLS = [1, 2, 3, 12]; // STT, PO, KHÁCH HÀNG, TRẠNG THÁI
 
+/** Money columns (ĐƠN GIÁ, THÀNH TIỀN, TRỊ GIÁ HĐ) — Milestone 4 revision,
+ *  2026-09-03 (Phong: exported numbers should read as currency, thousand
+ *  separators, no currency symbol needed per-cell since VND is implied by
+ *  the sheet). A real Sheets/Excel NUMBER FORMAT, not a formatted string:
+ *  the cell stays a genuine number (sortable, summable, usable in a
+ *  formula) and only its DISPLAY gets the "#,##0" thousand-separator
+ *  pattern — matches the reference file's own money columns
+ *  (EXCEL_REFERENCE.md §7: "Money right-aligned, thousand separators, no
+ *  decimals"). 1-indexed, matches EXPORT_CSV_HEADER. CSV is unaffected —
+ *  a flat text format has no number-format concept, so buildExportCsv_
+ *  keeps writing plain numbers for the destination app (Excel, Sheets) to
+ *  format on open, same as before this revision. */
+var EXPORT_MONEY_COLS = [5, 8, 9]; // ĐƠN GIÁ BÁN RA VND, THÀNH TIỀN..., TRỊ GIÁ HĐ
+
+/** Milestone 4 — visual style "Option A" (minimal), Phong's choice
+ *  2026-09-04 from 4 mockup options (/tmp/mockups/xlsx-style-options.html):
+ *  thin light-grey grid borders on every written cell, plus very light
+ *  grey fills on the header/THÁNG/DOANH SỐ rows only — no brand color, so
+ *  the file still reads cleanly if printed in black & white. */
+var EXPORT_FILL_HEADER = '#f2f3f5';
+var EXPORT_FILL_GROUP = '#eef2f6';   // THÁNG banner rows
+var EXPORT_FILL_TOTAL = '#f7f7f7';   // DOANH SỐ rows
+var EXPORT_BORDER_COLOR = '#d0d5dd';
+
 function writeExportRowsToSheet_(sheet, rows) {
   var width = EXPORT_CSV_HEADER.length;
   var grid = [EXPORT_CSV_HEADER.slice()];
@@ -78,6 +152,7 @@ function writeExportRowsToSheet_(sheet, rows) {
   var groupHeaderRowIndexes = []; // "THÁNG n" banner rows — merge A:L
   var totalRowIndexes = [];       // "DOANH SỐ..." rows — merge A:G (blank lead-in)
   var orderMerges = [];           // {row, span} for each multi-line order group
+  var dataRowIndexes = [];        // plain data rows — money-format their money cells
 
   rows.forEach(function (row) {
     if (row.kind === 'group') {
@@ -91,8 +166,9 @@ function writeExportRowsToSheet_(sheet, rows) {
       if (row.kind === 'total') {
         boldRowIndexes.push(grid.length - 1);
         totalRowIndexes.push(grid.length - 1);
-      } else if (row.groupSize > 1) {
-        orderMerges.push({ row: grid.length - 1, span: row.groupSize });
+      } else {
+        dataRowIndexes.push(grid.length - 1);
+        if (row.groupSize > 1) orderMerges.push({ row: grid.length - 1, span: row.groupSize });
       }
     }
   });
@@ -131,6 +207,37 @@ function writeExportRowsToSheet_(sheet, rows) {
     });
   }
 
+  // Money columns get a real number format ("#,##0" — thousand
+  // separators, no decimals, no currency symbol) rather than a
+  // pre-formatted string, so the cell stays a genuine number (Phong,
+  // 2026-09-03). Applied over the whole data-row span per column in one
+  // call rather than per contiguous run: group/THÁNG and DOANH SỐ rows
+  // sit inside that span too, but they hold text in these columns, not
+  // numbers, so a number format on them is inert — simpler than
+  // reconstructing the (possibly many) contiguous data-row sub-ranges a
+  // multi-month export would otherwise need.
+  if (dataRowIndexes.length) {
+    var firstDataRow = dataRowIndexes[0] + 1;
+    var lastDataRow = dataRowIndexes[dataRowIndexes.length - 1] + 1;
+    var spanRows = lastDataRow - firstDataRow + 1;
+    EXPORT_MONEY_COLS.forEach(function (col) {
+      sheet.getRange(firstDataRow, col, spanRows, 1).setNumberFormat('#,##0');
+    });
+  }
+
+  // Option A styling: thin grey grid on every written cell, plus very
+  // light grey fills marking header/THÁNG/DOANH SỐ rows (no brand color —
+  // see EXPORT_FILL_* doc comment above).
+  var fullRange = sheet.getRange(1, 1, grid.length, width);
+  fullRange.setBorder(true, true, true, true, true, true, EXPORT_BORDER_COLOR, SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(1, 1, 1, width).setBackground(EXPORT_FILL_HEADER);
+  groupHeaderRowIndexes.forEach(function (i) {
+    sheet.getRange(i + 1, 1, 1, width).setBackground(EXPORT_FILL_GROUP);
+  });
+  totalRowIndexes.forEach(function (i) {
+    sheet.getRange(i + 1, 1, 1, width).setBackground(EXPORT_FILL_TOTAL);
+  });
+
   sheet.setFrozenRows(1);
   sheet.autoResizeColumns(1, width);
 }
@@ -144,14 +251,20 @@ function padRow_(cells, width) {
 /**
  * Fetches a spreadsheet's own Drive export URL as raw bytes, returned
  * base64-encoded (doPost's JSON response has no binary channel — the
- * client decodes this back into a Blob/File, see apiExportOrdersXlsx in
- * apps/web/Main.gs). `format` is the Drive export `exportFormat`
- * ('xlsx' here; 'pdf' would be 4.4's same helper, different format and
- * print params).
+ * client decodes this back into a Blob/File, see apiExportOrdersXlsx /
+ * apiExportOrdersPdf in apps/web/Main.gs). `format` is the Drive export
+ * `exportFormat` ('xlsx' or 'pdf'); `params` (Milestone 4 / 4.4) are
+ * extra query params for that format — PDF needs several (gid, size,
+ * range, margins, ...) to render as a real report instead of the sheet's
+ * full default grid; XLSX passes {} since the whole used range exports
+ * as-is with no extra params needed.
  */
-function fetchSpreadsheetExportBase64_(spreadsheetId, format) {
-  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId +
-    '/export?format=' + format;
+function fetchSpreadsheetExportBase64_(spreadsheetId, format, params) {
+  var query = 'format=' + format;
+  Object.keys(params || {}).forEach(function (key) {
+    query += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);
+  });
+  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' + query;
   var resp = UrlFetchApp.fetch(url, {
     headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true

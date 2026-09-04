@@ -1084,7 +1084,7 @@ any of this is built, so no task should hit an open question mid-work.
 | 4.1 | CSV export — filtered list, order-date grouping, `EXCEL_REFERENCE.md` §7 layout | ☑ |
 | 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☑ |
 | 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☑ |
-| 4.4 | PDF export (same temp-Sheet, PDF print params) | ☐ |
+| 4.4 | PDF export (same temp-Sheet, PDF print params) | ☑ |
 | 4.5 | Async/large-export infra — checkpoint+retrigger, status polling, Drive+email delivery, retention cleanup | ☐ |
 | 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
 | 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
@@ -1433,3 +1433,186 @@ Vietnamese label shows, not the key. Open the XLSX in Excel and confirm a
 multi-line order's STT/PO/KHÁCH HÀNG/TRẠNG THÁI appear as single merged
 cells spanning its rows, single-line orders look unchanged, and the
 THÁNG/DOANH SỐ banner rows read as full-width bars.
+
+## Milestone 4, task 4.4 — PDF export (built 2026-09-03)
+
+Adds `exportOrdersPdf` (`actionExportOrdersPdf_`, `apps/api/Export.gs`),
+same filters/basis/permission as CSV/XLSX via the existing
+`exportBucketsForRequest_`.
+
+**Shared temp-Sheet build with XLSX**: `ExportSheet.gs`'s
+`buildExportXlsx_`/`buildExportPdf_` both now go through a new
+`withTempExportSheet_(user, buckets, fn)` — create the temp spreadsheet,
+write the shared row grid (`writeExportRowsToSheet_`, unchanged from
+4.3), hand `(ss, sheet)` to a format-specific callback, always clean up
+in a `finally` regardless of what the callback does or throws. Only the
+final export step differs per format: XLSX passes no extra params;
+PDF passes print params (`buildExportPdf_`) — A4 portrait, fit-to-width,
+gridlines on, the frozen header row repeated per page (`fzr`), 0.5"
+margins, and critically an explicit `range` (`sheet.getLastRow()` ×
+`getLastColumn()`'s A1 notation) — Drive's PDF export otherwise renders
+the sheet's full default 1000-row grid as mostly-blank pages instead of
+just the written rows.
+
+`fetchSpreadsheetExportBase64_` (4.3) was extended to take a `params`
+object appended as extra query string params — `{}` for XLSX (unchanged
+behavior), the PDF print params above for PDF.
+
+**Client**: a "PDF" radio row added to the export dialog's format
+section. `runExportPdf()` mirrors `runExportXlsx()` — same base64-decode-
+then-download flow, different action/default filename — kept as a near
+copy rather than further-shared with `runExportXlsx()`; the two are
+already about as DRY as they can be without the flow becoming harder to
+read than the few duplicated lines saved.
+
+Tests: `exportsheet.test.js` +3 (30→33) — `fetchSpreadsheetExportBase64_`
+now testable in isolation with stubbed `UrlFetchApp`/`ScriptApp`/
+`Utilities` (same pattern as `fakeSheet()`): confirms the URL it builds
+carries `format=xlsx` alone when `params` is `{}`, carries every given
+param correctly encoded for the PDF case (`gid`, `size`, `range` with its
+`:` properly percent-encoded), and that a non-200 response throws rather
+than silently returning garbage bytes. `buildExportPdf_`/
+`withTempExportSheet_` themselves still call real `SpreadsheetApp`/
+`DriveApp` and aren't tested offline, same as `buildExportXlsx_` before
+them — verify live. Full suite: 569/569 passing (export 47, exportsheet
+33, approvestatus-ui 51, approvestatus 97, changestatus 28, crud 54,
+filter 60, permissions 116, ui 83).
+
+`BUILD`: `api-2026-09-03j-exportpdf` / `web-2026-09-03k-exportpdf`.
+
+**Live-test checklist for Phong**: export PDF for a month with several
+multi-line orders — confirm it isn't mostly blank pages (the `range` fix
+above), the header row repeats on every page, gridlines and merges
+(4.3's STT/PO/KHÁCH HÀNG/TRẠNG THÁI merges) render correctly in the PDF
+too, and no leftover temp files accumulate in the API project's Drive
+after a few PDF exports (same cleanup path as XLSX, shared via
+`withTempExportSheet_`).
+
+---
+
+### Post-4.4 feedback round — popup scroll (round 2), currency number format, XLSX visual style
+
+After 4.4 shipped, Phong tested live and reported 3 issues in one batch:
+
+**1. Export popup still cut off on phone, still couldn't scroll.** The
+round-1 fix (previous section: `.export-modal-card` as a flex column with
+its own `max-height: 88vh`, body wrapped in `.export-modal-scroll` with
+`overflow-y: auto`) turned out insufficient — confirmed not fixed by
+Phong. Root cause: `.export-modal-card` is itself a flex ITEM of `.modal`
+(`.modal` is `display:flex; align-items:center`), and on WebKit a flex
+item without its own `min-height: 0` can refuse to shrink below its
+content's natural height — so `max-height: 88vh` never actually capped
+it, and `.export-modal-scroll` never got a constrained box to scroll
+within in the first place. Fix: added `min-height: 0;` directly to
+`.export-modal-card`. Reproduced against a minimal standalone repro HTML
+(flex modal + tall content) before and after the fix to confirm the
+mechanism, not just patched blind.
+
+**2. Money values should read as currency-formatted numbers.** CSV is
+unaffected — a flat text format has no formatting concept, and the
+destination app (Excel/Sheets) formats on open same as before. XLSX now
+gets a real Sheets `NumberFormat` (`#,##0` — thousand separators, no
+decimals, no currency symbol per cell since VND is implied by the sheet),
+applied to `EXPORT_MONEY_COLS = [5, 8, 9]` (ĐƠN GIÁ, THÀNH TIỀN, TRỊ GIÁ
+HĐ) via one `setNumberFormat()` call per column spanning the data-row
+range — a real number, not a formatted string, so it stays sortable/
+summable/usable in a formula.
+
+**3. XLSX export needs a more finished look — table lines, section fill
+colors.** Per Phong's "show me some options first," built 4 style
+mockups (`/tmp/mockups/xlsx-style-options.html`, rendered `<table>`
+previews): A (minimal — thin grey grid, light grey fills only, no brand
+color), B (branded header + banded rows, tagged Recommended), C (soft
+color-coding, no header fill), D (bold borders around each order group +
+alternating blocks). **Phong chose Option A.** Implemented in
+`writeExportRowsToSheet_` (`ExportSheet.gs`): a single `setBorder()` call
+over the whole written grid (thin solid `#d0d5dd` grey on every cell),
+plus `setBackground()` on the header row (`#f2f3f5`), each THÁNG banner
+row (`#eef2f6`), and each DOANH SỐ total row (`#f7f7f7`) — no brand
+color, safe for black-and-white printing per the option's own pitch.
+
+Tests: `exportsheet.test.js` +6 (38→44) — section 11 confirms the border
+call spans the full grid exactly once with the correct color/style, and
+that background fills land on exactly the header/THÁNG/DOANH SỐ rows
+with the right colors and nowhere else. `fakeSheet()` stub extended with
+`setBorder`/`setBackground`; sandbox now also stubs
+`SpreadsheetApp.BorderStyle.SOLID` since `writeExportRowsToSheet_`
+references it directly. Full suite: 585/585 passing (export 47,
+exportsheet 44, approvestatus-ui 51, approvestatus 97, changestatus 28,
+crud 54, filter 60, permissions 116, ui 83).
+
+`BUILD`: `api-2026-09-04a-exportfix` / `web-2026-09-04a-exportfix`.
+
+**Live-test checklist for Phong**:
+- Open the export dialog on a phone with a long enough content (e.g. all
+  3 radio sections visible) and confirm it now actually scrolls instead
+  of being cut off — this is a second attempt at the same bug, please
+  check carefully.
+- Export XLSX and confirm the money columns (ĐƠN GIÁ, THÀNH TIỀN, TRỊ GIÁ
+  HĐ) display with thousand separators (e.g. `200.000`) and are still
+  real numbers (right-aligned, usable in a SUM formula), not text.
+- Export XLSX and confirm the Option A look: thin grey grid lines on
+  every cell, light grey fill on the header row, THÁNG rows, and DOANH SỐ
+  rows — no other rows filled.
+
+---
+
+### Export popup scroll — round 3 (actual fix, verified in a real browser)
+
+Phong reported the popup-scroll bug a THIRD time after round 2's
+`min-height: 0` fix ("the popup could not scroll still occur"). Rather
+than reasoning about the CSS again, built a byte-exact repro of the real
+page — extracted the actual `<style>` block from `Styles.html` and the
+actual `body.innerHTML` output of `openExportDialog()` (`ViewsOrders.html`)
+via Node, assembled them into a real HTML file matching the real DOM
+exactly, and rendered it in an actual headless Chromium (Playwright) at
+phone viewport sizes to see the real computed layout — not a hand-built
+approximation this time.
+
+**Root cause, finally correct**: `Index.html`'s static markup is
+`.export-modal-card > #export-modal-body` (an empty wrapper div),
+and `openExportDialog()` fills `#export-modal-body`'s `innerHTML` with
+`.export-modal-scroll` + `.confirm-actions` as siblings. Rounds 1 and 2
+both styled `.export-modal-card` (flex column, `min-height:0`,
+`max-height:88vh`) and `.export-modal-scroll` (`flex:1 1 auto`,
+`overflow-y:auto`) — correct in isolation, but neither rule ever touched
+`#export-modal-body`, which sits between them in the real DOM. Flex
+properties (`flex: 1 1 auto`, etc.) only do anything on an element that
+IS a flex item of a flex container; `#export-modal-body` was never given
+`display:flex`, so it stayed a plain block box that grew to its full
+unclamped content height — and `.export-modal-scroll`'s `flex:1 1 auto`
+sat inertly on a non-flex-item, never sizing it. The outer card then
+clipped that oversized wrapper via `.confirm-modal-card`'s
+`overflow:hidden`, with nothing left to scroll. Verified this exact
+failure mode first (repro rendered with the actions row landing far
+outside the visible card, `cardScrollHeight` 1578 vs `cardClientHeight`
+616 in the synthetic repro), then fixed and re-verified against the real
+extracted page before touching the repo, confirming both no clipping
+(`cardClientHeight === cardScrollHeight`) and real scrolling
+(`scrollTop` advances on wheel input, reaching the full scroll extent)
+at a small-phone viewport (375×600) with the invoice-date hint showing —
+the tallest realistic state of this dialog.
+
+**Fix** (`Styles.html`): added `.export-modal-card > #export-modal-body {
+display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }`
+— the wrapper itself becomes the flex column that fills the card, so its
+own children (`.export-modal-scroll` and `.confirm-actions`) are the real
+flex items rounds 1-2 assumed they already were. Rounds 1-2's rules stay
+in place (still correct, just insufficient alone).
+
+No test-suite changes — this is a pure CSS/DOM-layout fix with no
+offline-testable Apps Script logic; verification was the real-browser
+render described above, not `exportsheet.test.js`/`export.test.js` (both
+still 580/580 passing, unaffected). `node --check` doesn't apply to CSS.
+
+`BUILD`: `web-2026-09-04b-modalscroll` (api unchanged — this round only
+touched `apps/web/ui/Styles.html`).
+
+**Live-test checklist for Phong**: open the export dialog on your phone,
+pick "Ngày hóa đơn" (the taller state, hint box showing) so the content
+is at its tallest, and confirm: the dialog no longer runs off the bottom
+of the screen, you can scroll the middle content with your finger, and
+"Huỷ"/"Xuất file" stay visible and tappable at the bottom the whole time.
+If this still isn't right, a screen recording (not just a screenshot)
+showing the attempted scroll would help pin down anything a static repro
+can't catch (e.g. a real touch-scroll quirk vs. mouse-wheel).

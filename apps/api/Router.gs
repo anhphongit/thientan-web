@@ -165,8 +165,12 @@ function getActions_() {
     exportOrdersCsv: actionExportOrdersCsv_,
 
     /* Milestone 4 / 4.3 — XLSX export, same filters/basis, via a temp
-       Google Sheet (ExportSheet.gs). PDF (4.4) registers its own action. */
+       Google Sheet (ExportSheet.gs). */
     exportOrdersXlsx: actionExportOrdersXlsx_,
+
+    /* Milestone 4 / 4.4 — PDF export, same temp-Sheet build as XLSX,
+       different final export params (ExportSheet.gs). */
+    exportOrdersPdf: actionExportOrdersPdf_,
 
     logDev: actionLogDev_
   };

@@ -205,6 +205,18 @@ function apiExportOrdersXlsx(payload) {
   });
 }
 
+/** Milestone 4 / 4.4 — PDF export of the currently-filtered order list.
+ *  Same payload shape and {filename, mimeType, base64} response shape as
+ *  apiExportOrdersXlsx — the client's base64ToBlob_ already handles any
+ *  binary format, so no new client-side decoding logic was needed, just
+ *  a new format branch (see ViewsOrders.html's doExportCsv/runExportPdf).
+ *  @param {Object} payload */
+function apiExportOrdersPdf(payload) {
+  return handle_('apiExportOrdersPdf', function () {
+    return apiCall_('exportOrdersPdf', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

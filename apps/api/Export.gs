@@ -83,6 +83,21 @@ function actionExportOrdersXlsx_(user, payload) {
   return buildExportXlsx_(user, buckets);
 }
 
+/**
+ * Milestone 4 / 4.4 — PDF export of the currently-filtered order list.
+ * Same filters/basis/permission as CSV/XLSX (exportBucketsForRequest_),
+ * same temp-Sheet build as XLSX — only the final export step differs
+ * (PDF print params instead of format=xlsx), see ExportSheet.gs's
+ * withTempExportSheet_/buildExportPdf_.
+ *
+ * @return {{filename:string, mimeType:string, base64:string}}
+ */
+function actionExportOrdersPdf_(user, payload) {
+  requirePermission_(user, 'export');
+  var buckets = exportBucketsForRequest_(user, payload);
+  return buildExportPdf_(user, buckets);
+}
+
 /** Shared by every export format action: resolve payload.basis, apply the
  *  same filters/security gating actionListOrders_ uses, bucket the result.
  *  Permission check stays in each action (not here) so it's visible right
