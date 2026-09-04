@@ -998,4 +998,98 @@
     .stats-rank-val { font-size: 12px; }
     .stats-chart-type { justify-content: flex-start; }
   }
+
+  /* Milestone 4 / 4.7.2 (2026-09-04) — by-customer/by-status breakdown
+     views, filters, polish. Reuses the order list's own filter-panel
+     component (.list-filter/.filter-panel/.chip-row/… from the "Orders"
+     section above) unmodified — ViewsStats.html's filterBarHtml() emits
+     the exact same markup/classes wired to its own state.filters, so no
+     new filter CSS is needed here at all; only what's genuinely new to
+     this screen follows.
+
+     The 3-way view switch (Theo thời gian/khách hàng/trạng thái) reuses
+     .stats-segmented as-is (same look as the basis toggle) — .stats-view-
+     switch only adds the spacing that positions it above the filter bar,
+     which now sits between the view switch and the basis/period controls. */
+  .stats-view-switch { margin: 0 0 14px; }
+
+  /* "Khác" (top-N + other) bar/row — same base colors as every other
+     bar/row, but with a lighter/dashed tone so it visually reads as "the
+     rest, lumped together" rather than one more real customer/status/
+     period next to the top N. Kept intentionally subtle (border style,
+     not a loud new color) since it is real revenue, just aggregated —
+     nothing about it should look like an error or a warning. */
+  .stats-bar-group--other .stats-bar,
+  .stats-bar-group--other .stats-bar-seg { opacity: .6; }
+  .stats-bar-group--other .stats-bar-pair,
+  .stats-bar-group--other .stats-bar-stack { outline: 1px dashed var(--c-border); outline-offset: 2px; }
+  .stats-bar-group--other .stats-bar-label { font-style: italic; }
+  .stats-rank-row--other .stats-rank-label { font-style: italic; color: var(--c-muted); }
+  .stats-rank-row--other .stats-rank-fill { opacity: .6; }
+
+  @media (max-width: 640px) {
+    .stats-view-switch button { padding: 6px 10px; font-size: 12px; }
+  }
+
+  /* Milestone 4 / 4.7.3 (2026-09-04) — "stat by order" revision replaced
+     the old order-date/invoice-date basis toggle (.stats-segmented, now
+     unused on this screen) with a single global "Bao gồm đơn chưa xuất
+     hoá đơn" (include orders without invoice) checkbox-style switch. A
+     genuine on/off setting reads more naturally as a toggle switch than
+     as two segmented buttons where one side is always the redundant-
+     looking "off" option — same visual language as a typical settings
+     screen. Built from a real <input type="checkbox"> (native semantics,
+     keyboard/label support) with the box itself visually hidden and a
+     CSS-drawn track+thumb taking its place, animated via the checked
+     state's sibling selector — no JS needed to move the thumb. */
+  .stats-toggle-switch {
+    display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+  }
+  .stats-toggle-switch.disabled { opacity: .5; cursor: default; }
+  .stats-toggle-switch input {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .stats-toggle-track {
+    width: 38px; height: 22px; border-radius: 999px; background: var(--c-border);
+    position: relative; flex: 0 0 auto; transition: background .15s ease;
+  }
+  .stats-toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s ease;
+  }
+  .stats-toggle-switch input:checked + .stats-toggle-track { background: var(--c-brand); }
+  .stats-toggle-switch input:checked + .stats-toggle-track .stats-toggle-thumb { left: 18px; }
+  .stats-toggle-switch input:focus-visible + .stats-toggle-track { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+  .stats-toggle-label { font-size: 13px; color: var(--c-text); }
+
+  /* 4.7.3 follow-up (2026-09-04) — Phong picked from mocked options
+     (published as Artifacts for side-by-side comparison):
+
+     1. "Option B" placement — the toggle above moved out of
+        .stats-controls into its own full-width shaded strip directly
+        under the title, above the view switch (ViewsStats.html's
+        includeNoInvoiceBarHtml()). Distinct from .stats-controls'
+        look (which pairs a small uppercase label with pills/segmented
+        buttons) so it doesn't read as "one more of those" — a settings
+        bar, not another data-view control.
+     2. "Option 9" for showing order/line counts — rather than touching
+        the VAT chart types at all, a 4th chart-type ("Số lượng") draws
+        a completely separate two-bar-per-group chart scaled to
+        orderCount/lineCount. Reuses .stats-bar's shape/radius via the
+        new .count-order/.count-line color modifiers (kept visually
+        distinct from .ex/.inc — a muted amber pair, not blue/brand, so
+        a "Số lượng" screenshot is never mistaken for a VAT chart at a
+        glance) and the existing legend/tooltip/chart-wrap layout
+        wholesale — only the two bar colors and the legend swatches are
+        new here. */
+  .stats-toggle-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; flex-wrap: wrap;
+  }
+  .stats-bar.count-order { background: #d68f4a; }
+  .stats-bar.count-line { background: #e8c497; }
+  .stats-chart-legend i.count-order { background: #d68f4a; }
+  .stats-chart-legend i.count-line { background: #e8c497; }
 </style>

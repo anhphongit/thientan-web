@@ -242,11 +242,14 @@ function apiExportJobStatus(jobId) {
 }
 
 /** Milestone 4 / 4.6.1 — revenue by time period (week/month/quarter/year).
- *  @param {Object} payload {basis, period, dateFrom, dateTo, month,
- *    customer, status, createdBy, approveStatus, q} — same order-date
- *    pre-filter shape apiExportOrdersCsv etc. accept; basis defaults to
- *    invoiceDate (Q2), period defaults to month. Returns
- *    {basis, period, buckets, noInvoice} — see Stats.gs's
+ *  Revised 4.7.3 (2026-09-04, "stat by order"): aggregation is per ORDER
+ *  now (not per line), always bucketed by the order's own date — the old
+ *  order-date/invoice-date `basis` payload field is gone.
+ *  @param {Object} payload {period, includeNoInvoice, dateFrom, dateTo,
+ *    month, customer, status, createdBy, approveStatus, q} — same
+ *    order-date pre-filter shape apiExportOrdersCsv etc. accept;
+ *    includeNoInvoice defaults to true, period defaults to month. Returns
+ *    {period, includeNoInvoice, buckets, noInvoice} — see Stats.gs's
  *    actionStatsRevenue_ for the exact shape. */
 function apiStatsRevenue(payload) {
   return handle_('apiStatsRevenue', function () {
@@ -255,8 +258,9 @@ function apiStatsRevenue(payload) {
 }
 
 /** Milestone 4 / 4.6.2 — revenue by customer, biggest first. Same filter/
- *  basis payload shape as apiStatsRevenue. Returns {basis, groups,
- *  noInvoice} — see Stats.gs's actionStatsByCustomer_.
+ *  includeNoInvoice payload shape as apiStatsRevenue. Returns
+ *  {includeNoInvoice, groups, noInvoice} — see Stats.gs's
+ *  actionStatsByCustomer_.
  *  @param {Object} payload */
 function apiStatsByCustomer(payload) {
   return handle_('apiStatsByCustomer', function () {

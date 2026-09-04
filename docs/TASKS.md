@@ -2594,3 +2594,412 @@ distinct groups with labels; switching to "Cột chồng" shows every bar's
 base sitting on the same bottom line regardless of height; and on a
 phone (or narrow browser window) the chart no longer overflows or clips
 — bars and labels should all stay visible and legible.
+
+---
+
+### 4.7.2 — by-customer/by-status breakdown views, filters, polish
+
+Builds on 4.6.2's server-side aggregation (`apiStatsByCustomer`/
+`apiStatsByStatus`, `Stats.gs`) — no API/server change in this task,
+purely `ViewsStats.html`/`Styles.html`.
+
+**View switcher**: a 3-way segmented control ("Theo thời gian / Theo
+khách hàng / Theo trạng thái") above the existing basis toggle swaps the
+chart+table between the time-period view (4.7.1, unchanged) and the two
+new breakdown views. Each view keeps its own cached response in
+`state.dataByView` — switching back to an already-loaded view repaints
+instantly with no re-fetch, same idea as `ViewsOrders.html`'s own list
+cache. Changing basis/period or applying a filter invalidates all three
+caches at once (simpler and safer than tracking exactly which control
+affects which view's cache). The switcher itself only renders options a
+role can actually use — "Theo khách hàng"/"Theo trạng thái" are gated on
+the same `fieldAllowed_('customer'/'status')` check `ViewsOrders.html`
+already uses for its own filter dropdowns, matching the server's own
+`fieldVisible_()` gate on `actionStatsByCustomer_`/`actionStatsByStatus_`
+(Stats.gs) — this is client-side UX polish on top of a permission check
+that already existed and already enforces the real boundary.
+
+**Filter panel**: reuses `ViewsOrders.html`'s own filter-panel markup and
+CSS classes verbatim (`list-filter`/`filter-panel`/`chip-row`/…) wired to
+`ViewsStats.html`'s own `state.filters` — month/year, customer, status,
+createdBy, approveStatus. No new filter CSS needed. No free-text search
+field: search doesn't have an obvious meaning against aggregated totals
+the way it does against a list of individual orders, so it's left out
+rather than added just for surface-level parity. All five filters were
+already accepted server-side by every stats action via
+`computeOrderFilters_` — this task only had to build the client UI and
+wire the payload through, matching exactly how `ViewsOrders.html` builds
+its own request payload from `state.filters`.
+
+**Top-N + "Khác" charting**: `chartGroups()` collapses anything beyond
+the top 8 groups (by revenue) into one "Khác" bar/row for the CHART only
+— the totals table below always lists every group in full, uncollapsed,
+sorted the same way the server already returns them (biggest first for
+customer/status, chronological for time-period). Applied uniformly across
+all three views rather than special-cased to customer/status only, since
+a long enough time range (e.g. a full year of weeks) could plausibly need
+the same treatment. The existing chart-type switch (cột ghép/cột
+chồng/xếp hạng) works unchanged across all three views; "xếp hạng" pins
+"Khác" last rather than re-sorting it into the middle of a ranking, since
+it's explicitly "everything smaller than the Nth item," not a real
+individual entry.
+
+**Verification**: no server-side (`.gs`) change, so the offline `.gs`
+suite (48/48 stats, all suites green) is an unaffected regression check,
+not a test of this task's own logic. For the client-side logic actually
+added — `groupsForView` (envelope normalization), `chartGroups` (top-N
+collapse with sum conservation), view switching with per-view caching,
+filter apply/clear, chart-type re-render without a re-fetch — wrote a
+one-off Node harness that `eval()`s the real file's script body with a
+fake `window.TT` bridge and drives `onClick`/`render` directly (13
+assertions, all passing), since nothing in the existing offline-tests
+setup exercises client-side `.html` JS at all. Also visually spot-checked
+via a published Artifact preview with fake data; browser-automation
+clicks into the artifact's cross-origin iframe turned out to be
+unreliable for this kind of check (confirmed via direct DOM/
+accessibility-tree inspection that the click landed correctly but
+automation couldn't verify the outcome across the origin boundary) — the
+Node harness above is what actually confirmed correctness, the Artifact
+was only useful for the purely visual read (layout, spacing, the "Khác"
+bar's dashed styling).
+
+`BUILD`: `web-2026-09-04l-statsbreakdown`.
+
+**Live-test checklist for Phong**: paste the updated `ViewsStats.html`
+and `Styles.html` into the web project's online editor and redeploy.
+Confirm: the three-way switch at the top moves between time/customer/
+status views, each loading its own data; the "Bộ lọc" panel filters all
+three views the same way the order list's own filter panel does (try a
+month + a customer together); if there are more than 8 customers/statuses
+with revenue, the chart should show the top 8 plus one "Khác" bar/row
+while the table below still lists every one individually; switching chart
+type (Cột ghép/Cột chồng/Xếp hạng) should feel instant on every view, not
+just the time-period one.
+
+---
+
+### 4.7.2 follow-up: remove filter panel, basis toggle scoped to time-period view, real cross-tab race fix
+
+**Reported live by Phong (2026-09-04)**, three items after testing 4.7.2:
+
+1. "The filter look no need here, so lets remove it" — the filter panel
+   added in 4.7.2 (mirroring the order list's own filter bar) wasn't
+   wanted on this screen.
+2. "The 'Cơ sở tính' section is just for 'Theo thời gian', for other it
+   not make sense so remove, and just stat on the current focus" — the
+   basis toggle (theo ngày hoá đơn/đặt hàng) doesn't visibly change
+   anything for the by-customer/by-status views (the grouping key is the
+   order's own field either way — basis only ever affects which DATE a
+   line's bucket/noInvoice split is computed from), so showing it there
+   read as broken rather than as a real option.
+3. **A real regression**, described precisely: "if click on 'Đơn hàng'
+   first, then 'Thống kê' right after, the loading stat showing until the
+   Order loaded then show Order list although the tab now current 'Thống
+   kê', when click on 'Thống kê' again, the loading show on again but
+   stuck there... it could not show the stat." This is the SAME class of
+   bug as the original 4.7.1-follow-up cross-tab race fix, but that fix
+   turned out to be incomplete — two separate bugs, both root-caused and
+   fixed this round:
+
+   **Bug 3a — ViewsOrders.html's viewSeq guard never actually detected a
+   cross-tab switch.** The original fix bumped `viewSeq` inside
+   `render()`, but `render()` only runs while the user is actually ON
+   Đơn hàng — switching straight from Đơn hàng to Thống kê never re-enters
+   ViewsOrders.html at all, so `viewSeq` simply stopped moving. Every one
+   of this file's ~19 `seq !== viewSeq` staleness checks kept comparing
+   against a `viewSeq` that hadn't changed, so a slow `apiListOrders`
+   response fired AFTER the switch still passed its own local check and
+   painted the order list straight into the shared `main` node — on top
+   of whatever Thống kê had already rendered. A purely local counter can
+   never by itself detect "the user left this tab entirely," only a
+   cross-module signal can (App.html's `viewGeneration`/`isCurrentView`,
+   which 4.7.1's fix added but never actually wired into this file's own
+   guards — only into `ensureCreatorsLoaded`).
+
+   Fixed by introducing one shared `staleView_(seq)` helper (replacing
+   all ~19 `seq !== viewSeq` call sites in one pass) that fails whenever
+   EITHER the local sequence moved OR `T.isCurrentView('orders', ...)`
+   is false — i.e. Đơn hàng is no longer the active tab at all, tracked
+   via a `myGeneration` snapshot captured fresh on every `render()` call,
+   same pattern `ViewsStats.html` already used for its own guard.
+
+   **Bug 3b — the "stuck loading forever" half, in `ViewsStats.html`
+   itself.** `load()`'s `.then()`/`.catch()` reset `state.loading = false`
+   only INSIDE the `isCurrentView` success branch. So the first time the
+   user left Thống kê mid-load (exactly what bug 3a was allowing to
+   happen the wrong way, but this half is a real bug independent of that
+   one), the response arrived, got correctly discarded as stale by
+   `isCurrentView` — but as a side effect also skipped clearing
+   `state.loading`, leaving it stuck `true` forever. The next visit's
+   `render()` saw `!currentData() && !state.loading` evaluate to false
+   (loading was still true) and silently never started a new load at
+   all — exactly "the loading show on again but stuck there... could not
+   show the stat." Fixed by resetting `state.loading` (and
+   `state.creatorsLoading`, same pattern, before it was removed along
+   with the filter panel — see below) unconditionally, before the
+   staleness check, in both success and error paths.
+
+**Changes**:
+- `ViewsStats.html`: removed the entire filter panel added in 4.7.2 —
+  `state.filters`, `filterBarHtml()`/`chipsHtml()`/`activeFilterChips()`,
+  `applyFilterPanel()`, the month/year/customer/status/approveStatus
+  option-list builders, `hasActiveFilters()`, and `ensureCreatorsLoaded()`
+  (which existed only to populate the createdBy dropdown). `requestPayload()`
+  now only ever sends `{basis, period}` (period only for the time-period
+  view). The basis toggle now only renders when `state.view ===
+  STATS_VIEW_PERIOD` (moved the ternary up into `html()`'s head-building,
+  rather than rendering `.stats-controls` unconditionally and hiding just
+  the toggle inside it — the whole `.stats-controls` block, including its
+  "Cơ sở tính" label, is absent for the two breakdown views now, not just
+  visually empty). The by-customer/by-status views implicitly stay on
+  `state.basis`'s existing default (`invoiceDate`) since there's no
+  longer any control to change it from those views.
+- `ViewsOrders.html`: the `staleView_(seq)` fix described above (bug 3a).
+- `Styles.html`: no changes needed — the filter panel reused
+  `ViewsOrders.html`'s own existing CSS classes verbatim rather than
+  adding new ones, so removing it from `ViewsStats.html` orphans nothing
+  (those classes are still very much in use by the order list's own
+  filter bar).
+- `tools/offline-tests/orders-ui.test.js` and
+  `orders-approvestatus-ui.test.js`: their fake `TT_BRIDGE` fixtures
+  predated `viewGeneration`/`isCurrentView` and needed both added (fixed
+  at `1`/`true` — these tests never simulate leaving the Đơn hàng tab
+  mid-flight) since `ViewsOrders.html`'s `render()` now calls
+  `T.viewGeneration()` unconditionally on every call. Both suites failed
+  outright before this fix (`T.viewGeneration is not a function`); all
+  83 + 51 of their existing assertions still pass after.
+
+**Verification**: no server-side (`.gs`) change. Full offline `.gs` suite
+green (including the two fixture files just updated). For the actual bug
+fixes, wrote two targeted Node harnesses that exercise the REAL file
+contents directly (not reimplementations): one drives `ViewsStats.html`'s
+`render()`/`load()` with a controllable fake `isCurrentView()` to prove
+`state.loading` now always resets even when a response is discarded as
+stale, and that a subsequent visit successfully starts and completes a
+new load (the exact "stuck there" bug, now fixed — 13/13 checks,
+including confirming the filter panel and the view-scoped basis toggle);
+the other drives `ViewsOrders.html`'s real `render()` with a simulated
+"user switches to Thống kê before the slow apiListOrders response
+arrives" sequence and confirms the stale response no longer overwrites
+what's on screen (3/3 checks) — and, to make sure this was a real
+regression test and not a tautology, re-ran it against a deliberately
+reverted (pre-fix, local-only `viewSeq` check) copy of the same file and
+confirmed it correctly FAILS there, reproducing Phong's exact report.
+
+`BUILD`: `web-2026-09-04m-crosstabfix2`.
+
+**Live-test checklist for Phong**: paste the updated `ViewsStats.html` and
+`ViewsOrders.html` into the web project's online editor and redeploy (no
+CSS change this round). Confirm: Thống kê no longer has a filter panel or
+"Bộ lọc" button; the "Cơ sở tính" toggle only appears when "Theo thời
+gian" is selected, not on "Theo khách hàng"/"Theo trạng thái"; and
+specifically re-try the exact sequence that broke before — click Đơn
+hàng, then immediately click Thống kê, repeatedly and in both directions
+— the screen should always show whichever tab is actually selected, with
+Thống kê loading and completing normally every time, never stuck.
+
+---
+
+### Milestone 4 / 4.7.3 — "stat by order, not order line" + include-no-invoice toggle (2026-09-04)
+
+Phong, after live-testing 4.7.2's follow-up: "1. For now, all stat (all 3
+focus) should be stat by order (not order line) 2. We will have a global
+toggle of include order without invoice (default to enable) - which if
+enable, all orders will be include in stats, if not only the order have
+invoid in stats, the remaining will be show as bottom dialog of total not
+invoice (at current)." Then, on the ambiguity of a single order having
+some lines invoiced and others not: "the includes/excludes orders without
+an invoice toggle means stat the order that include the order line that
+have invoice, so in case an order that include line have invoice and
+line have no invoice, it could be separate as 2 order when toggle
+include order without invoice disabled, and the date for stats of both
+separate order is all using the order date (not invoice date)." Follow-up
+after that: chart/table figures should show FOUR values per bucket/group
+— ex-VAT, inc-VAT, order count, and line count (not just the two VAT
+figures plus one count as before).
+
+Confirmed with Phong (AskUserQuestion) before implementing:
+1. The old order-date/invoice-date "Cơ sở tính" basis toggle is REMOVED
+   entirely (not kept dormant) — an order has exactly one date, so once
+   the unit is orders there is nothing left for a second basis to mean.
+2. The noInvoice figure stays a SINGLE global total on every view (not
+   broken down per customer/status) — same shape it already had.
+3. A fully-unbilled order and the split-off unbilled portion of a mixed
+   order both simply add into that same noInvoice total, no distinction
+   shown between the two cases.
+
+**Root architecture change** (`Stats.gs`): every aggregation (time-period,
+by-customer, by-status) switched from a per-LINE walk (`statsAggregateByLine_`,
+now removed) to a per-ORDER walk (`statsAggregateByOrder_`, new). Order-date/
+invoice-date basis is gone — `statsBasis_()` removed, every view always
+buckets/sorts by the order's own `orderDate`. New `includeNoInvoice` payload
+field (`statsIncludeNoInvoice_()`, default `true`):
+- **ON** (default): every filtered order counts in full using its own
+  `totalExVat`/`totalIncVat`/`lineCount` (already maintained on every
+  order record by `Orders.gs` — no need to walk `linesForOrder_` at all
+  in this branch). `noInvoice` is always zeroed.
+- **OFF**: each order's lines are partitioned via `invoiceIndex_()` into
+  billed/unbilled. An order with only billed lines counts entirely toward
+  its bucket; an order with only unbilled lines counts entirely toward
+  `noInvoice`; a genuinely mixed order SPLITS — the billed portion counts
+  as one order-contribution to its bucket (keyed by the order's own
+  date/field, never an invoice date), the unbilled portion adds into the
+  single global `noInvoice` total. Matches Phong's "could be separate as
+  2 order" description exactly.
+
+Every bucket/group (and `noInvoice`) now carries `exVat`, `incVat`,
+`orderCount` (new — the stats unit), and `lineCount` (kept for context).
+
+**Changes**:
+- `apps/api/Stats.gs`: rewritten per above — `statsAggregateByOrder_`
+  replaces `statsAggregateByLine_`; `statsBasis_`/`EXPORT_BASIS_*` basis
+  handling removed from every stats function; `statsRevenue_`/
+  `statsByField_`/`actionStatsRevenue_`/`actionStatsByCustomer_`/
+  `actionStatsByStatus_` all updated to the new signature
+  (`(rows, includeNoInvoice, keyFn)` in place of `(rows, basis, keyFn)`).
+- `apps/web/ui/ViewsStats.html`: `state.basis` and the whole basis-toggle
+  UI (`basisToggleHtml()`, the "Cơ sở tính" control group) removed. New
+  `state.includeNoInvoice` (default `true`) with a checkbox-style toggle
+  switch (`includeNoInvoiceToggleHtml()`) shown on **every** view (unlike
+  the old basis toggle, which was period-view-only) — toggling it
+  invalidates all three view caches and re-fetches, same as changing
+  `period` already did. `requestPayload()` now sends `{includeNoInvoice,
+  period?}`. Every chart type (grouped/stacked/ranked) and the totals
+  table now show all four figures — added a shared `barTooltip_()` helper
+  for the chart tooltips, and a new "Số đơn" table column alongside the
+  existing "Số dòng".
+- `apps/web/ui/Styles.html`: added `.stats-toggle-switch`/`.stats-toggle-
+  track`/`.stats-toggle-thumb`/`.stats-toggle-label` (a real hidden
+  checkbox + CSS-drawn track/thumb, animated via the `:checked` sibling
+  selector — no JS needed to move the thumb). Reused `.stats-control-
+  group`/`.stats-controls` as-is.
+- `apps/web/Main.gs`: `apiStatsRevenue`/`apiStatsByCustomer` doc comments
+  updated (still thin pass-throughs to `apiCall_`, no logic change) — no
+  longer describe a `basis` payload field that doesn't exist anymore.
+- `docs/OPEN_QUESTIONS.md`: added a "Superseded 2026-09-04" note under Q2
+  explaining the basis toggle's removal and its replacement, without
+  rewriting the original 2026-08-20 answer (kept for history).
+- `tools/offline-tests/stats.test.js`: rewritten entirely (the old
+  per-line/basis test suite no longer matches the code) — 65 assertions
+  covering: order-level totals/orderCount/lineCount: default
+  `includeNoInvoice: true`; order-date-only bucketing (an attached
+  invoice dated in a different month no longer moves anything); the
+  `includeNoInvoice: false` split for zero-billed / fully-billed / mixed
+  orders (including the exact "2 separate orders" mixed case); period
+  granularities (week/quarter/year) unaffected by the revision; existing
+  filter/permission scoping; by-customer/by-status grouping +
+  `fieldVisible_` gating, including the "noInvoice is one global total,
+  never broken down by customer" case explicitly.
+
+**Verification**: full offline `.gs` suite green — 12 suites, 700+
+assertions total, including the new 65-assertion `stats.test.js` — no
+other suite touched Stats.gs's internals, so nothing else needed
+updating. Proved `stats.test.js`'s mixed-order split test (test 7) is a
+genuine regression test, not a tautology: patched a deliberately-wrong
+copy of `statsAggregateByOrder_` that folds a mixed order's BILLED
+portion into `noInvoice` too whenever any line is unbilled (a plausible
+wrong reading of "could be separate as 2 order"), confirmed the test
+correctly FAILS against it, then restored the real fixed file and
+confirmed all 65 assertions pass again. Separately wrote a client-side
+Node harness (`sim_client.js`, same `eval()`-the-real-`<script>`-body
+technique used for the earlier cross-tab fixes) exercising the real
+`ViewsStats.html` directly: confirms no basis-toggle code path remains,
+the new toggle renders and is checked by default on every view (not just
+the time-period view), toggling it invalidates and re-fetches with the
+new value, the noInvoice card reflects the off-state response, and both
+chart tooltips and the table show all four figures — 17/17 checks.
+
+`BUILD`: `api-2026-09-04k-statsbyorder` / `web-2026-09-04n-statsbyorder`.
+
+**Live-test checklist for Phong**: paste the updated `Stats.gs` into the
+API project's online editor, and `ViewsStats.html`/`Styles.html`/
+`Main.gs` into the web project's, then redeploy both. Confirm: the
+"Cơ sở tính" (basis) toggle is gone from every view, including "Theo
+thời gian"; a new "Bao gồm đơn chưa xuất hoá đơn" switch appears above
+the chart on all three views, checked (on) by default; with it on, every
+order shows up in the stats and the "Chưa xuất hoá đơn" card at the
+bottom never appears; turn it off and confirm an order you know has no
+invoice yet drops out of its period/customer/status bucket and its total
+appears in the "Chưa xuất hoá đơn" card instead; for an order with a mix
+of invoiced and non-invoiced lines, confirm the invoiced part still
+counts in its normal bucket (using the order's own date) while the
+uninvoiced part's figures land in the "Chưa xuất hoá đơn" card; check the
+chart bar tooltips and the totals table both now show "Số đơn" (order
+count) alongside "Số dòng" (line count), not just VAT figures.
+
+---
+
+### Milestone 4 / 4.7.3 follow-up — toggle placement + order/line count chart (2026-09-04)
+
+After the "stat by order" revision above shipped, Phong asked to try
+different placements for the new includeNoInvoice toggle ("the toggle
+position not look good") and whether the chart should show counts
+alongside VAT ("should we draw chart include remaining count?"). Rather
+than guess, mocked multiple options as published Artifacts for Phong to
+compare side by side before touching real code:
+- Toggle placement: 4 options (inline with the title; its own settings
+  bar under the title; paired with the view switch row; pinned above the
+  chart card). Phong picked **Option B** — its own full-width shaded bar
+  directly under "Thống kê doanh số", above the view switch.
+- Count display: 9 options total across two rounds (caption under the
+  bar label; tooltip-only/no change; a positioned dot; a badge on the
+  bar; a third mini-bar sharing the chart; count folded into the axis
+  label; bar opacity/intensity; a sparkline strip under the chart; a 4th
+  dedicated chart-type). Phong picked **Option 9** — a separate "Số
+  lượng" chart-type tab that swaps to a dedicated order/line-count chart,
+  leaving the existing VAT chart types (Cột ghép/Cột chồng/Xếp hạng)
+  completely untouched.
+
+**Changes** (client-only — no `.gs`/API change this round):
+- `apps/web/ui/ViewsStats.html`:
+  - New `includeNoInvoiceBarHtml()` wraps the existing
+    `includeNoInvoiceToggleHtml()` switch in its own bar
+    (`.stats-toggle-bar`), rendered right after the title and BEFORE
+    `viewSwitchHtml()` — previously it lived inside the shared
+    `.stats-controls` block next to the period pills. `.stats-controls`
+    now only ever renders the period-pills group (and only for the
+    time-period view, as before).
+  - `CHART_TYPE_OPTIONS` gained a 4th entry, `{value:'count', label:'Số
+    lượng'}`. `chartHtml()` routes it to a new `countChartHtml(groups)` —
+    same grouped-bar visual structure as `groupedChartHtml()` but scaled
+    to `Math.max(orderCount, lineCount)` instead of VAT, drawing two bars
+    per group (`count-order`/`count-line`) with `countLegendHtml()`
+    labeling them "Số đơn"/"Số dòng". Entirely separate function/CSS
+    classes from the VAT bars — selecting "Số lượng" swaps the whole
+    chart; the other three chart types are unmodified by this option's
+    existence.
+- `apps/web/ui/Styles.html`: new `.stats-toggle-bar` (shaded strip,
+  reusing the same visual language as the mocked "Option B"), and
+  `.count-order`/`.count-line` bar-color modifiers plus matching legend
+  swatches — a muted amber pair, deliberately distinct from `.ex`/`.inc`'s
+  blue/brand so a "Số lượng" screenshot is never confused for a VAT
+  chart at a glance.
+
+**Verification**: no server-side change, so the full offline `.gs` suite
+(12 files, 700+ assertions) was re-run unchanged as a sanity check — all
+green, confirming nothing on the client touches server contract shapes.
+For the actual UI change, extended the existing `eval()`-the-real-
+`<script>`-body Node harness technique: `sim_client2.js` (9 checks)
+confirms the toggle bar renders before the view switch and outside
+`.stats-controls`, the "Số lượng" option renders and swaps to a chart
+with `count-order`/`count-line` bars and the right legend, VAT bars are
+absent while on "Số lượng", and switching back to "Cột ghép" restores the
+normal VAT chart+legend untouched. Re-ran the prior round's
+`sim_client.js` (17 checks, adjusted only for the file path) against this
+same file to confirm the toggle's invalidate-and-refetch behavior, its
+default-checked state, and the 4-figure tooltips/table columns from the
+previous revision all still hold — 26/26 combined.
+
+`BUILD`: `web-2026-09-04o-statscounttab` (API build unchanged —
+`api-2026-09-04k-statsbyorder` — this round touched no `.gs` file).
+
+**Live-test checklist for Phong**: paste the updated `ViewsStats.html`
+and `Styles.html` into the web project's online editor and redeploy (no
+API-side change needed this round). Confirm: the "Bao gồm đơn chưa xuất
+hoá đơn" toggle now sits in its own shaded bar right under the "Thống kê
+doanh số" title, above the Theo thời gian/khách hàng/trạng thái switch —
+on all three views. Confirm a new "Số lượng" button appears alongside Cột
+ghép/Cột chồng/Xếp hạng; selecting it swaps the chart to two amber bars
+per group (Số đơn / Số dòng) with a matching legend, and switching back
+to any of the other three restores the normal VAT chart exactly as
+before.

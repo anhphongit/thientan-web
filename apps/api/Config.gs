@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-04j-statsbyfield';
+var BUILD = 'api-2026-09-04k-statsbyorder';
 
 /** Script Property keys. */
 var PROP = {

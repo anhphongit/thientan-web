@@ -51,6 +51,17 @@ existing free-text `statusNote` for anything that does not fit a number.
 **Impact:** Milestone 4. With the toggle, both readings stay available, so no
 chart is silently wrong.
 
+**Superseded 2026-09-04 (Milestone 4.7.3, "stat by order"):** Phong changed the
+statistics unit from order LINE to ORDER, which removes the order-date/
+invoice-date basis toggle entirely — an order has exactly one date, so there is
+nothing left for a second basis to mean. In its place, a single global "Bao gồm
+đơn chưa xuất hoá đơn" (include orders without invoice) toggle, default ON,
+controls whether unbilled orders (or the unbilled portion of a mixed order)
+count toward the stats or are pulled into the "chưa xuất hoá đơn" figure
+instead — see Stats.gs's file doc comment and `statsAggregateByOrder_` for the
+exact split rule. Both VAT figures (ex-VAT/inc-VAT) are still shown together,
+unchanged by this revision.
+
 ---
 
 ## ✅ Q3 — Two order numbers, which one is primary?

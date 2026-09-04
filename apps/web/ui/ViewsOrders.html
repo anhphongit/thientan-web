@@ -146,6 +146,42 @@ exporting: false,
    */
   var viewSeq = 0;
 
+  /**
+   * Bug fix, 2026-09-04 (Phong live-tested: switching Đơn hàng -> Thống kê
+   * quickly still showed the Orders list landing on top of Thống kê, and a
+   * second switch back to Thống kê got stuck loading forever).
+   *
+   * Root cause: viewSeq only gets bumped when THIS module's own render() is
+   * called — i.e. only when the user is actually on the Đơn hàng tab. Every
+   * async callback in this file compared its captured `seq` against the
+   * live `viewSeq`, which correctly rejects a stale call from an EARLIER
+   * visit to Đơn hàng, but does nothing when the user has since switched to
+   * a completely different tab and never came back — viewSeq simply never
+   * moved again, so the stale comparison kept passing and the callback
+   * still painted right over whatever tab was actually showing. The
+   * viewGeneration/isCurrentView cross-tab guard added earlier only ever
+   * got wired into ViewsStats.html — every one of THIS file's ~19
+   * `seq !== viewSeq` call sites was still missing the actual cross-tab
+   * check, which is also why re-opening Thống kê got stuck: its own
+   * load()'s stale-Orders-response problem was real, but separately, any
+   * of ViewsStats.html's own state could have been left mid-repaint by a
+   * stale Orders callback firing on top of it — see ViewsStats.html's own
+   * fix note for that half.
+   *
+   * Fix: staleView_(seq) below is now the ONE place "is this callback
+   * still allowed to touch the DOM" is decided — every `seq !== viewSeq`
+   * check in this file was replaced with `staleView_(seq)`, which fails
+   * (treats the result as stale) when EITHER the local sequence moved OR
+   * Đơn hàng is no longer the active tab at all (T.isCurrentView('orders',
+   * ...) via App.html's viewGeneration). A local-only counter can never
+   * catch a cross-tab switch by itself, since nothing bumps it once the
+   * user has left this tab — only a shared, app-wide signal (viewGeneration)
+   * can.
+   */
+  function staleView_(seq) {
+    return seq !== viewSeq || !T.isCurrentView('orders', myGeneration);
+  }
+
   /* ---------------- config helpers ---------------- */
 
   function config() { return T.config() || {}; }
@@ -447,16 +483,19 @@ exporting: false,
      List
      ===================================================================== */
 
+  // Cross-tab async race guard — captured once per render() call, read by
+  // staleView_() above. See that function's doc comment for the full story;
+  // this is the piece that actually lets it detect "the user has since
+  // switched to a different tab entirely", which viewSeq alone cannot.
+  var myGeneration = null;
+
   function render(container) {
     T = window.TT;
     root = container;
-    // Cross-tab async race guard (4.7.1 follow-up, 2026-09-04): every time
-    // this view is (re-)entered — including switching away to another tab
-    // and back — bump viewSeq so any callback still in flight from before
-    // (e.g. a slow apiListOrders from a previous visit, or one that was
-    // about to paint just as the user switched to a different tab) fails
-    // its existing `seq !== viewSeq` check and silently discards its result
-    // instead of overwriting whatever tab is actually on screen now.
+    myGeneration = T.viewGeneration();
+    // Still bumped on every (re-)entry too — keeps rejecting a stale
+    // callback from an EARLIER visit to this same tab, same as before;
+    // staleView_() combines this with the cross-tab check above.
     viewSeq++;
     if (!state.bound) {
       root.addEventListener('click', onClick);
@@ -523,11 +562,11 @@ exporting: false,
     root.innerHTML = skeletonHtml();
     (loadingPromise || fetchOrders())
       .then(function () {
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintList();
       })
       .catch(function (err) {
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         root.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
@@ -707,7 +746,7 @@ exporting: false,
     var nextPage = state.ordersPage + 1;
     loadMorePromise = T.call('apiListOrders', listPayload(nextPage))
       .then(function (data) {
-        if (seq !== viewSeq) {
+        if (staleView_(seq)) {
           state.loadingMore = false;
           loadMorePromise = null;
           return;
@@ -732,7 +771,7 @@ exporting: false,
       .catch(function (err) {
         state.loadingMore = false;
         loadMorePromise = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintList();
         T.toast(err.message, true);
       });
@@ -761,7 +800,7 @@ exporting: false,
     fetchOrders()
       .then(function () {
         state.refreshing = false;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         if (state.order) return; // user opened a detail while we were refreshing
         paintList();
       })
@@ -781,12 +820,12 @@ exporting: false,
     fetchOrders()
       .then(function () {
         state.refreshing = false;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintList();
       })
       .catch(function (err) {
         state.refreshing = false;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintList();
         T.toast(err.message, true);
       });
@@ -1699,7 +1738,7 @@ exporting: false,
       if (Date.now() - cached.loadedAt < DETAIL_CACHE_TTL_MS) return; // still fresh, no API call
       fetchOrder(orderId)
         .then(function (data) {
-          if (seq !== viewSeq) return; // user left this order while we revalidated
+          if (staleView_(seq)) return; // user left this order while we revalidated
           applyOrderData(data);
           paintForm();
         })
@@ -1710,12 +1749,12 @@ exporting: false,
     root.innerHTML = detailSkeletonHtml();
     fetchOrder(orderId)
       .then(function (data) {
-        if (seq !== viewSeq) return; // user went back or opened another order
+        if (staleView_(seq)) return; // user went back or opened another order
         applyOrderData(data);
         paintForm();
       })
       .catch(function (err) {
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         T.toast(err.message, true);
         showList();
       });
@@ -2366,14 +2405,14 @@ exporting: false,
     fetchOrder(orderId)
       .then(function (data) {
         state.busyAction = null;
-        if (seq !== viewSeq) return; // left this order while reloading
+        if (staleView_(seq)) return; // left this order while reloading
         applyOrderData(data);
         paintForm();
         T.toast('Đã tải dữ liệu mới nhất.');
       })
       .catch(function (err) {
         state.busyAction = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintForm();
         T.toast(err.message, true);
       });
@@ -2669,14 +2708,14 @@ exporting: false,
           loadedAt: Date.now()
         };
         state.busyAction = null; // reset unconditionally — a stale busyAction would lock every future save
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         applyOrderData(data);
         T.toast(saveToast(isNew, data.order));
         paintForm();
       })
       .catch(function (err) {
         state.busyAction = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintForm();
         T.toast(err.message, true);
       });
@@ -2707,13 +2746,13 @@ exporting: false,
         removeCachedOrder(deletedId);
         delete orderCache[deletedId];
         state.busyAction = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         T.toast('Đã xoá đơn hàng.');
         showList();
       })
       .catch(function (err) {
         state.busyAction = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintForm();
         T.toast(err.message, true);
       });
@@ -2840,13 +2879,13 @@ exporting: false,
         delete orderCache[orderId]; // stale otherwise, same reasoning as changeStatusQuick
         var card = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
         if (card) card.approveStatus = newApproveStatus;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         T.toast(successToast);
         paintForm();
       })
       .catch(function (err) {
         state.busyAction = null;
-        if (seq !== viewSeq) return;
+        if (staleView_(seq)) return;
         paintForm();
         T.toast(err.message, true);
       });

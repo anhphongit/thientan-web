@@ -1,41 +1,55 @@
 /**
  * Stats.gs — Milestone 4 / 4.6.1: revenue by time period.
  *
- * Aggregates the SAME per-line ex-VAT/inc-VAT figures Export.gs's
- * bucketOrdersForExport_ already groups for XLSX/PDF/CSV, but for
- * statistics: summed totals per period bucket, not full row/grid data for
- * display. Deliberately a separate, leaner aggregation path rather than
- * reusing bucketOrdersForExport_ directly — that function builds full
- * {order, lines} groups sized for writing spreadsheet rows; statistics
- * only ever needs { exVat, incVat, lineCount } sums per bucket, so
- * building the heavier structure just to throw away the row/cell shape
- * would be wasted work on a screen likely to be re-run more often (chart
- * filters) than an export.
+ * 4.6.1/4.6.2 originally aggregated per ORDER LINE (summing amountExVat/
+ * amountIncVat per line, bucketed either by the order's own date or by
+ * each line's own resolved invoice date). Revised, 2026-09-04 ("stat by
+ * order, not order line"): Phong wanted all three views (time-period,
+ * by-customer, by-status) to count and sum ORDERS, using each order's own
+ * pre-computed totalExVat/totalIncVat (Orders.gs already maintains these
+ * on every create/update — see buildLineRecord_/sumLines_ callers), not
+ * a per-line walk. Two consequences of that switch:
  *
- * Reused from Export.gs: monthKey_/monthLabel_/parseDate_ (date parsing/
- * month-bucketing — the week/quarter/year granularities below generalize
- * that same idea, not reimplement date handling from scratch),
- * invoiceIndex_/linesForOrder_ (Orders.gs), and the shared filter
- * machinery (computeOrderFilters_/filteredOrderRowsForUser_) so a stats
- * request is scoped/permission-gated by the exact same rules as the order
- * list and every export action — not a parallel, easier-to-drift set of
- * checks.
+ *   1. The order-date/invoice-date "Cơ sở tính" (basis) toggle is GONE.
+ *      It only ever existed to decide which date a LINE's own bucket (or
+ *      noInvoice split) used — with orders as the unit, a single order
+ *      unavoidably has one order date, so there is nothing left for a
+ *      second basis to mean. Every view now buckets/sorts by the order's
+ *      own orderDate, unconditionally. (Historical note for anyone
+ *      reading old code/docs: Q2 in OPEN_QUESTIONS.md, "stats default to
+ *      invoice-date basis", is superseded by this revision.)
  *
- * 4.6.2 (revenue by customer/by status) is a different aggregation axis
- * — grouping by a field, not by date — and lives in its own functions
- * later in this file, added by that task.
+ *   2. Invoicing is still recorded per LINE (invoiceId lives on
+ *      OrderLines, not on Orders — see Orders.gs's buildLineRecord_/
+ *      invoiceIndex_), so a single order CAN have some lines invoiced and
+ *      others not. Phong's answer on how the new "include orders without
+ *      invoice" toggle should treat that: when the toggle is OFF, such a
+ *      mixed order is SPLIT — the invoiced-lines portion counts toward
+ *      the stats (grouped/bucketed like any other order, using the
+ *      ORDER's date, never an invoice date), and the uninvoiced-lines
+ *      portion is added into one single global `noInvoice` total (not
+ *      broken down by period/customer/status — same "one grand total"
+ *      shape the noInvoice card already had). An order with ZERO
+ *      invoiced lines counts entirely as noInvoice; an order with ALL
+ *      lines invoiced counts entirely toward the stats, unsplit. When the
+ *      toggle is ON (the default), every order counts in full toward the
+ *      stats and noInvoice is always zero/empty — nothing is ever
+ *      excluded.
+ *
+ * Every bucket/group (and noInvoice) now carries FOUR figures per Phong's
+ * follow-up request: exVat, incVat, orderCount (new — the count of
+ * distinct orders/order-portions contributing, since that's the stats
+ * unit now) and lineCount (kept alongside it — how many order LINES
+ * those orders/portions are made of, still useful context even though
+ * lines are no longer what's being summed).
+ *
+ * Reused from Orders.gs: invoiceIndex_/linesForOrder_ (to resolve which
+ * lines of a mixed order are invoiced), parseDate_/monthKey_/monthLabel_
+ * (Export.gs, date bucketing), and the shared filter machinery
+ * (computeOrderFilters_/filteredOrderRowsForUser_) so a stats request is
+ * scoped/permission-gated by the exact same rules as the order list and
+ * every export action.
  */
-
-/** Basis default for statistics is INVOICE DATE, unlike export's
- *  order-date default — Q2 (OPEN_QUESTIONS.md) settled this explicitly:
- *  "Default is invoice date, because that is what the invoice numbers in
- *  the file imply." Reuses Export.gs's EXPORT_BASIS_ORDER_DATE/
- *  EXPORT_BASIS_INVOICE_DATE constants — one basis vocabulary for the
- *  whole app, not a second one just for stats. */
-function statsBasis_(payload) {
-  var raw = payload && payload.basis;
-  return raw === EXPORT_BASIS_ORDER_DATE ? EXPORT_BASIS_ORDER_DATE : EXPORT_BASIS_INVOICE_DATE;
-}
 
 /** Period granularities statsRevenue_ can bucket by. */
 var STATS_PERIOD_WEEK = 'week';
@@ -49,31 +63,39 @@ function statsPeriod_(payload) {
   return STATS_PERIOD_MONTH; // default — matches the reference file's own month-basis reporting
 }
 
+/** New global toggle (2026-09-04 revision), default ON ("include orders
+ *  without invoice"). ON: every filtered order counts in full, noInvoice
+ *  is always zero. OFF: only the invoiced portion of each order counts;
+ *  the rest (a fully-unbilled order, or the unbilled lines of a mixed
+ *  order) is summed into noInvoice instead — see statsAggregateByOrder_. */
+function statsIncludeNoInvoice_(payload) {
+  if (!payload || payload.includeNoInvoice === undefined || payload.includeNoInvoice === null) return true;
+  return payload.includeNoInvoice !== false;
+}
+
 /**
  * Action entry point (Router.gs registers this as `statsRevenue`).
  *
- * @param {Object} payload {basis, period, dateFrom, dateTo, month,
- *   customer, status, createdBy, approveStatus, q} — dateFrom/dateTo/month
- *   etc. are the SAME order-date pre-filter shape computeOrderFilters_
- *   already accepts (narrows which orders are even considered, on their
- *   ORDER date, regardless of which date `basis` buckets by — same as
- *   Export.gs's own filter+basis split).
- * @return {{basis:string, period:string, buckets:Array<{bucketKey:string,
- *   label:string, exVat:number, incVat:number, lineCount:number}>,
- *   noInvoice:?{exVat:number, incVat:number, lineCount:number}}}
- *   `noInvoice` is only present for invoice-date basis (Q2: "orders with
- *   no invoice yet are excluded from the invoice-date view and shown as a
- *   separate 'chưa xuất hoá đơn' figure") — always null for order-date
- *   basis, where every line has a home bucket by definition.
+ * @param {Object} payload {period, includeNoInvoice, dateFrom, dateTo,
+ *   month, customer, status, createdBy, approveStatus, q} — the date/
+ *   customer/etc. fields are the SAME order-date pre-filter shape
+ *   computeOrderFilters_ already accepts (narrows which orders are even
+ *   considered, same as Export.gs's own filter).
+ * @return {{period:string, includeNoInvoice:boolean,
+ *   buckets:Array<{bucketKey:string, label:string, exVat:number,
+ *   incVat:number, orderCount:number, lineCount:number}>,
+ *   noInvoice:{exVat:number, incVat:number, orderCount:number,
+ *   lineCount:number}}} noInvoice is always present (zeroed when
+ *   includeNoInvoice is true or nothing is unbilled).
  */
 function actionStatsRevenue_(user, payload) {
   requirePermission_(user, 'view_statistics');
-  var basis = statsBasis_(payload);
   var period = statsPeriod_(payload);
+  var includeNoInvoice = statsIncludeNoInvoice_(payload);
   var config = readPublicConfig_();
   var filters = computeOrderFilters_(user, payload, config);
   var rows = filteredOrderRowsForUser_(user, filters);
-  return statsRevenue_(rows, basis, period);
+  return statsRevenue_(rows, period, includeNoInvoice);
 }
 
 /**
@@ -81,86 +103,102 @@ function actionStatsRevenue_(user, payload) {
  * can call it directly with an already-filtered row set, same split
  * exportBucketsForRequest_/bucketOrdersForExport_ use in Export.gs.
  */
-function statsRevenue_(rows, basis, period) {
-  var agg = statsAggregateByLine_(rows, basis, function (order, invDate) {
-    if (basis === EXPORT_BASIS_ORDER_DATE) {
-      var d = parseDate_(order.orderDate);
-      return d ? statsPeriodKey_(d, period) : '(không rõ ngày)';
-    }
-    return statsPeriodKey_(invDate, period); // invDate is always real here — see statsAggregateByLine_
+function statsRevenue_(rows, period, includeNoInvoice) {
+  var agg = statsAggregateByOrder_(rows, includeNoInvoice, function (order) {
+    var d = parseDate_(order.orderDate);
+    return d ? statsPeriodKey_(d, period) : '(không rõ ngày)';
   });
 
   var keys = Object.keys(agg.buckets).sort();
   var out = keys.map(function (key) {
     var b = agg.buckets[key];
-    return { bucketKey: key, label: statsPeriodLabel_(key, period), exVat: b.exVat, incVat: b.incVat, lineCount: b.lineCount };
+    return { bucketKey: key, label: statsPeriodLabel_(key, period), exVat: b.exVat, incVat: b.incVat, orderCount: b.orderCount, lineCount: b.lineCount };
   });
 
-  return { basis: basis, period: period, buckets: out, noInvoice: agg.noInvoice };
+  return { period: period, includeNoInvoice: includeNoInvoice, buckets: out, noInvoice: agg.noInvoice };
 }
 
 /**
- * Shared per-line walk underlying every stats aggregation (by period —
- * statsRevenue_ above — and by customer/by status — 4.6.2, below): visits
- * every line of every filtered order exactly once, decides which bucket
- * it belongs to, and sums exVat/incVat/lineCount into that bucket. This
- * is the ONE place the basis/noInvoice split (Q2: order-date basis keys
- * by the ORDER's date and never has an noInvoice bucket; invoice-date
- * basis keys each LINE by its own invoice's date UNLESS it has none, in
- * which case it goes to noInvoice instead) is implemented —
- * statsRevenue_ and the by-customer/by-status aggregators below all get
- * that behavior for free, correctly, by calling this instead of
- * re-deriving it.
+ * Shared per-ORDER walk underlying every stats aggregation (by period —
+ * statsRevenue_ above — and by customer/by status — 4.6.2, below).
+ * Replaces the old statsAggregateByLine_: visits every filtered order
+ * exactly once and decides how much of it counts toward the stats vs.
+ * noInvoice, per the includeNoInvoice toggle (see file doc comment for
+ * the full split-order rule), then sums exVat/incVat/orderCount/lineCount
+ * into whichever bucket keyFn(order) resolves to (or into noInvoice).
+ *
+ * When includeNoInvoice is true, every order counts in full using its
+ * own totalExVat/totalIncVat/lineCount — no need to even look at
+ * individual lines or invoices, since nothing is ever split or excluded.
+ *
+ * When includeNoInvoice is false, each order's lines are partitioned
+ * into invoiced/uninvoiced (via invoiceIndex_ + linesForOrder_) and
+ * summed separately:
+ *   - the invoiced portion (if any lines are invoiced) counts as ONE
+ *     contribution to keyFn(order)'s bucket — one order/portion, using
+ *     the ORDER's own date/field, never an invoice date;
+ *   - the uninvoiced portion (if any lines are not invoiced) is summed
+ *     into the single global noInvoice total instead;
+ *   - a fully-invoiced order contributes only to its bucket (nothing to
+ *     noInvoice); a fully-unbilled order contributes only to noInvoice
+ *     (nothing to its bucket) — matching Phong's "could be separate as 2
+ *     order" description for a genuinely mixed order, while a wholly
+ *     one-sided order isn't artificially counted as two.
  *
  * @param {Object[]} rows filtered order-level rows.
- * @param {string} basis EXPORT_BASIS_ORDER_DATE or EXPORT_BASIS_INVOICE_DATE.
- * @param {function(Object, ?Date):string} keyFn called once per LINE to
- *   decide its bucket key. Receives the line's own order, and — for
- *   invoice-date basis only, when the line resolved to a real invoice
- *   date — that Date; null for order-date basis (the order's own date is
- *   what matters there, not any invoice). statsRevenue_ ignores `order`
- *   and keys off the date/period; statsByField_ (4.6.2) ignores the date
- *   and keys off a field on `order` (customer/status) — same walk, two
- *   different projections of (order, invDate) -> key.
+ * @param {boolean} includeNoInvoice the toggle (default true).
+ * @param {function(Object):string} keyFn called once per counted order/
+ *   portion to decide its bucket key — statsRevenue_ keys by the order's
+ *   date/period; statsByField_ (4.6.2) keys by a field on the order
+ *   (customer/status). Always receives the real `order` row (never a
+ *   line), since the bucket is always order-date/order-field now.
  * @return {{buckets: Object<string,{exVat:number,incVat:number,
- *   lineCount:number}>, noInvoice: ?{exVat:number,incVat:number,
- *   lineCount:number}}} noInvoice is null for order-date basis (nothing
- *   is ever excluded there — see file/Q2 doc comments), populated (even
- *   if all-zero) for invoice-date basis.
+ *   orderCount:number,lineCount:number}>, noInvoice:
+ *   {exVat:number,incVat:number,orderCount:number,lineCount:number}}}
  */
-function statsAggregateByLine_(rows, basis, keyFn) {
+function statsAggregateByOrder_(rows, includeNoInvoice, keyFn) {
   var buckets = {};
-  var noInvoice = null;
+  var noInvoice = { exVat: 0, incVat: 0, orderCount: 0, lineCount: 0 };
 
-  function addTo(key, line) {
-    if (!buckets[key]) buckets[key] = { exVat: 0, incVat: 0, lineCount: 0 };
-    buckets[key].exVat += num_(line.amountExVat);
-    buckets[key].incVat += num_(line.amountIncVat);
-    buckets[key].lineCount += 1;
-  }
-  function addToNoInvoice(line) {
-    noInvoice.exVat += num_(line.amountExVat);
-    noInvoice.incVat += num_(line.amountIncVat);
-    noInvoice.lineCount += 1;
+  function addTo(key, exVat, incVat, orderCount, lineCount) {
+    if (!buckets[key]) buckets[key] = { exVat: 0, incVat: 0, orderCount: 0, lineCount: 0 };
+    buckets[key].exVat += exVat;
+    buckets[key].incVat += incVat;
+    buckets[key].orderCount += orderCount;
+    buckets[key].lineCount += lineCount;
   }
 
-  if (basis === EXPORT_BASIS_ORDER_DATE) {
+  if (includeNoInvoice) {
     rows.forEach(function (order) {
-      var key = keyFn(order, null);
-      linesForOrder_(order.orderId).forEach(function (line) { addTo(key, line); });
+      var key = keyFn(order);
+      addTo(key, num_(order.totalExVat), num_(order.totalIncVat), 1, num_(order.lineCount));
     });
-  } else {
-    var invoices = invoiceIndex_();
-    noInvoice = { exVat: 0, incVat: 0, lineCount: 0 };
-    rows.forEach(function (order) {
-      linesForOrder_(order.orderId).forEach(function (line) {
-        var invoice = line.invoiceId ? invoices[String(line.invoiceId)] : null;
-        var invDate = invoice ? parseDate_(invoice.invoiceDate) : null;
-        if (!invDate) { addToNoInvoice(line); return; }
-        addTo(keyFn(order, invDate), line);
-      });
-    });
+    return { buckets: buckets, noInvoice: noInvoice };
   }
+
+  var invoices = invoiceIndex_();
+  rows.forEach(function (order) {
+    var lines = linesForOrder_(order.orderId);
+    var billed = { exVat: 0, incVat: 0, count: 0 };
+    var unbilled = { exVat: 0, incVat: 0, count: 0 };
+    lines.forEach(function (line) {
+      var invoice = line.invoiceId ? invoices[String(line.invoiceId)] : null;
+      var target = invoice ? billed : unbilled;
+      target.exVat += num_(line.amountExVat);
+      target.incVat += num_(line.amountIncVat);
+      target.count += 1;
+    });
+
+    if (billed.count > 0) {
+      addTo(keyFn(order), billed.exVat, billed.incVat, 1, billed.count);
+    }
+    if (unbilled.count > 0) {
+      noInvoice.exVat += unbilled.exVat;
+      noInvoice.incVat += unbilled.incVat;
+      noInvoice.orderCount += 1;
+      noInvoice.lineCount += unbilled.count;
+    }
+  });
 
   return { buckets: buckets, noInvoice: noInvoice };
 }
@@ -221,27 +259,28 @@ function statsPeriodLabel_(key, period) {
 
 /**
  * Action entry point (Router.gs registers this as `statsByCustomer`).
- * Same basis/noInvoice semantics as actionStatsRevenue_ (Q2) — see
- * statsAggregateByLine_'s doc comment — just grouped by `order.customer`
+ * Same includeNoInvoice/noInvoice semantics as actionStatsRevenue_ — see
+ * statsAggregateByOrder_'s doc comment — just grouped by `order.customer`
  * instead of by date period. Gated additionally on fieldVisible_(user,
  * 'customer'): a role that can't see the customer column on an order
  * shouldn't get a customer breakdown either — same principle
  * computeOrderFilters_ already applies to the customer FILTER, extended
  * here to the customer GROUPING.
  *
- * @return {{basis:string, groups:Array<{key:string, label:string,
- *   exVat:number, incVat:number, lineCount:number}>, noInvoice:?Object}}
- *   groups sorted by incVat descending — a revenue breakdown reads
- *   top-to-bottom as "biggest customer first", not alphabetically.
+ * @return {{includeNoInvoice:boolean, groups:Array<{key:string,
+ *   label:string, exVat:number, incVat:number, orderCount:number,
+ *   lineCount:number}>, noInvoice:Object}} groups sorted by incVat
+ *   descending — a revenue breakdown reads top-to-bottom as "biggest
+ *   customer first", not alphabetically.
  */
 function actionStatsByCustomer_(user, payload) {
   requirePermission_(user, 'view_statistics');
   if (!fieldVisible_(user, 'customer')) throw new Error(MSG.NO_PERMISSION);
-  var basis = statsBasis_(payload);
+  var includeNoInvoice = statsIncludeNoInvoice_(payload);
   var config = readPublicConfig_();
   var filters = computeOrderFilters_(user, payload, config);
   var rows = filteredOrderRowsForUser_(user, filters);
-  return statsByField_(rows, basis, function (order) {
+  return statsByField_(rows, includeNoInvoice, function (order) {
     return String(order.customer || '').trim() || '(không rõ khách hàng)';
   });
 }
@@ -256,23 +295,24 @@ function actionStatsByCustomer_(user, payload) {
 function actionStatsByStatus_(user, payload) {
   requirePermission_(user, 'view_statistics');
   if (!fieldVisible_(user, 'status')) throw new Error(MSG.NO_PERMISSION);
-  var basis = statsBasis_(payload);
+  var includeNoInvoice = statsIncludeNoInvoice_(payload);
   var config = readPublicConfig_();
   var filters = computeOrderFilters_(user, payload, config);
   var rows = filteredOrderRowsForUser_(user, filters);
   var statusLabels = statusLabelIndex_(config);
-  var result = statsByField_(rows, basis, function (order) { return String(order.status || ''); });
+  var result = statsByField_(rows, includeNoInvoice, function (order) { return String(order.status || ''); });
   result.groups.forEach(function (g) { g.label = statusLabelText_(statusLabels, g.key); });
   return result;
 }
 
 /**
  * Shared by both actions above: groups filtered rows by whatever
- * `keyFn(order)` returns, using statsAggregateByLine_ for the actual
- * exVat/incVat/lineCount summing (and its basis/noInvoice handling) —
- * this function only adds the "group by a field, not by date" part on
- * top, plus sorting groups by revenue (biggest first) rather than by
- * bucket key the way the time-period view sorts chronologically.
+ * `keyFn(order)` returns, using statsAggregateByOrder_ for the actual
+ * exVat/incVat/orderCount/lineCount summing (and its includeNoInvoice
+ * handling) — this function only adds the "group by a field, not by
+ * date" part on top, plus sorting groups by revenue (biggest first)
+ * rather than by bucket key the way the time-period view sorts
+ * chronologically.
  *
  * `label` defaults to the same string as `key` here; actionStatsByStatus_
  * overwrites it afterward with the real Vietnamese status label — kept
@@ -280,23 +320,18 @@ function actionStatsByStatus_(user, payload) {
  * since customer needs no such translation and threading an identity
  * labelFn through just for symmetry would be needless indirection.
  */
-function statsByField_(rows, basis, fieldKeyFn) {
-  // Group by the ORDER's field (customer/status) regardless of basis —
-  // statsAggregateByLine_'s keyFn receives (order, invDate); this ignores
-  // invDate entirely (it only ever matters for deciding bucket-vs-
-  // noInvoice, which statsAggregateByLine_ already handles before calling
-  // keyFn at all) and keys purely off the order.
-  var agg = statsAggregateByLine_(rows, basis, function (order) { return fieldKeyFn(order); });
+function statsByField_(rows, includeNoInvoice, fieldKeyFn) {
+  var agg = statsAggregateByOrder_(rows, includeNoInvoice, fieldKeyFn);
 
   var keys = Object.keys(agg.buckets);
   var out = keys.map(function (key) {
     var b = agg.buckets[key];
-    return { key: key, label: key, exVat: b.exVat, incVat: b.incVat, lineCount: b.lineCount };
+    return { key: key, label: key, exVat: b.exVat, incVat: b.incVat, orderCount: b.orderCount, lineCount: b.lineCount };
   });
   // Biggest customer/status first — a revenue breakdown reads top-to-
   // bottom as "who/what contributes most", not alphabetically or by
   // insertion order.
   out.sort(function (a, b) { return b.incVat - a.incVat; });
 
-  return { basis: basis, groups: out, noInvoice: agg.noInvoice };
+  return { includeNoInvoice: includeNoInvoice, groups: out, noInvoice: agg.noInvoice };
 }

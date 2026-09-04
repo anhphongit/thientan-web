@@ -16,10 +16,84 @@
   bar/rank chart, drawing it directly in CSS removes that whole class of
   failure — nothing to fail to load, nothing to silently break.
 
-  4.7.2 adds the by-customer/by-status breakdown views (apiStatsByCustomer/
-  apiStatsByStatus, Stats.gs's 4.6.2), filters, and polish. This task is
-  deliberately scoped to just the time-period view being usable end to
-  end on its own.
+  4.7.1 follow-up (2026-09-04): fixed a cross-tab async race (a stale
+  response from a tab the user had already left could still repaint this
+  screen after a newer tab was already showing) via App.html's
+  viewGeneration/isCurrentView guard, and three UI issues Phong found live
+  (basis/period controls reading as one blob, the stacked chart's bars not
+  sharing a baseline, mobile overflow) — see Styles.html's own doc comment
+  on the .stats-controls/.stats-bar-stack/mobile rules for the details.
+
+  4.7.2 (2026-09-04): added a 3-way view switch (Theo thời gian / khách
+  hàng / trạng thái) that swaps the chart+table between apiStatsRevenue
+  (existing), apiStatsByCustomer, and apiStatsByStatus (both new, Stats.gs's
+  4.6.2) — each view keeps its own cached response in state.dataByView so
+  switching back to an already-loaded view doesn't re-fetch — and top-N +
+  "Khác" charting (the totals table below is never truncated, only the
+  chart collapses beyond 8 groups).
+
+  4.7.2 follow-up (2026-09-04) — after live feedback:
+    1. Removed the filter panel this task originally added (month/year,
+       customer, status, createdBy, approveStatus, mirroring the order
+       list's own filter bar) — Phong: "The filter look no need here, so
+       lets remove it." Gone entirely: state.filters, the filter-panel
+       markup/handlers, and the option-list helpers that existed only to
+       build it.
+    2. The basis toggle only rendered for the time-period view at this
+       point in history — since fully removed, see the next revision.
+    3. Fixed a real cross-tab regression (stuck-loading bug) — see
+       App.html's own viewGeneration/isCurrentView doc comments; load()
+       resets state.loading unconditionally, before the staleness check,
+       in both .then() and .catch().
+
+  4.7.3 (2026-09-04) — "stat by order, not order line" revision. Backend
+  (Stats.gs) switched every view from per-LINE aggregation to per-ORDER
+  aggregation, which removes the order-date/invoice-date "Cơ sở tính"
+  basis concept entirely (an order has exactly one date; there's nothing
+  left for a second basis to mean) — so the basis toggle and its whole
+  stats-control-group are GONE from this file too, along with
+  state.basis. Every view now always buckets/sorts by the order's own
+  date/field.
+
+  In its place: a new global "Bao gồm đơn chưa xuất hoá đơn" (include
+  orders without invoice) toggle, default ON, that applies to all three
+  views identically (payload.includeNoInvoice). When ON, every order
+  counts in full and the noInvoice card is always empty. When OFF, an
+  order with any unbilled lines has its unbilled portion pulled out into
+  the noInvoice total instead (Phong: a mixed order "could be separate as
+  2 order" when the toggle is off) — see Stats.gs's statsAggregateByOrder_
+  doc comment for the exact split rule. Toggling it invalidates and
+  re-fetches all three views' caches, same as period used to.
+
+  Also per Phong's follow-up: every group/bucket (and noInvoice) now
+  carries FOUR figures, not three — exVat, incVat, orderCount (new — the
+  stats unit is now orders) and lineCount (kept for context). Chart bar
+  tooltips and the totals table both show all four; the table gained an
+  extra "Số đơn" column alongside "Số dòng".
+
+  4.7.3 follow-up (2026-09-04) — two placement/display decisions Phong
+  picked from mocked options (published as Artifacts for side-by-side
+  comparison before building either):
+    1. The includeNoInvoice toggle moved out of the shared `.stats-
+       controls` block (where it sat next to "Xem theo") into its own
+       full-width bar directly under the title, ABOVE the view switch —
+       "Option B" of 4 mockups. Reads clearly as a distinct setting
+       (own shaded strip) without competing with the "Thống kê doanh số"
+       title for attention (Option A) or needing an extra label inside
+       stats-controls. New `includeNoInvoiceBarHtml()` renders it;
+       `includeNoInvoiceToggleHtml()` still builds the switch itself
+       (reused inside the new bar), `stats-controls` no longer renders it.
+    2. The revenue chart (Cột ghép/Cột chồng/Xếp hạng) stays exactly as
+       it was — VAT figures only, no count squeezed into bar height,
+       opacity, or a caption. Instead, a 4th chart-type option "Số
+       lượng" was added — "Option 9" of 9 mocked ways to show order/line
+       counts. Selecting it swaps the whole chart to two count bars
+       (Số đơn / Số dòng) per group, same grouped-bar visual language,
+       own independent scale (not sharing groupedChartHtml's VAT-based
+       maxVal) — never mixed into the VAT chart types themselves, so
+       Cột ghép/Cột chồng/Xếp hạng remain visually identical to before
+       this follow-up. Table/tooltips (already showing all 4 figures
+       since the prior revision) are unchanged.
 -->
 <script>
 (function () {
@@ -31,15 +105,30 @@
   var T = null;
   var root = null;
 
+  var STATS_VIEW_PERIOD = 'period';
+  var STATS_VIEW_CUSTOMER = 'customer';
+  var STATS_VIEW_STATUS = 'status';
+
   var state = {
-    basis: 'invoiceDate', // Q2 default
+    view: STATS_VIEW_PERIOD,
     period: 'month',
+    includeNoInvoice: true, // 4.7.3 — new global toggle, default ON (see file doc comment)
     chartType: 'grouped', // 'grouped' | 'stacked' | 'ranked'
     loading: false,
     error: null,
-    data: null, // last successful {basis, period, buckets, noInvoice} response
+    // One cache slot per view, keyed by view id — switching views re-paints
+    // instantly from cache instead of re-fetching, same idea as
+    // ViewsOrders.html's own list cache. Cleared (all three) whenever
+    // period/includeNoInvoice changes, since those affect every view's data.
+    dataByView: { period: null, customer: null, status: null },
     bound: false
   };
+
+  var VIEW_OPTIONS = [
+    { value: STATS_VIEW_PERIOD, label: 'Theo thời gian' },
+    { value: STATS_VIEW_CUSTOMER, label: 'Theo khách hàng', field: 'customer' },
+    { value: STATS_VIEW_STATUS, label: 'Theo trạng thái', field: 'status' }
+  ];
 
   var PERIOD_OPTIONS = [
     { value: 'week', label: 'Tuần' },
@@ -51,15 +140,18 @@
   var CHART_TYPE_OPTIONS = [
     { value: 'grouped', label: 'Cột ghép' },
     { value: 'stacked', label: 'Cột chồng' },
-    { value: 'ranked', label: 'Xếp hạng' }
+    { value: 'ranked', label: 'Xếp hạng' },
+    { value: 'count', label: 'Số lượng' } // 4.7.3 follow-up — order/line COUNT chart, own scale (see countChartHtml)
   ];
+
+  var TOP_N = 8;
 
   // Cross-tab async race guard (4.7.1 follow-up, 2026-09-04): captured once
   // per render() call. If the user switches away from Thống kê before an
-  // in-flight apiStatsRevenue call resolves, App.html's viewGeneration will
-  // have moved on by the time .then()/.catch() fires — isCurrentView() then
-  // returns false and we discard the stale result instead of painting it
-  // over whatever tab is actually on screen now.
+  // in-flight call resolves, App.html's viewGeneration will have moved on
+  // by the time .then()/.catch() fires — isCurrentView() then returns
+  // false and we discard the stale result instead of painting it over
+  // whatever tab is actually on screen now.
   var myGeneration = null;
 
   function render(container) {
@@ -68,11 +160,39 @@
     myGeneration = T.viewGeneration();
     if (!state.bound) {
       root.addEventListener('click', onClick);
-      root.addEventListener('change', onChange);
       state.bound = true;
     }
-    if (!state.data && !state.loading) load();
+    if (!currentData() && !state.loading) load();
     paint();
+  }
+
+  function currentData() { return state.dataByView[state.view]; }
+
+  function visibleViewOptions() {
+    return VIEW_OPTIONS.filter(function (o) { return !o.field || fieldAllowed_(o.field); });
+  }
+
+  /** Same predicate ViewsOrders.html uses (fieldAllowed_) — a role whose
+   *  visible_fields doesn't include 'customer'/'status' shouldn't get a
+   *  breakdown by that field either, matching the server's own
+   *  fieldVisible_() gate on actionStatsByCustomer_/actionStatsByStatus_. */
+  function fieldAllowed_(field) {
+    var s = T.session();
+    var allowed = (s && s.permissions && s.permissions.visible_fields) || [];
+    if (allowed.length === 1 && allowed[0] === '*') return true;
+    return allowed.indexOf(field) >= 0;
+  }
+
+  function apiActionForView(view) {
+    if (view === STATS_VIEW_CUSTOMER) return 'apiStatsByCustomer';
+    if (view === STATS_VIEW_STATUS) return 'apiStatsByStatus';
+    return 'apiStatsRevenue';
+  }
+
+  function requestPayload() {
+    var payload = { includeNoInvoice: state.includeNoInvoice };
+    if (state.view === STATS_VIEW_PERIOD) payload.period = state.period;
+    return payload;
   }
 
   function load() {
@@ -80,30 +200,57 @@
     state.error = null;
     paint();
     var snapshot = myGeneration;
-    T.call('apiStatsRevenue', { basis: state.basis, period: state.period })
+    var view = state.view;
+    T.call(apiActionForView(view), requestPayload())
       .then(function (res) {
-        if (!T.isCurrentView('statistics', snapshot)) return;
+        // Bug fix, 2026-09-04 (Phong live-tested: re-opening Thống kê after
+        // leaving mid-load got stuck on the skeleton forever) — state.loading
+        // MUST be reset regardless of staleness. It used to sit inside the
+        // `isCurrentView` branch below, so an abandoned load (the user left
+        // this tab before the response arrived) left state.loading === true
+        // forever: the guard correctly discarded the stale PAINT, but as a
+        // side effect also skipped clearing the flag that gates whether
+        // render() is willing to start a NEW load at all — so the very next
+        // visit to this tab saw loading still true and silently did nothing.
         state.loading = false;
-        state.data = res;
+        if (!T.isCurrentView('statistics', snapshot)) return;
+        state.dataByView[view] = res;
         paint();
       })
       .catch(function (err) {
+        state.loading = false; // same fix as above, for the error path
         if (!T.isCurrentView('statistics', snapshot)) return;
-        state.loading = false;
         state.error = err.message;
         paint();
       });
+  }
+
+  function invalidateAll() {
+    state.dataByView = { period: null, customer: null, status: null };
   }
 
   function onClick(e) {
     var target = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!target) return;
     var act = target.getAttribute('data-act');
-    if (act === 'stats-basis') {
-      state.basis = target.getAttribute('data-basis');
-      load();
+    if (act === 'stats-view') {
+      var view = target.getAttribute('data-view');
+      if (view === state.view) return;
+      state.view = view;
+      if (!currentData()) load(); else paint();
     } else if (act === 'stats-period') {
       state.period = target.getAttribute('data-period');
+      invalidateAll(); // period only affects the period view, but keeping
+                        // all three in sync is simpler than tracking which
+                        // cache entries a given control invalidates.
+      load();
+    } else if (act === 'stats-include-noinvoice') {
+      // 4.7.3 — the new global toggle affects every view's figures (which
+      // orders/portions count at all), so all three caches invalidate,
+      // same as period does today.
+      if (state.loading) return;
+      state.includeNoInvoice = !state.includeNoInvoice;
+      invalidateAll();
       load();
     } else if (act === 'stats-chart-type') {
       // Pure client-side re-render — the data itself doesn't change, only
@@ -115,14 +262,6 @@
     }
   }
 
-  function onChange(e) {
-    // No <select>/<input> left in this screen after the pill/segmented
-    // controls replaced them, but onChange is wired up defensively in
-    // case a future control (e.g. 4.7.2's filters) needs it — cheaper to
-    // leave the listener bound than to add it back later and risk
-    // forgetting render()'s "only bind once" guard.
-  }
-
   function paint() {
     root.innerHTML = html();
   }
@@ -132,35 +271,75 @@
       '<div class="view-head">' +
         '<h2>Thống kê doanh số</h2>' +
       '</div>' +
-      '<div class="stats-controls">' +
-        '<div class="stats-control-group">' +
-          '<span class="stats-control-label">Cơ sở tính</span>' +
-          basisToggleHtml() +
-        '</div>' +
-        '<div class="stats-control-group">' +
-          '<span class="stats-control-label">Xem theo</span>' +
-          periodPillsHtml() +
-        '</div>' +
-      '</div>';
+      includeNoInvoiceBarHtml() +
+      viewSwitchHtml() +
+      (state.view === STATS_VIEW_PERIOD ? '' +
+        '<div class="stats-controls">' +
+          '<div class="stats-control-group">' +
+            '<span class="stats-control-label">Xem theo</span>' +
+            periodPillsHtml() +
+          '</div>' +
+        '</div>'
+      : '');
 
-    if (state.loading && !state.data) {
+    var data = currentData();
+
+    if (state.loading && !data) {
       return head + skeletonHtml();
     }
     if (state.error) {
       return head + '<section class="card"><p class="empty err-text">' + T.esc(state.error) +
         '</p><button type="button" class="btn" data-act="stats-retry">Thử lại</button></section>';
     }
-    if (!state.data || !state.data.buckets.length) {
-      return head + '<section class="card"><p class="empty">Không có dữ liệu doanh số cho khoảng thời gian này.</p></section>';
+
+    var groups = groupsForView(data);
+    if (!data || !groups.length) {
+      return head + '<section class="card"><p class="empty">Không có dữ liệu doanh số.</p></section>' +
+        noInvoiceHtml(data);
     }
 
     return head +
       '<section class="card stats-chart-card">' +
         chartTypeToggleHtml() +
-        chartHtml(state.data) +
+        chartHtml(groups) +
       '</section>' +
-      totalsTableHtml(state.data) +
-      noInvoiceHtml(state.data);
+      totalsTableHtml(data, groups) +
+      noInvoiceHtml(data);
+  }
+
+  /** Normalizes both response shapes into one array of {label, exVat,
+   *  incVat, orderCount, lineCount} the chart/table code shares.
+   *  Time-period responses use `buckets` (chronological, already
+   *  ordered); customer/status responses use `groups` (sorted by revenue
+   *  server-side, already biggest-first) — same fields either way, just
+   *  a different envelope key, so this is the one place that difference
+   *  is absorbed. */
+  function groupsForView(data) {
+    if (!data) return [];
+    var raw = state.view === STATS_VIEW_PERIOD ? (data.buckets || []) : (data.groups || []);
+    return raw.map(function (g) {
+      return { label: g.label, exVat: g.exVat, incVat: g.incVat, orderCount: g.orderCount, lineCount: g.lineCount };
+    });
+  }
+
+  /** Top-N + "Khác" for the CHART only (4.7.2) — the table below always
+   *  shows every group in full via groupsForView(), never this collapsed
+   *  version. Time-period views are chronological and rarely have more
+   *  than a handful of buckets on screen at once, so this only actually
+   *  collapses anything for by-customer/by-status; still applied uniformly
+   *  (a no-op when there are ≤ TOP_N groups) rather than special-cased per
+   *  view, since a business could plausibly have >8 periods too (e.g. a
+   *  full year of weeks) and the same "don't draw 50+ bars" reasoning
+   *  applies. */
+  function chartGroups(groups) {
+    if (groups.length <= TOP_N) return groups;
+    var head = state.view === STATS_VIEW_PERIOD ? groups.slice(-TOP_N) : groups.slice(0, TOP_N);
+    var restSource = state.view === STATS_VIEW_PERIOD ? groups.slice(0, groups.length - TOP_N) : groups.slice(TOP_N);
+    var rest = restSource.reduce(function (acc, g) {
+      acc.exVat += g.exVat; acc.incVat += g.incVat; acc.orderCount += g.orderCount; acc.lineCount += g.lineCount;
+      return acc;
+    }, { label: 'Khác', exVat: 0, incVat: 0, orderCount: 0, lineCount: 0, isOther: true });
+    return head.concat([rest]);
   }
 
   /** Placeholder cards for a genuine first load — same shimmer classes
@@ -183,20 +362,19 @@
       '</section>';
   }
 
-  /** Mirrors the export dialog's own basis choice (ViewsOrders.html) —
-   *  same two options, same labels, so a user who already knows what
-   *  "theo ngày đặt hàng"/"theo ngày hoá đơn" means from exporting isn't
-   *  learning a second vocabulary here. */
-  function basisToggleHtml() {
-    var options = [
-      { value: 'invoiceDate', label: 'Theo ngày hoá đơn' },
-      { value: 'orderDate', label: 'Theo ngày đặt hàng' }
-    ];
-    return '<div class="stats-segmented">' +
+  /** 4.7.2 — 3-way switch between the time-period view (existing) and the
+   *  two new breakdown views. Options a role can't see the underlying
+   *  field for (visibleViewOptions()) simply don't render, matching the
+   *  server's own fieldVisible_() gate on the by-customer/by-status
+   *  actions. */
+  function viewSwitchHtml() {
+    var options = visibleViewOptions();
+    if (options.length <= 1) return ''; // nothing to switch between
+    return '<div class="stats-segmented stats-view-switch">' +
       options.map(function (o) {
-        var active = state.basis === o.value;
+        var active = state.view === o.value;
         return '<button type="button" class="' + (active ? 'active' : '') +
-          '" data-act="stats-basis" data-basis="' + o.value + '"' +
+          '" data-act="stats-view" data-view="' + o.value + '"' +
           (state.loading ? ' disabled' : '') + '>' + T.esc(o.label) + '</button>';
       }).join('') +
       '</div>';
@@ -213,13 +391,43 @@
       '</div>';
   }
 
-  /** New: lets the user switch how the same fetched data is drawn — grouped
-   *  bars (ex-VAT/inc-VAT side by side per period, the default), stacked
-   *  bars (inc-VAT total per period, ex-VAT as the base segment — reads
-   *  faster when there are many periods, e.g. weekly over a year), or a
-   *  ranked list (biggest period first, easiest to scan for "which period
-   *  did best" without eyeballing bar heights). Purely a rendering choice
-   *  — never refetches, see onClick's stats-chart-type branch. */
+  /** 4.7.3 follow-up — the toggle's own full-width bar, directly under
+   *  the title and above the view switch ("Option B" of 4 placement
+   *  mockups Phong picked from). Its own shaded strip (.stats-toggle-bar,
+   *  Styles.html) so it reads as a distinct setting rather than
+   *  competing with the "Thống kê doanh số" title (the inline-with-title
+   *  option) or getting buried inside stats-controls next to "Xem theo"
+   *  (the original placement). Shown on every view — unlike the old
+   *  basis toggle it replaced, which was period-view-only. */
+  function includeNoInvoiceBarHtml() {
+    return '<div class="stats-toggle-bar">' + includeNoInvoiceToggleHtml() + '</div>';
+  }
+
+  /** The switch control itself: "include orders without invoice". A
+   *  checkbox-style switch rather than a segmented two-button control
+   *  like periodPillsHtml — this is a single yes/no setting, not a
+   *  choice between named options, so a toggle switch reads more
+   *  naturally than two buttons where one is always redundant-looking. */
+  function includeNoInvoiceToggleHtml() {
+    var checked = state.includeNoInvoice;
+    return '' +
+      '<label class="stats-toggle-switch' + (state.loading ? ' disabled' : '') + '">' +
+        '<input type="checkbox" data-act="stats-include-noinvoice"' +
+          (checked ? ' checked' : '') + (state.loading ? ' disabled' : '') + '>' +
+        '<span class="stats-toggle-track"><span class="stats-toggle-thumb"></span></span>' +
+        '<span class="stats-toggle-label">Bao gồm đơn chưa xuất hoá đơn</span>' +
+      '</label>';
+  }
+
+  /** Lets the user switch how the same fetched data is drawn — grouped
+   *  bars (ex-VAT/inc-VAT side by side per group, the default), stacked
+   *  bars (inc-VAT total per group, ex-VAT as the base segment — reads
+   *  faster when there are many groups), or a ranked list (biggest group
+   *  first, easiest to scan without eyeballing bar heights). Purely a
+   *  rendering choice — never refetches, see onClick's stats-chart-type
+   *  branch. Available on all three views (by-customer/by-status already
+   *  sort biggest-first, so "ranked" there is close to the table order,
+   *  which is fine — it's still a legitimate way to read the same data). */
   function chartTypeToggleHtml() {
     return '<div class="stats-chart-type">' +
       CHART_TYPE_OPTIONS.map(function (o) {
@@ -230,52 +438,76 @@
       '</div>';
   }
 
-  function chartHtml(data) {
-    if (state.chartType === 'stacked') return stackedChartHtml(data);
-    if (state.chartType === 'ranked') return rankedChartHtml(data);
-    return groupedChartHtml(data);
+  function chartHtml(groups) {
+    var drawGroups = chartGroups(groups);
+    if (state.chartType === 'stacked') return stackedChartHtml(drawGroups);
+    if (state.chartType === 'ranked') return rankedChartHtml(drawGroups);
+    if (state.chartType === 'count') return countChartHtml(drawGroups);
+    return groupedChartHtml(drawGroups);
   }
 
-  function groupedChartHtml(data) {
-    var maxVal = Math.max.apply(null, data.buckets.map(function (b) { return b.incVat; }).concat([1]));
-    var groups = data.buckets.map(function (b) {
+  /** Shared tooltip text for a chart bar/segment/row — now surfaces all
+   *  FOUR figures (ex-VAT, inc-VAT, order count, line count) per Phong's
+   *  follow-up request ("stats 4 value of VAT, non-VAT, lines count and
+   *  order count"), not just the VAT figures the title= attributes showed
+   *  before. */
+  function barTooltip_(b) {
+    return 'Chưa VAT: ' + T.formatVnd(b.exVat) + ' · Có VAT: ' + T.formatVnd(b.incVat) +
+      ' · Số đơn: ' + b.orderCount.toLocaleString('vi-VN') +
+      ' · Số dòng: ' + b.lineCount.toLocaleString('vi-VN');
+  }
+
+  function groupedChartHtml(groups) {
+    var maxVal = Math.max.apply(null, groups.map(function (b) { return b.incVat; }).concat([1]));
+    var bars = groups.map(function (b) {
       var exH = Math.round((b.exVat / maxVal) * 100);
       var incH = Math.round((b.incVat / maxVal) * 100);
-      return '<div class="stats-bar-group">' +
+      var tip = T.esc(barTooltip_(b));
+      return '<div class="stats-bar-group' + (b.isOther ? ' stats-bar-group--other' : '') + '">' +
         '<div class="stats-bar-pair">' +
-          '<div class="stats-bar ex" style="height:' + exH + '%" title="Chưa VAT: ' + T.esc(T.formatVnd(b.exVat)) + '"></div>' +
-          '<div class="stats-bar inc" style="height:' + incH + '%" title="Có VAT: ' + T.esc(T.formatVnd(b.incVat)) + '"></div>' +
+          '<div class="stats-bar ex" style="height:' + exH + '%" title="' + tip + '"></div>' +
+          '<div class="stats-bar inc" style="height:' + incH + '%" title="' + tip + '"></div>' +
         '</div>' +
         '<span class="stats-bar-label">' + T.esc(b.label) + '</span>' +
       '</div>';
     }).join('');
-    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + groups + '</div></div>' + chartLegendHtml();
+    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + bars + '</div></div>' + chartLegendHtml();
   }
 
-  function stackedChartHtml(data) {
-    var maxVal = Math.max.apply(null, data.buckets.map(function (b) { return b.incVat; }).concat([1]));
-    var groups = data.buckets.map(function (b) {
+  function stackedChartHtml(groups) {
+    var maxVal = Math.max.apply(null, groups.map(function (b) { return b.incVat; }).concat([1]));
+    var bars = groups.map(function (b) {
       var exH = Math.round((b.exVat / maxVal) * 100);
       var vatOnlyH = Math.round(((b.incVat - b.exVat) / maxVal) * 100);
-      return '<div class="stats-bar-group">' +
+      var tip = T.esc(barTooltip_(b));
+      return '<div class="stats-bar-group' + (b.isOther ? ' stats-bar-group--other' : '') + '">' +
         '<div class="stats-bar-stack">' +
-          '<div class="stats-bar-seg vat" style="height:' + vatOnlyH + '%" title="VAT: ' + T.esc(T.formatVnd(b.incVat - b.exVat)) + '"></div>' +
-          '<div class="stats-bar-seg ex" style="height:' + exH + '%" title="Chưa VAT: ' + T.esc(T.formatVnd(b.exVat)) + '"></div>' +
+          '<div class="stats-bar-seg vat" style="height:' + vatOnlyH + '%" title="' + tip + '"></div>' +
+          '<div class="stats-bar-seg ex" style="height:' + exH + '%" title="' + tip + '"></div>' +
         '</div>' +
         '<span class="stats-bar-label">' + T.esc(b.label) + '</span>' +
       '</div>';
     }).join('');
-    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + groups + '</div></div>' + chartLegendHtml();
+    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + bars + '</div></div>' + chartLegendHtml();
   }
 
-  function rankedChartHtml(data) {
-    var sorted = data.buckets.slice().sort(function (a, b) { return b.incVat - a.incVat; });
+  function rankedChartHtml(groups) {
+    // Chart-level groups are already "top-N first, Khác last" for the
+    // customer/status views (chartGroups() built them that way) and
+    // chronological for the period view — re-sorting by revenue here
+    // would put "Khác" in the middle of a customer ranking, which reads
+    // oddly for a bucket that's explicitly "everything smaller than the
+    // Nth item". Keep "Khác" pinned last; sort everything else by incVat.
+    var others = groups.filter(function (g) { return g.isOther; });
+    var real = groups.filter(function (g) { return !g.isOther; })
+      .slice().sort(function (a, b) { return b.incVat - a.incVat; });
+    var sorted = real.concat(others);
     var maxVal = Math.max.apply(null, sorted.map(function (b) { return b.incVat; }).concat([1]));
     var rows = sorted.map(function (b, i) {
       var pct = Math.round((b.incVat / maxVal) * 100);
-      return '<div class="stats-rank-row">' +
+      return '<div class="stats-rank-row' + (b.isOther ? ' stats-rank-row--other' : '') + '" title="' + T.esc(barTooltip_(b)) + '">' +
         '<span class="stats-rank-label">' + T.esc(b.label) + '</span>' +
-        '<div class="stats-rank-track"><div class="stats-rank-fill' + (i === 0 ? '' : ' light') + '" style="width:' + pct + '%"></div></div>' +
+        '<div class="stats-rank-track"><div class="stats-rank-fill' + (i === 0 && !b.isOther ? '' : ' light') + '" style="width:' + pct + '%"></div></div>' +
         '<span class="stats-rank-val">' + T.esc(T.formatVnd(b.incVat)) + '</span>' +
       '</div>';
     }).join('');
@@ -288,14 +520,56 @@
       '</div>';
   }
 
-  function totalsTableHtml(data) {
-    var grandExVat = 0, grandIncVat = 0, grandLines = 0;
-    var rowsHtml = data.buckets.map(function (b) {
-      grandExVat += b.exVat; grandIncVat += b.incVat; grandLines += b.lineCount;
+  /** 4.7.3 follow-up — "Option 9" of 9 mocked ways to show order/line
+   *  counts: a 4th chart-TYPE, entirely separate from the VAT chart
+   *  types above, rather than squeezing counts into their bar height,
+   *  opacity, or a caption underneath. Same grouped-bar visual language
+   *  (two bars per group) but scaled to orderCount/lineCount instead of
+   *  exVat/incVat — its own independent max, since mixing count and VAT
+   *  onto one scale would make neither readable. Selecting "Số lượng"
+   *  swaps the whole chart; Cột ghép/Cột chồng/Xếp hạng are completely
+   *  unaffected by this option's existence. */
+  function countChartHtml(groups) {
+    var maxVal = Math.max.apply(null, groups.map(function (b) { return Math.max(b.orderCount, b.lineCount); }).concat([1]));
+    var bars = groups.map(function (b) {
+      var orderH = Math.round((b.orderCount / maxVal) * 100);
+      var lineH = Math.round((b.lineCount / maxVal) * 100);
+      var tip = T.esc('Số đơn: ' + b.orderCount.toLocaleString('vi-VN') + ' · Số dòng: ' + b.lineCount.toLocaleString('vi-VN'));
+      return '<div class="stats-bar-group' + (b.isOther ? ' stats-bar-group--other' : '') + '">' +
+        '<div class="stats-bar-pair">' +
+          '<div class="stats-bar count-order" style="height:' + orderH + '%" title="' + tip + '"></div>' +
+          '<div class="stats-bar count-line" style="height:' + lineH + '%" title="' + tip + '"></div>' +
+        '</div>' +
+        '<span class="stats-bar-label">' + T.esc(b.label) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + bars + '</div></div>' + countLegendHtml();
+  }
+
+  function countLegendHtml() {
+    return '<div class="stats-chart-legend">' +
+      '<span><i class="count-order"></i>Số đơn</span><span><i class="count-line"></i>Số dòng</span>' +
+      '</div>';
+  }
+
+  /** Table always lists every group the server returned in full — never
+   *  collapsed to top-N — unlike the chart above it (chartGroups()).
+   *  Column header adapts to the active view ("Kỳ" for time-period, "Khách
+   *  hàng"/"Trạng thái" for the breakdown views) so the table reads
+   *  naturally regardless of which axis is selected. Now has both a "Số
+   *  đơn" (order count) and "Số dòng" (line count) column, per Phong's
+   *  follow-up request for both figures side by side. */
+  function totalsTableHtml(data, groups) {
+    var headLabel = state.view === STATS_VIEW_CUSTOMER ? 'Khách hàng' :
+      state.view === STATS_VIEW_STATUS ? 'Trạng thái' : 'Kỳ';
+    var grandExVat = 0, grandIncVat = 0, grandOrders = 0, grandLines = 0;
+    var rowsHtml = groups.map(function (b) {
+      grandExVat += b.exVat; grandIncVat += b.incVat; grandOrders += b.orderCount; grandLines += b.lineCount;
       return '<tr>' +
         '<td>' + T.esc(b.label) + '</td>' +
         '<td class="num">' + T.formatVnd(b.exVat) + '</td>' +
         '<td class="num">' + T.formatVnd(b.incVat) + '</td>' +
+        '<td class="num">' + b.orderCount.toLocaleString('vi-VN') + '</td>' +
         '<td class="num">' + b.lineCount.toLocaleString('vi-VN') + '</td>' +
       '</tr>';
     }).join('');
@@ -303,29 +577,32 @@
     return '' +
       '<section class="card stats-table-card">' +
         '<table class="stats-table">' +
-          '<thead><tr><th>Kỳ</th><th class="num">Chưa VAT</th><th class="num">Có VAT</th><th class="num">Số dòng</th></tr></thead>' +
+          '<thead><tr><th>' + T.esc(headLabel) + '</th><th class="num">Chưa VAT</th><th class="num">Có VAT</th><th class="num">Số đơn</th><th class="num">Số dòng</th></tr></thead>' +
           '<tbody>' + rowsHtml + '</tbody>' +
           '<tfoot><tr>' +
             '<td>Tổng</td>' +
             '<td class="num">' + T.formatVnd(grandExVat) + '</td>' +
             '<td class="num">' + T.formatVnd(grandIncVat) + '</td>' +
+            '<td class="num">' + grandOrders.toLocaleString('vi-VN') + '</td>' +
             '<td class="num">' + grandLines.toLocaleString('vi-VN') + '</td>' +
           '</tr></tfoot>' +
         '</table>' +
       '</section>';
   }
 
-  /** Q2: "orders with no invoice yet are excluded from the invoice-date
-   *  view and shown as a separate 'chưa xuất hoá đơn' figure" — only ever
-   *  rendered for invoice-date basis (order-date basis has no noInvoice
-   *  concept at all, statsRevenue_ always returns null for it there). */
+  /** 4.7.3 — reflects the new global includeNoInvoice toggle (see file
+   *  doc comment) rather than the old order-date/invoice-date basis:
+   *  populated (even if all-zero) whenever the toggle is OFF; the toggle
+   *  ON means every order counts in full, so noInvoice is always zeroed
+   *  there and this card stays hidden, same as before. Shown identically
+   *  on all three views. */
   function noInvoiceHtml(data) {
-    if (!data.noInvoice) return '';
+    if (!data || !data.noInvoice) return '';
     var n = data.noInvoice;
-    if (n.lineCount === 0) return '';
+    if (n.orderCount === 0) return '';
     return '' +
       '<section class="card stats-noinvoice-card">' +
-        '<p class="stats-noinvoice-label">Chưa xuất hoá đơn (' + n.lineCount.toLocaleString('vi-VN') + ' dòng)</p>' +
+        '<p class="stats-noinvoice-label">Chưa xuất hoá đơn (' + n.orderCount.toLocaleString('vi-VN') + ' đơn, ' + n.lineCount.toLocaleString('vi-VN') + ' dòng)</p>' +
         '<p class="stats-noinvoice-figures">' +
           'Chưa VAT: <strong>' + T.formatVnd(n.exVat) + '</strong> · ' +
           'Có VAT: <strong>' + T.formatVnd(n.incVat) + '</strong>' +

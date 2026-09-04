@@ -50,7 +50,17 @@ const TT_BRIDGE = {
     return Promise.resolve(true);
   },
   config: () => session.config,
-  session: () => session
+  session: () => session,
+  // Added 2026-09-04 alongside ViewsOrders.html's own cross-tab race
+  // guard (staleView_/myGeneration, mirroring App.html's real
+  // viewGeneration/isCurrentView contract) — render() now calls
+  // T.viewGeneration() unconditionally, so this fake bridge needs it
+  // too. Fixed at 1/true: these tests never simulate leaving the
+  // Đơn hàng tab mid-flight, so every callback should always be
+  // treated as still current — same effect as the real bridge when
+  // nothing else has navigated away.
+  viewGeneration: () => 1,
+  isCurrentView: () => true
 };
 
 sandbox.global = sandbox;
