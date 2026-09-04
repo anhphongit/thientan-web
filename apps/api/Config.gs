@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-04g-exportdelivery';
+var BUILD = 'api-2026-09-04h-exportretention';
 
 /** Script Property keys. */
 var PROP = {
@@ -280,7 +280,15 @@ var CONFIG_DEFAULTS = [
   // without a code deploy if 500 turns out too low/high in practice.
   ['exportLargeThreshold', '500',
     'Số dòng đơn hàng (order line) trở lên thì xuất Excel/PDF sẽ chạy nền ' +
-    'thay vì chờ trực tiếp. Có thể chỉnh số này nếu thấy chưa phù hợp.']
+    'thay vì chờ trực tiếp. Có thể chỉnh số này nếu thấy chưa phù hợp.'],
+  // Milestone 4 / 4.5.4 — how many days a finished large-export job's
+  // record and its Drive file(s) are kept before cleanupExportJobs
+  // (the daily trigger, see ExportJob.gs) trashes/removes them. Same
+  // config-driven pattern as exportLargeThreshold — an admin can tune
+  // retention from the Config sheet without a code deploy.
+  ['exportRetentionDays', '14',
+    'Số ngày giữ lại file xuất lớn (Excel/PDF đã lưu vào Drive) và bản ghi ' +
+    'tác vụ xuất trước khi tự động dọn dẹp. Có thể chỉnh số này nếu thấy chưa phù hợp.']
 ];
 
 /** Vietnamese messages. These travel to the browser, so keep them user-facing. */

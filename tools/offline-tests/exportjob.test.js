@@ -374,4 +374,92 @@ console.log('\n12. actionExportJobStatus_ surfaces deliveryUrl/deliveryError to 
   check('status.deliveryError is null on a clean delivery', status.deliveryError === null);
 }
 
+console.log('\n13. cleanupExportJobs — trashes delivered files and removes old job records past retention');
+{
+  const env = H.makeEnv();
+  const admin = user('cleanup1@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  const job = env.loadExportJob_(res.jobId);
+  check('sanity: delivered successfully', !!job.deliveryUrl && job.deliveryFileId);
+  const fileId = job.deliveryFileId;
+
+  // Backdate the job as if it finished long ago — cleanupExportJobs reads
+  // updatedAt off the stored record, so editing the record directly (not
+  // waiting on a real clock, which this harness doesn't have) is the
+  // correct way to simulate age.
+  job.updatedAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(); // 20 days ago
+  env.saveExportJob_(job);
+
+  const summary = env.cleanupExportJobs();
+  check('summary reports one removed job', summary.indexOf('removed 1 job') >= 0);
+  check('job record is gone', env.loadExportJob_(res.jobId) === null);
+  check('the delivered Drive file was trashed', env.fakeDriveFiles[fileId].trashed === true);
+}
+
+console.log('\n14. cleanupExportJobs — leaves recent jobs alone (default 14-day retention)');
+{
+  const env = H.makeEnv();
+  const admin = user('cleanup2@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  const job = env.loadExportJob_(res.jobId);
+  const fileId = job.deliveryFileId;
+
+  const summary = env.cleanupExportJobs();
+  check('nothing removed — job just finished, well inside retention', summary.indexOf('removed 0 job') >= 0);
+  check('job record still exists', env.loadExportJob_(res.jobId) !== null);
+  check('the delivered Drive file is still not trashed', env.fakeDriveFiles[fileId].trashed === false);
+}
+
+console.log('\n15. cleanupExportJobs — a job whose delivery failed gets its leftover temp sheet reclaimed too');
+{
+  const env = H.makeEnv();
+  const admin = user('cleanup3@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const originalCreateFolder = env.DriveApp.createFolder;
+  env.DriveApp.createFolder = function () { throw new Error('Simulated Drive quota error'); };
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  env.DriveApp.createFolder = originalCreateFolder;
+
+  const job = env.loadExportJob_(res.jobId);
+  check('sanity: delivery failed, no deliveryFileId, temp sheet still referenced',
+    !job.deliveryUrl && !job.deliveryFileId && !!job.tempSheetId);
+
+  job.updatedAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+  env.saveExportJob_(job);
+
+  // The temp sheet's own Drive file wrapper doesn't exist in
+  // fakeDriveFiles yet (only createFile()'d files do) — getFileById on an
+  // id that was only ever a fakeSpreadsheets id throws in this harness,
+  // matching a real "already gone" 404 rather than a fake success; the
+  // important assertion is that cleanupExportJobs still removes the job
+  // record and doesn't let that error stop the sweep (per-job try/catch).
+  const summary = env.cleanupExportJobs();
+  check('summary reports one removed job despite the temp-sheet trash attempt failing',
+    summary.indexOf('removed 1 job') >= 0);
+  check('job record is gone even though its temp sheet cleanup could not be verified', env.loadExportJob_(res.jobId) === null);
+}
+
+console.log('\n16. exportRetentionDays_ config parsing + installExportJobCleanupReminder installs one daily trigger');
+{
+  const env = H.makeEnv();
+  eq('falls back to 14 for a missing config value', env.exportRetentionDays_({}), 14);
+  eq('falls back to 14 for a non-numeric config value', env.exportRetentionDays_({ exportRetentionDays: 'abc' }), 14);
+  eq('falls back to 14 for zero/negative', env.exportRetentionDays_({ exportRetentionDays: '0' }), 14);
+  eq('uses a valid configured value', env.exportRetentionDays_({ exportRetentionDays: '30' }), 30);
+
+  env.installExportJobCleanupReminder();
+  const triggers = env.fakeTriggers.filter(t => t.handlerFunction === 'cleanupExportJobs');
+  check('exactly one cleanupExportJobs trigger installed', triggers.length === 1);
+  check('scheduled daily', triggers[0].everyDays === 1);
+
+  env.installExportJobCleanupReminder(); // re-running must not stack up a second trigger
+  const triggersAfter = env.fakeTriggers.filter(t => t.handlerFunction === 'cleanupExportJobs');
+  check('re-running stays idempotent — still exactly one trigger', triggersAfter.length === 1);
+}
+
 H.done();

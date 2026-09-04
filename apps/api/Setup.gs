@@ -93,7 +93,12 @@ function guardSetup_() {
   var editorOnly = ['setupMilestone1', 'setupMilestone2', 'rotateSecret', 'revokeSecret',
                     'securityStatus', 'installExpiryReminder', 'checkSecretExpiry',
                     'seedTestOrders', 'deleteSeedTestOrders', 'migrateAddLineCount',
-                    'migrateAddApproveStatus', 'setupDevLog'];
+                    'migrateAddApproveStatus', 'setupDevLog',
+                    // Milestone 4 / 4.5.4 — daily retention cleanup of
+                    // finished/abandoned export jobs; same editor-only,
+                    // trigger-only shape as installExpiryReminder/
+                    // checkSecretExpiry above.
+                    'installExportJobCleanupReminder', 'cleanupExportJobs'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

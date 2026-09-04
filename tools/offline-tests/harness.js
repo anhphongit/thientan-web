@@ -32,7 +32,12 @@ function makeEnv(configOverrides) {
       getScriptProperties: () => ({
         getProperty: k => (k in props ? props[k] : null),
         setProperty: (k, v) => { props[k] = v; },
-        deleteProperty: k => { delete props[k]; }
+        deleteProperty: k => { delete props[k]; },
+        // Milestone 4 / 4.5.4 — cleanupExportJobs scans every stored
+        // property looking for EXPORTJOB_-prefixed keys, so it needs the
+        // real getProperties() shape (a plain object of ALL keys/values),
+        // not just single-key access.
+        getProperties: () => Object.assign({}, props)
       })
     },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
@@ -166,10 +171,18 @@ function makeEnv(configOverrides) {
     ScriptApp: {
       getOAuthToken: () => 'fake-oauth-token',
       newTrigger(fnName) {
-        const spec = { handlerFunction: fnName, after: null };
+        const spec = { handlerFunction: fnName, after: null, everyDays: null, atHour: null };
         const builder = {
           timeBased: () => builder,
           after(ms) { spec.after = ms; return builder; },
+          // Milestone 4 / 4.5.4 — cleanupExportJobs's daily install
+          // (installExportJobCleanupReminder) chains everyDays/atHour
+          // rather than after(ms) — recorded the same way, just for
+          // tests that only need to confirm ONE daily trigger exists
+          // for the right handler, not simulate it actually firing on a
+          // schedule (this harness has no clock to wait on either way).
+          everyDays(n) { spec.everyDays = n; return builder; },
+          atHour(h) { spec.atHour = h; return builder; },
           create() { sandbox.fakeTriggers.push(spec); return spec; }
         };
         return builder;

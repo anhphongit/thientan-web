@@ -481,3 +481,102 @@ function exportsFolder_() {
   if (it.hasNext()) return it.next();
   return DriveApp.createFolder(EXPORTJOB_FOLDER_NAME);
 }
+
+/* =======================================================================
+   Milestone 4 / 4.5.4 — retention cleanup
+   ======================================================================= */
+
+/** Days a finished job's record + Drive file(s) are kept before
+ *  cleanupExportJobs removes them, read from the Config sheet
+ *  (exportRetentionDays) the same way exportLargeThreshold_ reads its own
+ *  config value — falls back to 14 days for a missing/invalid config row
+ *  rather than refusing to clean up at all. */
+function exportRetentionDays_(config) {
+  var n = parseInt(config && config.exportRetentionDays, 10);
+  return (n > 0) ? n : 14;
+}
+
+/**
+ * Run once from the editor to install the daily cleanup trigger. Same
+ * pattern as Security.gs's installExpiryReminder — deletes any existing
+ * cleanupExportJobs trigger first so re-running this is idempotent
+ * (never stacks up duplicate daily triggers).
+ */
+function installExportJobCleanupReminder() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'cleanupExportJobs') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('cleanupExportJobs').timeBased().everyDays(1).atHour(3).create();
+  return 'Daily export cleanup installed (03:00 Asia/Ho_Chi_Minh).';
+}
+
+/**
+ * Trigger target: finds every export job record whose last update is
+ * older than exportRetentionDays_() and reclaims what it left behind,
+ * then removes the job record itself. Three kinds of leftovers, handled
+ * per job depending on how it ended:
+ *
+ *   - A DELIVERED job (job.deliveryFileId set): trash the Drive file in
+ *     the shared export folder. This is the normal case — most jobs
+ *     reach here having already succeeded, and this is what keeps that
+ *     folder from growing forever, which is the whole point of 4.5.4.
+ *   - A job whose delivery FAILED (job.deliveryError set, temp Sheet
+ *     deliberately left in place by deliverExportJob_ — see its doc
+ *     comment): trash the temp Sheet too, once it's old enough that it's
+ *     clearly not still being worked on. Losing an old failed delivery's
+ *     data after the retention window is an accepted tradeoff — Phong (or
+ *     an admin) has exportRetentionDays_ to make that window as long as
+ *     needed if a failed job might need manual recovery.
+ *   - A job that's still 'running' (a checkpoint chain that got stuck or
+ *     abandoned — its resume trigger failed silently, or the job record
+ *     was left behind by some other edge case): also cleaned up past the
+ *     retention window, same as the other two — an old 'running' job that
+ *     hasn't updated in exportRetentionDays_ days is not going to finish
+ *     on its own, and its temp Sheet is reclaimed the same way a failed
+ *     delivery's is.
+ *
+ * Every job is wrapped individually so one bad/corrupt record can't stop
+ * the rest of the sweep — matches the try/catch-per-item pattern
+ * deliverExportJob_ and withTempExportSheet_ both already use for the
+ * same reason (a cleanup pass is exactly the kind of maintenance job that
+ * must not itself become fragile).
+ */
+function cleanupExportJobs() {
+  var config = readPublicConfig_();
+  var retentionMs = exportRetentionDays_(config) * 24 * 60 * 60 * 1000;
+  var cutoff = Date.now() - retentionMs;
+
+  var props = PropertiesService.getScriptProperties();
+  var allProps = props.getProperties();
+  var removed = 0, failed = 0;
+
+  Object.keys(allProps).forEach(function (key) {
+    if (key.indexOf(EXPORTJOB_PREFIX) !== 0) return; // not a job record (e.g. EXPORTJOB_PENDING_RESUME)
+
+    try {
+      var job = JSON.parse(allProps[key]);
+      var updatedAt = new Date(job.updatedAt || job.createdAt || 0).getTime();
+      if (isNaN(updatedAt) || updatedAt > cutoff) return; // not old enough yet
+
+      if (job.deliveryFileId) {
+        try { DriveApp.getFileById(job.deliveryFileId).setTrashed(true); }
+        catch (err) { console.error('cleanupExportJobs: could not trash delivery file for job ' + job.jobId + ': ' + err.message); }
+      } else if (job.tempSheetId) {
+        // Delivery never succeeded (or the job never finished) — the temp
+        // Sheet is the only leftover in that case, see file doc comment.
+        try { DriveApp.getFileById(job.tempSheetId).setTrashed(true); }
+        catch (err) { console.error('cleanupExportJobs: could not trash temp sheet for job ' + job.jobId + ': ' + err.message); }
+      }
+
+      props.deleteProperty(key);
+      removed++;
+    } catch (err) {
+      failed++;
+      console.error('cleanupExportJobs: failed to process ' + key + ': ' + (err && err.message));
+    }
+  });
+
+  var summary = 'cleanupExportJobs: removed ' + removed + ' job(s), ' + failed + ' failure(s).';
+  console.log(summary);
+  return summary;
+}

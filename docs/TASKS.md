@@ -1097,7 +1097,7 @@ finished job to deliver; cleanup needs delivered jobs to clean up).
 | 4.5.1 | Job/checkpoint core — `PropertiesService` job record, `LockService`, batch-writing loop that checkpoints and self-retriggers before the 6-min execution limit | ☑ |
 | 4.5.2 | Status polling — `exportJobStatus` action + client polling UI (progress, done/error states) so a large export doesn't hold the request open | ☑ |
 | 4.5.3 | Drive + email delivery — finished job uploads to a Drive export folder, emails a link or attachment (size-threshold fallback past Gmail's ~25MB ceiling) | ☑ |
-| 4.5.4 | Retention cleanup — time-based trigger that trashes old Drive exports/job records so the folder doesn't grow indefinitely | ☐ |
+| 4.5.4 | Retention cleanup — time-based trigger that trashes old Drive exports/job records so the folder doesn't grow indefinitely | ☑ |
 | 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
 | 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
 
@@ -2084,3 +2084,91 @@ and `Styles.html` into the web project's online editor, redeploy, run a
 large export again, and confirm a green banner with a working "Mở file
 trên Drive" link appears once the job finishes (no popup-blocked bar this
 time) — click it to confirm it actually opens the file.
+
+## Milestone 4, task 4.5.4 — retention cleanup (built 2026-09-04)
+
+Closes the last gap in the 4.5 split: 4.5.3 delivers a finished large
+export to Drive and email, but nothing ever removed the delivered file
+(or, for the rarer case of a failed delivery, the leftover temp Sheet)
+or the job record itself — left alone, the export folder and
+`PropertiesService` would both grow forever.
+
+**`cleanupExportJobs`** (new, `apps/api/ExportJob.gs`) — the daily
+trigger target, following the exact same shape as `Security.gs`'s
+`checkSecretExpiry`/`installExpiryReminder` pair (editor-only install
+function + trigger target, no HTTP action, no trailing underscore so
+both appear in the online editor's Run dropdown — matching
+`guardSetup_`'s documented convention, which the first draft of this
+task briefly got wrong by naming them with a trailing underscore before
+being corrected against the existing precedent). Scans every
+`PropertiesService` key prefixed `EXPORTJOB_` (skipping
+`EXPORTJOB_PENDING_RESUME`, the one non-job key sharing that prefix
+family), and for any job whose `updatedAt` is older than
+`exportRetentionDays_()` (config-driven, same pattern as
+`exportLargeThreshold_`, default 14 days):
+
+- a successfully delivered job (`job.deliveryFileId` set) — trashes the
+  Drive file in the shared export folder;
+- a job whose delivery failed, or that's still stuck `'running'`
+  (`job.tempSheetId` set, no `deliveryFileId`) — trashes the temp Sheet
+  instead, since that's the only leftover in that case (`deliverExportJob_`
+  deliberately leaves it in place on a delivery failure — see 4.5.3);
+- either way, deletes the job record itself.
+
+Each job is wrapped in its own try/catch so one corrupt record or one
+Drive error can't stop the rest of the sweep, matching the per-item
+error handling `deliverExportJob_`/`withTempExportSheet_` already use.
+Never throws to its trigger caller; returns a one-line summary
+(`removed N job(s), M failure(s)`) that also lands in Executions logs
+for a manual check.
+
+**Config**: new `exportRetentionDays` row (default `'14'`), same
+config-driven pattern Phong asked for with `exportLargeThreshold` in
+4.5.2 — tunable from the Config sheet without a code deploy.
+
+**Install**: `installExportJobCleanupReminder()` — run once from the API
+editor, same as `installExpiryReminder()` — installs a trigger firing
+daily at 03:00 Asia/Ho_Chi_Minh (off-hours, well clear of when exports
+are actually being run). Deletes any existing `cleanupExportJobs`
+trigger first, so re-running the install is idempotent.
+
+**Tests**: `tools/offline-tests/harness.js` gained
+`PropertiesService...getProperties()` (cleanup needs to enumerate every
+stored key, not just look one up) and `ScriptApp.newTrigger(...)`'s
+`everyDays`/`atHour` chain (previously only `after(ms)` was stubbed, for
+the resume-trigger path). `exportjob.test.js` gained 4 new sections (21
+assertions): a delivered job past retention gets its Drive file trashed
+and record removed; a recent job is left alone; a failed-delivery job's
+leftover temp sheet is reclaimed (and a per-job Drive error during
+cleanup doesn't stop the record from being removed); `exportRetentionDays_`
+config parsing and the install function's idempotency. Full offline
+suite: 686/686 passing across all eleven test files.
+
+`BUILD`: `api-2026-09-04h-exportretention` (no client change this task).
+
+**Live-test checklist for Phong**: after pasting `ExportJob.gs`,
+`Config.gs`, and `Setup.gs` into the API project's online editor and
+deploying a new version, run `installExportJobCleanupReminder` once from
+the Run dropdown (authorize if prompted — no new scope, just the trigger
+itself) and confirm the log says "Daily export cleanup installed".
+
+**Live-verified 2026-09-04** — a paste-in diagnostic
+(`manualTestExportCleanupRetention`, printed in chat, not part of the
+repo) created two fake job records backdated 20 days past the retention
+window: Case A a normal delivered job pointing at a real throwaway Drive
+file, Case B a delivery-failed job pointing at a real leftover temp
+Sheet. Ran the real `cleanupExportJobs()` against them. Result: both job
+records removed, both files actually trashed in Drive (confirmed via
+`DriveApp...isTrashed()`, not just "no error thrown"). The run also
+reported "removed 4 job(s)" — 2 more than the 2 fakes the script
+created — meaning it also swept up 2 real leftover job records already
+past retention from this session's own earlier live testing, which is
+exactly the intended behavior on a real backlog, not a bug.
+
+---
+
+Milestone 4's large-export pipeline (4.5.1-4.5.4) is now fully built:
+checkpointed writes past the 6-minute limit, status polling, Drive +
+email delivery, and retention cleanup so nothing accumulates
+indefinitely. Remaining in Milestone 4: 4.6 (statistics aggregation) and
+4.7 (statistics UI) — not yet started.
