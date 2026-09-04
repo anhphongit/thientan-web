@@ -84,6 +84,15 @@ function actionListOrders_(user, payload) {
   });
 
   var total = orders.length;
+  // Milestone 4 / 4.5.2 revision — sum of the FILTERED set's own lineCount
+  // (already maintained per-order, Migrations.gs P5), not just the page
+  // being shown. Lets the client estimate export size/time by order LINE
+  // count rather than order count — a better predictor of how many sheet
+  // rows a large export will actually write (ExportJob.gs batches by row,
+  // and one order can be anywhere from 1 to MAX_LINES lines), computed
+  // here for free since `orders` (the whole filtered set, pre-pagination)
+  // is already in memory with lineCount on every row.
+  var totalLines = orders.reduce(function (sum, row) { return sum + num_(row.lineCount); }, 0);
   var start = (page - 1) * pageSize;
   var slice = orders.slice(start, start + pageSize);
 
@@ -94,6 +103,7 @@ function actionListOrders_(user, payload) {
   var result = {
     orders: out,
     total: total,
+    totalLines: totalLines,
     shown: out.length,
     page: page,
     pageSize: pageSize,

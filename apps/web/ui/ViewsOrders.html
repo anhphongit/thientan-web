@@ -29,6 +29,12 @@
   var root = null;
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
+    // Milestone 4 / 4.5.2 — set while a large export job is being polled;
+    // null the rest of the time. Distinct from the plain boolean
+    // state.exporting (still used for the synchronous CSV/small-XLSX/PDF
+    // path) since this one carries a live rowsWritten/totalRows to show
+    // progress, not just an in-flight flag.
+    exportJobProgress: null,
     // Milestone 4 / 4.1 — CSV export in flight (disables the button + swaps
     // its label while the server builds/returns the CSV).
 exporting: false,
@@ -606,7 +612,12 @@ exporting: false,
         loadingPromise = null;
         if (filtersAtRequest !== JSON.stringify(state.filters)) return data; // superseded by newer filters
         state.orders = (data && data.orders) || [];
-        state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
+        // Milestone 4 / 4.5.2 revision — also carry totalLines (sum of
+        // the filtered set's order-line counts, actionListOrders_) so the
+        // export dialog can gauge export size by LINE count, a better
+        // predictor of export time than order count (see doExportCsv).
+        state.ordersMeta = { total: (data && data.total) || 0,
+          totalLines: (data && data.totalLines) || 0, shown: state.orders.length };
         state.ordersPage = 1;
         state.ordersHasMore = !!(data && data.hasMore);
         state.ordersLoadedAt = Date.now();
@@ -684,7 +695,12 @@ exporting: false,
         ((data && data.orders) || []).forEach(function (o) {
           if (!seen[o.orderId]) state.orders.push(o); // a save/delete may have shifted the page boundary
         });
-        state.ordersMeta = { total: (data && data.total) || 0, shown: state.orders.length };
+        // Milestone 4 / 4.5.2 revision — also carry totalLines (sum of
+        // the filtered set's order-line counts, actionListOrders_) so the
+        // export dialog can gauge export size by LINE count, a better
+        // predictor of export time than order count (see doExportCsv).
+        state.ordersMeta = { total: (data && data.total) || 0,
+          totalLines: (data && data.totalLines) || 0, shown: state.orders.length };
         state.ordersPage = nextPage;
         state.ordersHasMore = !!(data && data.hasMore);
         state.loadingMore = false;
@@ -769,13 +785,40 @@ exporting: false,
    * temporary <a download> link, since google.script.run has no way to
    * hand back a browser download directly.
    */
+  /**
+   * Milestone 4 / 4.5.2 (revised 2026-09-04 — Phong: count order LINES,
+   * not orders, and read the threshold from config instead of a
+   * hardcoded constant): above `config().exportLargeThreshold` order
+   * LINES (not orders — a handful of orders with many lines each can
+   * take just as long to export as many single-line orders, since
+   * ExportJob.gs's checkpointing batches by sheet ROW, and this project
+   * writes one export row per order line either way — see
+   * exportLargeThreshold_'s doc comment in the API project's Export.gs),
+   * XLSX/PDF switch to the checkpointed job+polling path instead of the
+   * plain synchronous export. Config-driven (Config sheet's
+   * `exportLargeThreshold`, default 500) rather than a constant duplicated
+   * on both sides, so an admin can retune it without a code deploy.
+   */
+  function exportLargeThreshold_() {
+    var n = parseInt(config().exportLargeThreshold, 10);
+    return (n > 0) ? n : 500;
+  }
+
   function doExportCsv() {
-    if (state.exporting) return;
+    if (state.exporting || state.exportJobProgress) return;
     openExportDialog().then(function (choice) {
       if (!choice || !choice.ok) return;
-      if (choice.format === 'xlsx') runExportXlsx(choice.basis);
-      else if (choice.format === 'pdf') runExportPdf(choice.basis);
-      else runExportCsv(choice.basis);
+      var lineCount = (state.ordersMeta && state.ordersMeta.totalLines != null)
+        ? state.ordersMeta.totalLines
+        : state.orders.reduce(function (sum, o) { return sum + (o.lineCount || 0); }, 0);
+      var large = lineCount > exportLargeThreshold_();
+      if (choice.format === 'xlsx') {
+        if (large) runExportLarge_(choice.basis, 'xlsx'); else runExportXlsx(choice.basis);
+      } else if (choice.format === 'pdf') {
+        if (large) runExportLarge_(choice.basis, 'pdf'); else runExportPdf(choice.basis);
+      } else {
+        runExportCsv(choice.basis); // CSV: always synchronous, any size
+      }
     });
   }
 
@@ -992,6 +1035,76 @@ exporting: false,
       });
   }
 
+  /**
+   * Milestone 4 / 4.5.2 — large-export path: starts a checkpointed job
+   * (ExportJob.gs via apiStartExportJob), then polls apiExportJobStatus
+   * every EXPORTJOB_POLL_INTERVAL_MS until it reaches 'done' or 'error'.
+   * Deliberately does NOT attempt to download the finished file yet —
+   * 4.5.1/4.5.2 stop at the temp Sheet sitting in the API project's Drive
+   * with the job marked done; turning that into an actual download/email
+   * is 4.5.3 (Drive + email delivery). For now, reaching 'done' just tells
+   * Phong the export finished server-side; a manual note in the toast
+   * says so plainly rather than implying a file is about to appear.
+   *
+   * state.exportJobProgress carries {rowsWritten, totalRows, format} so
+   * paintList() can render a live "N/M dòng" progress line on the export
+   * button — separate from the plain state.exporting boolean the
+   * synchronous path uses, since this path has real progress to show.
+   */
+  var EXPORTJOB_POLL_INTERVAL_MS = 2500;
+
+  function runExportLarge_(basis, format) {
+    var payload = listPayload(1);
+    payload.basis = basis;
+    payload.format = format;
+    state.exportJobProgress = { rowsWritten: 0, totalRows: 0, format: format };
+    paintList();
+
+    T.call('apiStartExportJob', payload)
+      .then(function (res) { pollExportJobOnce_(res.jobId); })
+      .catch(function (err) {
+        state.exportJobProgress = null;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  /** Fetches one status snapshot and either re-renders progress and
+   *  schedules the next poll (status 'running'), or clears progress and
+   *  reports the outcome (status 'done'/'error'). Always fetches fresh
+   *  from the server rather than trusting apiStartExportJob's own
+   *  {jobId,status} response for anything past the very first call — that
+   *  response has no rowsWritten/totalRows (startExportJob_ returns just
+   *  enough to know whether to start polling at all), so one real status
+   *  fetch right after starting is simpler than fabricating a fake first
+   *  "0 / 0" progress frame while waiting out a full poll interval. */
+  function pollExportJobOnce_(jobId) {
+    T.call('apiExportJobStatus', jobId).then(function (status) {
+      if (status.status === 'running') {
+        state.exportJobProgress = {
+          rowsWritten: status.rowsWritten, totalRows: status.totalRows, format: status.format
+        };
+        paintList();
+        setTimeout(function () { pollExportJobOnce_(jobId); }, EXPORTJOB_POLL_INTERVAL_MS);
+        return;
+      }
+
+      state.exportJobProgress = null;
+      paintList();
+      if (status.status === 'done') {
+        // 4.5.3 will turn this into an actual download/email delivery;
+        // for now the job finishing server-side is all there is to report.
+        T.toast('Đã xuất xong (' + status.totalRows + ' dòng). Tính năng tải/gửi file sẽ có ở bước tiếp theo.');
+      } else {
+        T.toast(status.error || 'Xuất file thất bại.', true);
+      }
+    }).catch(function (err) {
+      state.exportJobProgress = null;
+      paintList();
+      T.toast(err.message, true);
+    });
+  }
+
   /** atob() + Uint8Array — the standard base64-to-Blob conversion; binary
    *  data survives a round trip through JSON only as base64 text
    *  (apiExportOrdersXlsx's response), so this undoes that on the way
@@ -1029,13 +1142,26 @@ exporting: false,
     // in this list. Manual-testing button: exports the same filter payload
     // as the list itself (see listPayload()/doExportCsv()).
     var canExport = T.can('export');
+    // Milestone 4 / 4.5.2 — while a large export job is being polled, the
+    // button shows live progress ("Đang xuất… 1.200/5.000 dòng") instead
+    // of the plain "Đang xuất…" the synchronous path (state.exporting)
+    // uses — there's real progress to show here, so show it.
+    var exportBusy = state.exporting || !!state.exportJobProgress;
+    var exportLabel = 'Xuất CSV';
+    if (state.exportJobProgress) {
+      var p = state.exportJobProgress;
+      exportLabel = 'Đang xuất… ' + (p.totalRows
+        ? p.rowsWritten.toLocaleString('vi-VN') + '/' + p.totalRows.toLocaleString('vi-VN') + ' dòng'
+        : '');
+    } else if (state.exporting) {
+      exportLabel = 'Đang xuất…';
+    }
     var head = '' +
       '<div class="view-head">' +
         '<h2>Đơn hàng</h2>' +
         '<div class="view-head-actions">' +
           (canExport ? '<button type="button" class="btn" data-act="export-csv"' +
-            (state.exporting ? ' disabled' : '') + '>' +
-            (state.exporting ? 'Đang xuất…' : 'Xuất CSV') + '</button>' : '') +
+            (exportBusy ? ' disabled' : '') + '>' + T.esc(exportLabel) + '</button>' : '') +
           (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
         '</div>' +
       '</div>' +

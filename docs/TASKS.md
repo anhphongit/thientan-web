@@ -1079,13 +1079,25 @@ and is testable/verifiable on its own — same shape as Milestone 3's
 3.2→3.8 split. Design questions below were resolved with Phong BEFORE
 any of this is built, so no task should hit an open question mid-work.
 
+**4.5 split into sub-tasks (2026-09-04)**: originally one task ("Async/
+large-export infra"), but it's architecturally bigger and more novel to
+this codebase than 4.1-4.4 — a whole job/checkpoint/polling/delivery
+system, not one request/response feature — so Phong asked to split it the
+same way Milestone 3 split 3.2→3.8, rather than build it as one large,
+harder-to-review unit. 4.5.1-4.5.4 below, in build order: each depends on
+the one before it (polling needs a job record to poll; delivery needs a
+finished job to deliver; cleanup needs delivered jobs to clean up).
+
 | # | Task | Status |
 |---|------|--------|
 | 4.1 | CSV export — filtered list, order-date grouping, `EXCEL_REFERENCE.md` §7 layout | ☑ |
 | 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☑ |
 | 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☑ |
 | 4.4 | PDF export (same temp-Sheet, PDF print params) | ☑ |
-| 4.5 | Async/large-export infra — checkpoint+retrigger, status polling, Drive+email delivery, retention cleanup | ☐ |
+| 4.5.1 | Job/checkpoint core — `PropertiesService` job record, `LockService`, batch-writing loop that checkpoints and self-retriggers before the 6-min execution limit | ☑ |
+| 4.5.2 | Status polling — `exportJobStatus` action + client polling UI (progress, done/error states) so a large export doesn't hold the request open | ☑ |
+| 4.5.3 | Drive + email delivery — finished job uploads to a Drive export folder, emails a link or attachment (size-threshold fallback past Gmail's ~25MB ceiling) | ☐ |
+| 4.5.4 | Retention cleanup — time-based trigger that trashes old Drive exports/job records so the folder doesn't grow indefinitely | ☐ |
 | 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
 | 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
 
@@ -1616,3 +1628,297 @@ of the screen, you can scroll the middle content with your finger, and
 If this still isn't right, a screen recording (not just a screenshot)
 showing the attempted scroll would help pin down anything a static repro
 can't catch (e.g. a real touch-scroll quirk vs. mouse-wheel).
+
+## Milestone 4, task 4.5.1 — job/checkpoint core (built 2026-09-04)
+
+Foundation for the large-export path (Phong's answer, 2026-09-03: export
+size has no real limit, could be multiple years). Apps Script's hard
+ceiling is 6 minutes per execution; this task makes an export survive
+past that instead of timing out mid-request. Nothing user-visible yet —
+no client action, no polling UI (4.5.2), no delivery (4.5.3), no cleanup
+(4.5.4). New file: `apps/api/ExportJob.gs`.
+
+**Design**: `startExportJob_(user, payload, format)` builds the same flat
+row array `buildExportRows_` already produces for the synchronous XLSX/
+PDF path (4.3/4.4), creates a temp Sheet, and writes the grid to it in
+slices of `EXPORTJOB_ROWS_PER_BATCH` (1,000) rows, re-checking the clock
+after each slice. A small export (the common case) finishes every slice
+inline in one request — no different from before, just internally
+chunked. Once a single execution has run past `EXPORTJOB_TIME_BUDGET_MS`
+(270s, a 90s margin under the real 360s ceiling for the final styling
+pass to fit in), it checkpoints the row-cursor into a job record and
+schedules a one-off `resumeExportJob_` trigger (fires ~10s later) to
+continue, rather than trying to finish in the same execution. Styling
+(bold/merge/border/background/number-format — the existing Option-A look
+from 4.3/4.4) only runs once, after every row is written, since several
+of those calls size themselves off the complete grid.
+
+**Refactored `ExportSheet.gs`** to make this possible without duplicating
+grid-building logic: `writeExportRowsToSheet_` used to build+write+style
+in one pass. Split into `buildExportGrid_` (pure, builds the 2D array and
+bookkeeping — bold/group/total row indexes, order merges, data-row
+indexes), `writeExportGridValues_` (just the `setValues` call), and
+`applyExportGridStyles_` (everything visual, needs the full grid).
+`writeExportRowsToSheet_` is now a 3-line wrapper of these for its
+existing callers (`withTempExportSheet_`, unchanged behavior — confirmed
+by re-running `exportsheet.test.js`, still 44/44 after the refactor,
+before any new ExportJob.gs code was written). `ExportJob.gs`'s batch
+loop calls `buildExportGrid_`/`writeExportGridValues_` per-slice and
+`applyExportGridStyles_` once at the end — same building blocks, no
+second implementation to drift.
+
+**Job record**: `PropertiesService.getScriptProperties()`, one JSON blob
+per job (`EXPORTJOB_<jobId>`) — chosen over `CacheService` because a job
+must survive between the triggering request and however many retrigger
+executions it takes; cache entries can expire mid-job, properties persist
+until explicitly removed (4.5.4's job). `LockService.getScriptLock()`
+around the batch loop, same pattern as `Orders.gs`'s `withOrderLock_`, so
+an overlapping resume can't double-process a job.
+
+**Resume correctness — a real bug the tests caught before it shipped**:
+`resumeExportJob_` originally rebuilt the export's row set using a
+stand-in `{ email: job.createdBy }` object instead of the real user, on
+the (wrong) assumption that only the email mattered for re-deriving the
+same filtered rows. It doesn't — `seesMoney_`/`fieldVisible_`/
+`canSeeAllOrders_`/`scopeToUser_` all read `user.permissions`, which that
+stand-in didn't have. The result: a large export that needed even ONE
+checkpoint would silently show real money figures on the first batch's
+rows and BLANK money on every row written after a resume — a correctness
+bug that would have shipped invisibly (no error, just wrong-looking
+data), caught only because `exportjob.test.js` section 3 compared a
+checkpointed grid against a synchronous build of the same data and found
+they didn't match. Fixed by storing the whole `user` object on the job
+record (`job.user`) and reusing it verbatim in `resumeExportJob_`, never
+reconstructing a partial one. Section 6 adds a dedicated regression test
+for this exact scenario (a price-blind user, forced through 3 checkpoints
+via a tiny batch size, asserting every single row — not just the first
+batch's — has blank money).
+
+**Split decision**: 4.5 was originally planned as one task ("Async/
+large-export infra"). Phong asked to split it into sub-tasks first (same
+approach Milestone 3 took for 3.2→3.8) since it's architecturally bigger
+and more novel to this codebase than 4.1-4.4 — a whole job/checkpoint/
+polling/delivery system, not one request/response feature. Split into
+4.5.1 (this task) → 4.5.2 (status polling) → 4.5.3 (Drive+email delivery)
+→ 4.5.4 (retention cleanup), each depending on the one before it.
+
+**Tests**: `tools/offline-tests/exportjob.test.js`, new file, 6 sections /
+32 assertions — small export finishes inline with no trigger left
+pending; permission enforcement; a job forced over budget (tiny batch
+size, budget forced negative) checkpoints, schedules exactly one resume
+trigger, resumes through 2 more checkpoints, then finishes once budget
+allows, with the final grid asserted byte-identical to what a synchronous
+build of the same data produces; resuming an already-done or unknown job
+is a safe no-op; an error mid-resume (simulated by corrupting the job's
+`tempSheetId`) is caught and recorded as `status:'error'` with a message,
+not swallowed or left half-checkpointed; and the price-blind-user
+regression test described above. `harness.js` (shared by 6 other test
+files) extended with minimal in-memory `SpreadsheetApp`/`ScriptApp`
+stand-ins (`fakeSpreadsheets`/`fakeTriggers` — a "trigger firing" is
+simulated by the test calling `resumeExportJob_` directly, since the
+harness runs synchronously) and a `PropertiesService.deleteProperty`
+stub that was missing and caused the first test run to throw — both
+additive, confirmed non-breaking by re-running the full previous suite
+(580/580) before adding ExportJob.gs's own tests. Full suite now
+612/612 (export 47, exportjob 32, exportsheet 44, approvestatus-ui 51,
+approvestatus 97, changestatus 28, crud 54, filter 60, permissions 116,
+ui 83).
+
+`BUILD`: `api-2026-09-04c-exportjobcore` (web unchanged — this task is
+entirely server-side infra with no client entry point yet).
+
+**Not live-testable yet**: nothing in this task is reachable from the
+client (no Router.gs action registered on purpose — see Split decision
+above). `startExportJob_`/`resumeExportJob_` are only exercised by the
+offline test suite so far; the real Apps Script trigger scheduler,
+6-minute wall clock, and Drive/temp-Sheet behavior are unverified against
+the live platform until 4.5.2 gives this a way to actually be invoked and
+watched to completion.
+
+## Milestone 4, task 4.5.2 — status polling (built 2026-09-04)
+
+Gives 4.5.1's job/checkpoint core an actual entry point: a client can now
+start a large XLSX/PDF export and watch its progress, instead of it being
+pure server-side infrastructure with nothing that could invoke it. Still
+stops short of delivering the finished file (4.5.3).
+
+**Two new actions** (`apps/api/ExportJob.gs`, registered in `Router.gs`):
+- `startExportJob` → `actionStartExportJob_`: validates `payload.format`
+  ('xlsx'/'pdf' only — `MSG.EXPORTJOB_BAD_FORMAT` otherwise), then calls
+  4.5.1's `startExportJob_`.
+- `exportJobStatus` → `actionExportJobStatus_`: returns
+  `{jobId, status, rowsWritten, totalRows, format, error}` for one job.
+  Scoped to the job's own creator by email match — this is the requester
+  checking on their own async request, not a general orders-visibility
+  question, so it doesn't reach for `canSeeAllOrders_`. A job belonging to
+  someone else and an unknown/expired jobId both fail the same way
+  (`MSG.EXPORTJOB_NOT_FOUND`) so polling can't be used to probe whether a
+  jobId exists. Response is deliberately narrow — never echoes back
+  `job.payload` (the filters) or `job.user` (the full requester identity
+  stored for 4.5.1's resume path), just what a progress UI needs.
+
+**Client** (`apps/web/Main.gs` pass-throughs `apiStartExportJob`/
+`apiExportJobStatus`; polling logic in `ViewsOrders.html`): the export
+dialog decides automatically which path to use, no new choice for
+Phong's staff to make. `EXPORT_LARGE_THRESHOLD = 500` (filtered order
+count — the dialog already shows this as "N đơn") — above it, XLSX/PDF
+go through `runExportLarge_()` (start job → `pollExportJobOnce_()` every
+2.5s until `done`/`error`) instead of the existing synchronous
+`runExportXlsx`/`runExportPdf` (4.3/4.4, completely unchanged, still the
+path for anything at or under the threshold). CSV never checks the
+threshold — plain string building has no timeout risk the checkpointed
+temp-Sheet-and-Drive-export-URL path exists to solve. The threshold is a
+plain constant duplicated (not fetched) on the client, matching
+`EXPORT_LARGE_THRESHOLD` in the API project's `Export.gs` — noted in both
+places as needing manual sync if Phong wants a different number later.
+
+While a job is polling, the export button shows live progress
+("Đang xuất… 1.200/5.000 dòng") via a new `state.exportJobProgress`
+(separate from the existing plain `state.exporting` boolean the
+synchronous path still uses, since this path has real numbers to show).
+Reaching `status:'done'` currently just toasts that the export finished
+server-side — there's no download yet, since the finished job's temp
+Sheet just sits in the API project's Drive until 4.5.3 gives it
+somewhere to go (Drive link + email). The toast says so plainly ("Tính
+năng tải/gửi file sẽ có ở bước tiếp theo") rather than implying a
+download is about to start and then not delivering one.
+
+**Tests**: `tools/offline-tests/exportjob.test.js` +18 (32→50) — sections
+7-8: `actionStartExportJob_` rejects a missing/unrecognized format and
+enforces the `export` permission before `actionExportJobStatus_` is even
+reachable; `actionExportJobStatus_` reports the right shape while running
+and once done, never leaks `payload`/`user`, refuses another user's job
+and an unknown jobId with the same error (no existence oracle), and
+tracks a job through to completion. Full suite: 630/630 (export 47,
+exportjob 50, exportsheet 44, approvestatus-ui 51, approvestatus 97,
+changestatus 28, crud 54, filter 60, permissions 116, ui 83).
+
+`BUILD`: `api-2026-09-04d-exportjobstatus` / `web-2026-09-04c-exportjobstatus`.
+
+**Not live-testable in a meaningful way yet**: the job path can now be
+started and polled, but there's still nothing to download at the end
+(4.5.3) — a live test today would only confirm the progress UI updates
+and the toast fires, not that a real 500+-order export actually
+completes correctly against live Sheets/Drive within the real 6-minute
+wall clock. Worth a live smoke test once 4.5.3 lands so the whole path
+(start → checkpoint/resume for real → deliver) can be verified end to
+end in one pass rather than piecemeal.
+
+### 4.5.2 revision — count order LINES, not orders; make the threshold config-driven
+
+Phong asked, right after 4.5.2 shipped: "does threshold count order or
+order line is better?" — the right question, since `ExportJob.gs`'s
+checkpointing batches by SHEET ROW, and this project writes one export
+row per order LINE (`buildExportRows_`, true for both order-date and
+invoice-date basis). Order count was the wrong proxy: a handful of orders
+with many lines each can take just as long to export as many
+single-line orders, and the original `EXPORT_LARGE_THRESHOLD = 500`
+(order count) would have under-triggered exactly that case. Phong also
+asked for the threshold itself to be configurable rather than a
+hardcoded constant duplicated (and manually kept in sync) on both the API
+and web projects.
+
+**Server** (`Orders.gs`): `actionListOrders_` now also returns
+`totalLines` — the sum of `lineCount` (already a maintained per-order
+column, Migrations.gs P5) across the WHOLE filtered set, not just the
+page being shown. Free to compute: `orders` (the full filtered array,
+pre-pagination) is already in memory with `lineCount` on every row.
+
+**Config-driven threshold** (`Config.gs`): new `exportLargeThreshold`
+Config-sheet row, default `'500'`, with a Vietnamese description so an
+admin editing the Config sheet directly understands what it controls —
+same pattern as `approvalFlowEnabled`. `Export.gs`'s hardcoded
+`EXPORT_LARGE_THRESHOLD` constant is gone, replaced by
+`exportLargeThreshold_(config)` (parses the config value, falls back to
+500 for anything missing/zero/negative/non-numeric).
+
+**Client** (`ViewsOrders.html`): `doExportCsv` now compares
+`state.ordersMeta.totalLines` (not `.total`) against a new
+`exportLargeThreshold_()` that reads `config().exportLargeThreshold` —
+the whole public config already reaches the client via `getSession`
+(`T.config()`), so this needed no new round trip, just reading a field
+that wasn't being read before. The client-side hardcoded duplicate
+constant is gone along with the "kept in sync manually" comment that
+used to caveat it.
+
+**Tests**: `orders-crud.test.js` +4 (54→58) — `totalLines` sums lineCount
+across the full filtered set regardless of `pageSize`/which page is
+requested, and respects the same filters `total` does. `export.test.js`
++6 (47→53) — `exportLargeThreshold_` returns the configured value, and
+falls back to 500 for each invalid case (missing key, zero, negative,
+non-numeric, and confirms a plain number — not just a numeric string —
+also works). Full suite: 640/640 (export 53, exportjob 50, exportsheet
+44, approvestatus-ui 51, approvestatus 97, changestatus 28, crud 58,
+filter 60, permissions 116, ui 83).
+
+`BUILD`: `api-2026-09-04e-exportthreshold` / `web-2026-09-04d-exportthreshold`.
+
+**Live-test note**: an admin can now change the Config sheet's
+`exportLargeThreshold` row and see the export dialog's large/small
+routing change without a redeploy — worth confirming once live, along
+with checking that `totalLines` in the list response looks right for a
+mix of single- and multi-line orders.
+
+### Drive cleanup never actually worked — wrong OAuth scope (found 2026-09-04)
+
+Phong noticed both XLSX and PDF exports were leaving temp files behind in
+Drive, never trashed — despite `withTempExportSheet_`'s `finally` block
+looking correct (calls `DriveApp.getFileById(ss.getId()).setTrashed(true)`
+unconditionally, success or failure). Rather than guess, wrote a
+diagnostic script (`manualTestExportCleanup`, pasted directly into the
+API project's online editor) that ran the real `actionExportOrdersPdf_`
+and separately isolated the `DriveApp.setTrashed` call — its error came
+back exact and unambiguous:
+
+```
+Specified permissions are not sufficient to call DriveApp.getFileById.
+Required permissions: (https://www.googleapis.com/auth/drive.readonly ||
+https://www.googleapis.com/auth/drive)
+```
+
+**Root cause**: the manifest (`appsscript.json`) declared
+`drive.file`, added back in 4.3 alongside `script.external_request`.
+`drive.file` looked sufficient at the time (the temp Sheet is a file the
+script itself creates) but it isn't — `DriveApp.getFileById()` and
+`DriveApp.searchFiles()` specifically require the broader `drive` or
+`drive.readonly` scope, regardless of who created the file. This wasn't
+a "click through the authorization prompt again" situation like the
+earlier `script.external_request` gap — it was a genuinely wrong/
+insufficient scope in the code, so `ExportSheet.gs`'s `try/catch` around
+the cleanup call was silently swallowing this exact error on literally
+every single XLSX/PDF export since 4.3 shipped, with only a
+`console.error` (visible in Executions, never surfaced to a user) to
+show for it. CSV was unaffected — it never touches Drive at all
+(`buildExportCsv_` is plain string building, no temp Sheet).
+
+**Fix**: `appsscript.json`'s `drive.file` scope changed to `drive` (write
+access, not just read — `setTrashed` is a write, and 4.5.3 will need to
+move a finished job's file into an Exports folder, which `drive.file`
+also couldn't do reliably for a script-created file). `docs/SETUP.md`'s
+scope summary table updated to match — it still said `drive.file`.
+
+**This needs a live re-authorization + redeploy**, same dance as the
+`script.external_request` gap earlier in Milestone 4: since the manifest's
+scope set changed, run any function that touches `DriveApp` in the online
+editor (the diagnostic script above works, or just `manualTestExportCleanup`
+again) to trigger a fresh consent prompt for the new scope, then Deploy >
+Manage deployments > edit the active deployment > New version > Deploy,
+so the deployed web app (not just the editor) picks up the new consent.
+
+No test-suite changes — offline tests stub `DriveApp` entirely (correctly
+so, for a fast unit-level test), so this class of bug — a real, live
+scope mismatch — was never going to be caught by them; it only ever
+surfaces by actually running against real Drive, which is exactly how
+Phong found it and how the diagnostic script confirmed it.
+
+`BUILD`: `api-2026-09-04f-drivescope`.
+
+**Live-test checklist for Phong**: after granting the fresh `drive`
+consent and redeploying, re-run `manualTestExportCleanup` (or just export
+an XLSX/PDF from the app normally) and confirm step 3/4's before/after
+Drive file count no longer grows — the whole point of this fix. Old
+already-orphaned "export-*" files from before this fix are NOT
+auto-cleaned by this change (that's what 4.5.4, retention cleanup, will
+eventually handle for the async path) — those need a one-time manual
+trash/delete in Drive if Phong wants to clear the backlog now rather than
+wait.

@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-04a-exportfix';
+var BUILD = 'api-2026-09-04f-drivescope';
 
 /** Script Property keys. */
 var PROP = {
@@ -268,7 +268,19 @@ var CONFIG_DEFAULTS = [
       { key: 'approved', label: 'Đã duyệt' },
       { key: 'rejected', label: 'Từ chối' }
     ]),
-    'Danh sách trạng thái duyệt đơn hàng']
+    'Danh sách trạng thái duyệt đơn hàng'],
+
+  /* ---- Milestone 4 / 4.5.2 revision — large-export threshold ---- */
+  // Order LINE count (not order count — a better predictor of export
+  // size/time, see actionListOrders_'s totalLines and
+  // exportLargeThreshold_ in Export.gs) above which XLSX/PDF export
+  // switches to the checkpointed job+polling path instead of the plain
+  // synchronous one. Config-driven (not a hardcoded constant) per Phong's
+  // answer, 2026-09-04 — an admin can tune this from the Config sheet
+  // without a code deploy if 500 turns out too low/high in practice.
+  ['exportLargeThreshold', '500',
+    'Số dòng đơn hàng (order line) trở lên thì xuất Excel/PDF sẽ chạy nền ' +
+    'thay vì chờ trực tiếp. Có thể chỉnh số này nếu thấy chưa phù hợp.']
 ];
 
 /** Vietnamese messages. These travel to the browser, so keep them user-facing. */
@@ -327,5 +339,9 @@ var MSG = {
   LOCKED_ADMIN_MISMATCH: 'Khoá trong Script Properties không khớp khoá đã đăng ký. ' +
     'Hãy chạy rotateSecret() trên project API.',
   LOCKED_ADMIN_UNSET: 'Chưa đăng ký khoá bảo mật. Hãy chạy rotateSecret() trên project API.',
-  GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.'
+  GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.',
+
+  /* ---- large export jobs (Milestone 4 / 4.5.2) ---- */
+  EXPORTJOB_NOT_FOUND: 'Không tìm thấy tác vụ xuất file này (có thể đã hết hạn).',
+  EXPORTJOB_BAD_FORMAT: 'Định dạng xuất file không hợp lệ.'
 };

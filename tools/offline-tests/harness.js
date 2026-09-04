@@ -31,12 +31,74 @@ function makeEnv(configOverrides) {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: k => (k in props ? props[k] : null),
-        setProperty: (k, v) => { props[k] = v; }
+        setProperty: (k, v) => { props[k] = v; },
+        deleteProperty: k => { delete props[k]; }
       })
     },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: { getUuid: () => 'uuid-' + (++uuid) },
     CacheService: { getScriptCache: () => null },
+    // Milestone 4 / 4.5.1 — minimal in-memory stand-ins for
+    // SpreadsheetApp/ScriptApp so ExportJob.gs's checkpoint loop is
+    // testable offline. `fakeSpreadsheets` keyed by id, each holding a
+    // single fake sheet whose getRange().setValues() just records into an
+    // in-memory 2D array (`cells`) — enough for ExportJob tests to read
+    // back exactly what got written after N checkpointed batches, without
+    // a real Sheets backend. Triggers are recorded, not actually
+    // scheduled (this test harness runs synchronously; a "trigger" firing
+    // is simulated by the test calling resumeExportJob_ itself — see
+    // exportjob.test.js).
+    fakeSpreadsheets: {},
+    fakeTriggers: [],
+    SpreadsheetApp: {
+      create(name) {
+        const id = 'ss-' + (++uuid);
+        const cells = [];
+        const fakeSheet = {
+          getRange(row, col, numRows, numCols) {
+            return {
+              setValues(grid) {
+                for (let r = 0; r < grid.length; r++) {
+                  cells[row - 1 + r] = cells[row - 1 + r] || [];
+                  for (let c = 0; c < grid[r].length; c++) cells[row - 1 + r][col - 1 + c] = grid[r][c];
+                }
+              },
+              setFontWeight() {}, merge() {}, setVerticalAlignment() {}, setNumberFormat() {},
+              setBorder() {}, setBackground() {}
+            };
+          },
+          setFrozenRows() {}, autoResizeColumns() {},
+          getSheetId: () => 0
+        };
+        sandbox.fakeSpreadsheets[id] = { id, name, cells, sheets: [fakeSheet] };
+        return { getId: () => id, getSheets: () => sandbox.fakeSpreadsheets[id].sheets };
+      },
+      openById(id) {
+        const ss = sandbox.fakeSpreadsheets[id];
+        if (!ss) throw new Error('SpreadsheetApp.openById: no fake spreadsheet ' + id);
+        return { getId: () => id, getSheets: () => ss.sheets };
+      },
+      BorderStyle: { SOLID: 'SOLID' }
+    },
+    ScriptApp: {
+      newTrigger(fnName) {
+        const spec = { handlerFunction: fnName, after: null };
+        const builder = {
+          timeBased: () => builder,
+          after(ms) { spec.after = ms; return builder; },
+          create() { sandbox.fakeTriggers.push(spec); return spec; }
+        };
+        return builder;
+      },
+      getProjectTriggers: () => sandbox.fakeTriggers.map(t => ({
+        getHandlerFunction: () => t.handlerFunction,
+        __spec: t
+      })),
+      deleteTrigger(t) {
+        const i = sandbox.fakeTriggers.indexOf(t.__spec);
+        if (i >= 0) sandbox.fakeTriggers.splice(i, 1);
+      }
+    },
 
     /* --- SheetsRepo stand-ins --- */
     readAll_(name) {
@@ -73,7 +135,7 @@ function makeEnv(configOverrides) {
   sandbox.global = sandbox;
   vm.createContext(sandbox);
 
-  ['Config.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs'].forEach(f => {
+  ['Config.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs', 'ExportJob.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;

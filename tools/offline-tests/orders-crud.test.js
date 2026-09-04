@@ -174,4 +174,24 @@ console.log('\n9. Pagination: 25 orders, page 1 and page 2');
   eq('capped pageSize still only returns the 25 that exist', oversized.orders.length, 25);
 }
 
+/* ---------- 9. totalLines (Milestone 4 / 4.5.2 revision) ---------- */
+console.log('\n9. actionListOrders_ reports totalLines — sum of the FILTERED set\'s order-line counts, not just the shown page');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com');
+
+  env.actionCreateOrder_(admin, { order: order(), lines: [line(), line(), line()] }); // 3 lines
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });                 // 1 line
+  env.actionCreateOrder_(admin, { order: order({ customer: 'Khác' }), lines: [line(), line()] }); // 2 lines, different customer
+
+  const all = env.actionListOrders_(admin, { pageSize: 1 }); // page smaller than the full set on purpose
+  eq('total (orders) counts all 3 orders regardless of pageSize', all.total, 3);
+  eq('totalLines sums lineCount across the WHOLE filtered set (3+1+2=6), not just the 1 order shown on this page',
+     all.totalLines, 6);
+  check('shown reflects only the current page', all.shown === 1);
+
+  const filtered = env.actionListOrders_(admin, { customer: 'Khác' });
+  eq('totalLines respects filters — only the 2-line order matches', filtered.totalLines, 2);
+}
+
 H.done();

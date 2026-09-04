@@ -340,5 +340,22 @@ console.log('\n17. buildExportRows_ marks groupSize on the first line of each or
   check('a single-line order\'s only line carries groupSize 1', single.groupSize === 1);
 }
 
+/* ---------- 18. exportLargeThreshold_ (Milestone 4 / 4.5.2 revision) ---------- */
+console.log('\n18. exportLargeThreshold_ reads the config value, falls back to 500 when missing/invalid');
+{
+  const env = H.makeEnv();
+  eq('default fixture config (no exportLargeThreshold key) falls back to 500',
+     env.exportLargeThreshold_(env.readPublicConfig_()), 500);
+  eq('a valid configured value is used as-is',
+     env.exportLargeThreshold_({ exportLargeThreshold: '250' }), 250);
+  eq('zero falls back to the default (not a usable threshold)',
+     env.exportLargeThreshold_({ exportLargeThreshold: '0' }), 500);
+  eq('a negative value falls back to the default',
+     env.exportLargeThreshold_({ exportLargeThreshold: '-5' }), 500);
+  eq('garbage/non-numeric falls back to the default',
+     env.exportLargeThreshold_({ exportLargeThreshold: 'abc' }), 500);
+  eq('a numeric value (not just a string) also works', env.exportLargeThreshold_({ exportLargeThreshold: 800 }), 800);
+}
+
 console.log('\n' + H.check.name); // no-op keeps `check` referenced if unused elsewhere
 H.done();

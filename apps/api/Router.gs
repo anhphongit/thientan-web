@@ -172,6 +172,15 @@ function getActions_() {
        different final export params (ExportSheet.gs). */
     exportOrdersPdf: actionExportOrdersPdf_,
 
+    /* Milestone 4 / 4.5.2 — large-export job path: start a checkpointed
+       XLSX/PDF build (ExportJob.gs) and poll its progress. Only used by
+       the client when the filtered order LINE count crosses the
+       config-driven exportLargeThreshold_ (Export.gs) — a normal-sized
+       export still goes through exportOrdersXlsx/exportOrdersPdf above,
+       unchanged. */
+    startExportJob: actionStartExportJob_,
+    exportJobStatus: actionExportJobStatus_,
+
     logDev: actionLogDev_
   };
 }

@@ -237,7 +237,7 @@ It also switches off the identity diagnostics panel.
 | | THIENTAN-WEB | THIENTAN-API |
 |---|---|---|
 | Runs as | the employee | you |
-| OAuth scopes | `userinfo.email`, `script.external_request` | `spreadsheets`, `drive.file` |
+| OAuth scopes | `userinfo.email`, `script.external_request` | `spreadsheets`, `drive`, `script.send_mail`, `script.scriptapp`, `script.external_request` |
 | Sees the spreadsheet | ❌ never | ✅ |
 | Knows who the visitor is | ✅ | only via `actor` |
 | Employees authorize it | ✅ once | ❌ never |

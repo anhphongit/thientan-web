@@ -1,0 +1,290 @@
+/**
+ * Offline tests for Milestone 4 / 4.5.1 — ExportJob.gs's job/checkpoint
+ * core. Uses the shared harness (harness.js), which now also loads
+ * ExportSheet.gs/ExportJob.gs and stubs SpreadsheetApp/ScriptApp with
+ * simple in-memory stand-ins (fakeSpreadsheets/fakeTriggers) — enough to
+ * exercise the real checkpoint/resume control flow without a live Sheets
+ * backend or a real trigger scheduler. A "trigger firing" is simulated by
+ * the test calling resumeExportJob_ itself, since this harness runs
+ * synchronously and doesn't have a clock to actually wait on.
+ *
+ * Run with: node tools/offline-tests/exportjob.test.js
+ */
+const H = require('./harness.js');
+const { user, check, eq, throws } = H;
+
+function line(over) {
+  return Object.assign({ description: 'Ống nhựa PVC 90', qty: 2, unitPrice: 100000,
+                         uom: 'Cái', vatRate: 0.08 }, over || {});
+}
+function order(over) {
+  return Object.assign({ customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
+                         status: 'draft', po: '4600041936' }, over || {});
+}
+
+/** Reads back everything written to a fake spreadsheet's first sheet as a
+ *  plain 2D array (undefined cells -> '' so short rows compare cleanly),
+ *  trimmed to just the rows actually touched. */
+function readFakeGrid(env, tempSheetId) {
+  const ss = env.fakeSpreadsheets[tempSheetId];
+  if (!ss) throw new Error('readFakeGrid: no fake spreadsheet ' + tempSheetId);
+  return ss.cells.map(row => (row || []).map(c => (c === undefined ? '' : c)));
+}
+
+function makeOrders(env, admin, count) {
+  for (let i = 0; i < count; i++) {
+    env.actionCreateOrder_(admin, {
+      order: order({ po: 'PO' + i, customer: 'KH ' + (i % 3) }),
+      lines: [line({ description: 'Dòng ' + i })]
+    });
+  }
+}
+
+/* ---------- 1. small export completes inline, no trigger scheduled ---------- */
+console.log('\n1. a small export finishes in one call — status "done", no resume trigger left pending');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { export: true });
+  makeOrders(env, admin, 3);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  check('status is done', res.status === 'done');
+  check('jobId returned', typeof res.jobId === 'string' && res.jobId.length > 0);
+
+  const job = env.loadExportJob_(res.jobId);
+  check('job record status matches', job.status === 'done');
+  check('rowsWritten equals totalRows', job.rowsWritten === job.totalRows);
+  check('no pending resume trigger left behind', env.fakeTriggers.length === 0);
+
+  const grid = readFakeGrid(env, job.tempSheetId);
+  check('header row landed on the sheet', grid[0][0] === 'STT');
+  check('at least one data row beyond the header', grid.length > 1);
+}
+
+/* ---------- 2. permission enforcement ---------- */
+console.log('\n2. starting a job requires the export permission');
+{
+  const env = H.makeEnv();
+  const noExport = user('a@x.com', { export: false });
+  throws('refused without export permission',
+    () => env.startExportJob_(noExport, {}, 'xlsx'));
+}
+
+/* ---------- 3. a job forced over budget checkpoints and resumes correctly ---------- */
+console.log('\n3. a job that runs out of time budget checkpoints, schedules a resume trigger, and resumes to completion');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { export: true });
+  makeOrders(env, admin, 12); // 12 orders -> 12 data rows + 1 group + 1 total + 1 header = 15 rows
+
+  // Force the tiniest possible batches and an immediately-exhausted time
+  // budget so the very first slice already trips the checkpoint path —
+  // deterministic without needing to fake Date.now() advancing mid-loop.
+  env.EXPORTJOB_ROWS_PER_BATCH = 3;
+  env.EXPORTJOB_TIME_BUDGET_MS = -1;
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  check('status is running (checkpointed, not finished)', res.status === 'running');
+
+  let job = env.loadExportJob_(res.jobId);
+  check('job record also says running', job.status === 'running');
+  check('partial progress recorded (fewer rows written than total)',
+    job.rowsWritten > 0 && job.rowsWritten < job.totalRows);
+  check('exactly one resume trigger scheduled', env.fakeTriggers.length === 1);
+  check('resume trigger targets resumeExportJob_', env.fakeTriggers[0].handlerFunction === 'resumeExportJob_');
+
+  const rowsAfterFirstBatch = job.rowsWritten;
+
+  // Simulate the trigger firing: call resumeExportJob_ directly, same
+  // entry point Apps Script itself would call.
+  env.resumeExportJob_({});
+  job = env.loadExportJob_(res.jobId);
+  check('still running after one more checkpointed batch (budget still -1)',
+    job.status === 'running' && job.rowsWritten > rowsAfterFirstBatch);
+  check('still exactly one pending trigger (old one cleared, new one scheduled)',
+    env.fakeTriggers.length === 1);
+
+  // Now let it actually finish: raise the budget back up so the next
+  // resume runs the loop to completion in one go.
+  env.EXPORTJOB_TIME_BUDGET_MS = 270 * 1000;
+  env.resumeExportJob_({});
+  job = env.loadExportJob_(res.jobId);
+  check('finishes once the time budget allows it', job.status === 'done');
+  check('all rows eventually written', job.rowsWritten === job.totalRows);
+  check('no trigger left pending after completion', env.fakeTriggers.length === 0);
+
+  // The written grid should be identical to what the synchronous XLSX
+  // path (ExportSheet.gs) would have produced for the same data — the
+  // checkpointed writer must not drop, duplicate, or reorder rows.
+  const buckets = env.bucketOrdersForExport_(
+    env.filteredOrderRowsForUser_(admin, env.computeOrderFilters_(admin, {}, env.readPublicConfig_())),
+    'orderDate');
+  const expectedRows = env.buildExportRows_(admin, buckets);
+  const expectedGrid = env.buildExportGrid_(expectedRows).grid;
+  const actualGrid = readFakeGrid(env, job.tempSheetId);
+  eq('checkpointed write produces the exact same grid as a synchronous build', actualGrid, expectedGrid);
+}
+
+/* ---------- 4. resuming a job that isn't 'running' is a safe no-op ---------- */
+console.log('\n4. resumeExportJob_ on an already-finished or missing job does nothing harmful');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  const doneJob = env.loadExportJob_(res.jobId);
+  check('sanity: job finished inline', doneJob.status === 'done');
+
+  // Manually stage a pending-resume pointer at a done job (as if a stale
+  // trigger fired late) and confirm resumeExportJob_ doesn't reopen it.
+  env.PropertiesService.getScriptProperties().setProperty('EXPORTJOB_PENDING_RESUME', res.jobId);
+  env.resumeExportJob_({});
+  const stillDone = env.loadExportJob_(res.jobId);
+  check('job already done stays done, is not reprocessed', stillDone.status === 'done' && stillDone.rowsWritten === doneJob.rowsWritten);
+
+  // No pending-resume property, and/or an unknown job id — must not throw.
+  let threw = false;
+  try { env.resumeExportJob_({}); } catch (e) { threw = true; }
+  check('resuming with nothing pending does not throw', !threw);
+
+  env.PropertiesService.getScriptProperties().setProperty('EXPORTJOB_PENDING_RESUME', 'no-such-job');
+  threw = false;
+  try { env.resumeExportJob_({}); } catch (e) { threw = true; }
+  check('resuming an unknown job id does not throw', !threw);
+}
+
+/* ---------- 5. an error mid-job is captured on the job record, not swallowed silently ---------- */
+console.log('\n5. an error during a resumed batch is caught and recorded as status "error"');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { export: true });
+  makeOrders(env, admin, 6);
+
+  env.EXPORTJOB_ROWS_PER_BATCH = 2;
+  env.EXPORTJOB_TIME_BUDGET_MS = -1;
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  let job = env.loadExportJob_(res.jobId);
+  check('sanity: checkpointed (not finished inline)', job.status === 'running');
+
+  // Break the temp spreadsheet id on the job record so the resume path's
+  // SpreadsheetApp.openById throws — simulating e.g. the temp file having
+  // gone missing between checkpoints.
+  job.tempSheetId = 'does-not-exist';
+  env.saveExportJob_(job);
+  env.PropertiesService.getScriptProperties().setProperty('EXPORTJOB_PENDING_RESUME', res.jobId);
+
+  env.resumeExportJob_({});
+  const failed = env.loadExportJob_(res.jobId);
+  check('job status becomes "error"', failed.status === 'error');
+  check('error message captured on the job record', typeof failed.error === 'string' && failed.error.length > 0);
+  check('no trigger left pending after a failure', env.fakeTriggers.length === 0);
+}
+
+/* ---------- 6. permission/visibility gating survives checkpoint + resume unchanged ---------- */
+console.log('\n6. a price-blind user\'s money-blindness holds across every checkpointed batch, not just the first');
+{
+  const env = H.makeEnv();
+  const blind = user('blind@x.com', {
+    export: true, view_all_orders: true,
+    visible_fields: ['customer', 'orderDate', 'status', 'description', 'qty', 'uom']
+  });
+  for (let i = 0; i < 9; i++) {
+    env.actionCreateOrder_(blind, {
+      order: order({ po: 'PO' + i }),
+      lines: [line({ description: 'Dòng ' + i })]
+    });
+  }
+
+  // Small batches, exhausted budget — forces at least 2 checkpoints so a
+  // regression like "the resumed batch used a different/incomplete user
+  // object" (exactly what section 3 caught during this task's own build,
+  // before job.user was stored/reused verbatim) would show up as money
+  // leaking back in on the later rows.
+  env.EXPORTJOB_ROWS_PER_BATCH = 3;
+  env.EXPORTJOB_TIME_BUDGET_MS = -1;
+  const res = env.startExportJob_(blind, {}, 'xlsx');
+  let job = env.loadExportJob_(res.jobId);
+  check('sanity: checkpointed at least once', job.status === 'running');
+
+  while (job.status === 'running') {
+    env.PropertiesService.getScriptProperties().setProperty('EXPORTJOB_PENDING_RESUME', res.jobId);
+    if (job.rowsWritten > 3) env.EXPORTJOB_TIME_BUDGET_MS = 270 * 1000; // let the last leg finish
+    env.resumeExportJob_({});
+    job = env.loadExportJob_(res.jobId);
+  }
+  check('job eventually completes', job.status === 'done');
+
+  const grid = readFakeGrid(env, job.tempSheetId);
+  const dataRows = grid.slice(2, grid.length - 1); // skip header + THÁNG row + trailing DOANH SỐ row
+  check('every data row has 9 line rows written', dataRows.length === 9);
+  const moneyCols = [4, 7, 8]; // ĐƠN GIÁ, THÀNH TIỀN, TRỊ GIÁ HĐ (0-indexed)
+  const anyMoneyLeaked = dataRows.some(r => moneyCols.some(c => r[c] !== '' && r[c] !== undefined));
+  check('no money value appears on ANY row, first batch or later', !anyMoneyLeaked);
+  const totalRow = grid[grid.length - 1];
+  check('DOANH SỐ total row also has no figures for a price-blind user', totalRow[8] === '');
+}
+
+/* ---------- 7. actionStartExportJob_ / actionExportJobStatus_ (4.5.2 action layer) ---------- */
+console.log('\n7. actionStartExportJob_ validates format and requires export permission');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  throws('rejects a missing format', () => env.actionStartExportJob_(admin, {}));
+  throws('rejects an unrecognized format', () => env.actionStartExportJob_(admin, { format: 'csv' }));
+
+  const noExport = user('b@x.com', { export: false });
+  throws('refused without export permission', () => env.actionStartExportJob_(noExport, { format: 'xlsx' }));
+
+  const res = env.actionStartExportJob_(admin, { format: 'xlsx' });
+  check('starts successfully with a valid format + permission', typeof res.jobId === 'string');
+  check('status is done for this small job', res.status === 'done');
+}
+
+console.log('\n8. actionExportJobStatus_ reports progress and is scoped to the job\'s own creator');
+{
+  const env = H.makeEnv();
+  const admin = user('owner@x.com', { export: true });
+  const other = user('other@x.com', { export: true });
+  makeOrders(env, admin, 9);
+
+  env.EXPORTJOB_ROWS_PER_BATCH = 3;
+  env.EXPORTJOB_TIME_BUDGET_MS = -1;
+  const started = env.actionStartExportJob_(admin, { format: 'pdf' });
+  check('sanity: checkpointed, not finished inline', started.status === 'running');
+
+  const status = env.actionExportJobStatus_(admin, { jobId: started.jobId });
+  check('status shape: jobId matches', status.jobId === started.jobId);
+  check('status shape: status is running', status.status === 'running');
+  check('status shape: rowsWritten is a positive number less than totalRows',
+    status.rowsWritten > 0 && status.rowsWritten < status.totalRows);
+  check('status shape: format carried through', status.format === 'pdf');
+  check('status shape: error is null while running', status.error === null);
+  check('status response never leaks the job\'s stored filter payload', status.payload === undefined);
+  check('status response never leaks the job\'s stored user object', status.user === undefined);
+
+  throws('another user cannot poll someone else\'s job',
+    () => env.actionExportJobStatus_(other, { jobId: started.jobId }),
+    'Không tìm thấy');
+  throws('polling an unknown jobId fails the same way (no existence leak)',
+    () => env.actionExportJobStatus_(admin, { jobId: 'no-such-job' }),
+    'Không tìm thấy');
+  throws('polling with no jobId at all fails the same way',
+    () => env.actionExportJobStatus_(admin, {}),
+    'Không tìm thấy');
+
+  // Reset the budget and let the job actually finish, then confirm the
+  // status action reflects the final state — this is what the client's
+  // polling loop is watching for to stop polling and move on to 4.5.3's
+  // delivery step.
+  env.PropertiesService.getScriptProperties().setProperty('EXPORTJOB_PENDING_RESUME', started.jobId);
+  env.EXPORTJOB_TIME_BUDGET_MS = 270 * 1000;
+  env.resumeExportJob_({});
+  const finalStatus = env.actionExportJobStatus_(admin, { jobId: started.jobId });
+  check('status becomes done once the job finishes', finalStatus.status === 'done');
+  check('rowsWritten equals totalRows once done', finalStatus.rowsWritten === finalStatus.totalRows);
+}
+
+H.done();

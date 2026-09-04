@@ -145,7 +145,29 @@ var EXPORT_FILL_GROUP = '#eef2f6';   // THÁNG banner rows
 var EXPORT_FILL_TOTAL = '#f7f7f7';   // DOANH SỐ rows
 var EXPORT_BORDER_COLOR = '#d0d5dd';
 
-function writeExportRowsToSheet_(sheet, rows) {
+/**
+ * Milestone 4 / 4.5.1 refactor: writeExportRowsToSheet_ used to build the
+ * grid, write it, AND style it in one pass — fine for the synchronous
+ * XLSX/PDF path (4.3/4.4), but the large/async job path (ExportJob.gs)
+ * needs to write the grid in checkpointable SLICES while styling only
+ * needs to run once, at the very end, over the whole finished sheet.
+ * Split into three pieces so both paths share the same logic instead of
+ * two implementations drifting apart:
+ *   - buildExportGrid_    pure, builds the 2D array + bookkeeping
+ *                         (which rows are bold/group/total, which orders
+ *                         merge) from the same `rows` shape
+ *                         buildExportRows_ (Export.gs) already produces.
+ *   - writeExportGridValues_  the actual sheet.getRange().setValues()
+ *                         call — the one that's expensive/checkpointable
+ *                         for a huge export.
+ *   - applyExportGridStyles_  bold/merge/number-format/border/background/
+ *                         frozen-row/autosize — everything that must see
+ *                         the FULL grid to run correctly (e.g. the money-
+ *                         format range spans first-to-last data row).
+ * writeExportRowsToSheet_ itself is now a thin wrapper of these three,
+ * unchanged in behavior for its existing callers (withTempExportSheet_).
+ */
+function buildExportGrid_(rows) {
   var width = EXPORT_CSV_HEADER.length;
   var grid = [EXPORT_CSV_HEADER.slice()];
   var boldRowIndexes = [0]; // header
@@ -173,25 +195,45 @@ function writeExportRowsToSheet_(sheet, rows) {
     }
   });
 
-  // Always write, even with zero data rows — the header alone must still
-  // land on the sheet (caught by a test: the `> 1` guard here originally
-  // skipped setValues entirely for an empty result, leaving the temp sheet
-  // completely blank instead of "just a header").
-  sheet.getRange(1, 1, grid.length, width).setValues(grid);
+  return {
+    width: width, grid: grid,
+    boldRowIndexes: boldRowIndexes, groupHeaderRowIndexes: groupHeaderRowIndexes,
+    totalRowIndexes: totalRowIndexes, orderMerges: orderMerges, dataRowIndexes: dataRowIndexes
+  };
+}
 
-  boldRowIndexes.forEach(function (i) {
+/** Writes built.grid (from buildExportGrid_) to `sheet` starting at row 1.
+ *  Always writes, even with zero data rows — the header alone must still
+ *  land on the sheet (caught by a test: an earlier `> 1` guard here
+ *  originally skipped setValues entirely for an empty result, leaving the
+ *  temp sheet completely blank instead of "just a header"). */
+function writeExportGridValues_(sheet, built) {
+  sheet.getRange(1, 1, built.grid.length, built.width).setValues(built.grid);
+}
+
+/** Applies every visual touch (bold/merge/number-format/border/
+ *  background/frozen-row/autosize) to `sheet`, using `built`'s bookkeeping
+ *  from buildExportGrid_. Must run AFTER every row has been written
+ *  (writeExportGridValues_ or ExportJob.gs's batched equivalent) — several
+ *  of these calls (the money-format range, the full-grid border) size
+ *  themselves off built.grid.length / the full row set, not a single
+ *  batch's worth. */
+function applyExportGridStyles_(sheet, built) {
+  var width = built.width;
+
+  built.boldRowIndexes.forEach(function (i) {
     sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold');
   });
 
   // 0-indexed `i` above -> 1-indexed sheet row is i + 1 throughout below,
   // same convention as the bold loop.
-  groupHeaderRowIndexes.forEach(function (i) {
+  built.groupHeaderRowIndexes.forEach(function (i) {
     sheet.getRange(i + 1, 1, 1, width).merge();
   });
-  totalRowIndexes.forEach(function (i) {
+  built.totalRowIndexes.forEach(function (i) {
     sheet.getRange(i + 1, 1, 1, 7).merge(); // A:G blank lead-in before the DOANH SỐ label in H
   });
-  orderMerges.forEach(function (m) {
+  built.orderMerges.forEach(function (m) {
     EXPORT_MERGE_COLS.forEach(function (col) {
       sheet.getRange(m.row + 1, col, m.span, 1).merge();
     });
@@ -199,8 +241,8 @@ function writeExportRowsToSheet_(sheet, rows) {
   // Merged multi-row cells default to bottom/middle-aligned in Sheets;
   // top-align so STT/PO/KHÁCH HÀNG/TRẠNG THÁI line up with the order's
   // FIRST item line, not float to the visual center of the merged block.
-  if (orderMerges.length) {
-    orderMerges.forEach(function (m) {
+  if (built.orderMerges.length) {
+    built.orderMerges.forEach(function (m) {
       EXPORT_MERGE_COLS.forEach(function (col) {
         sheet.getRange(m.row + 1, col, m.span, 1).setVerticalAlignment('top');
       });
@@ -216,9 +258,9 @@ function writeExportRowsToSheet_(sheet, rows) {
   // numbers, so a number format on them is inert — simpler than
   // reconstructing the (possibly many) contiguous data-row sub-ranges a
   // multi-month export would otherwise need.
-  if (dataRowIndexes.length) {
-    var firstDataRow = dataRowIndexes[0] + 1;
-    var lastDataRow = dataRowIndexes[dataRowIndexes.length - 1] + 1;
+  if (built.dataRowIndexes.length) {
+    var firstDataRow = built.dataRowIndexes[0] + 1;
+    var lastDataRow = built.dataRowIndexes[built.dataRowIndexes.length - 1] + 1;
     var spanRows = lastDataRow - firstDataRow + 1;
     EXPORT_MONEY_COLS.forEach(function (col) {
       sheet.getRange(firstDataRow, col, spanRows, 1).setNumberFormat('#,##0');
@@ -228,18 +270,24 @@ function writeExportRowsToSheet_(sheet, rows) {
   // Option A styling: thin grey grid on every written cell, plus very
   // light grey fills marking header/THÁNG/DOANH SỐ rows (no brand color —
   // see EXPORT_FILL_* doc comment above).
-  var fullRange = sheet.getRange(1, 1, grid.length, width);
+  var fullRange = sheet.getRange(1, 1, built.grid.length, width);
   fullRange.setBorder(true, true, true, true, true, true, EXPORT_BORDER_COLOR, SpreadsheetApp.BorderStyle.SOLID);
   sheet.getRange(1, 1, 1, width).setBackground(EXPORT_FILL_HEADER);
-  groupHeaderRowIndexes.forEach(function (i) {
+  built.groupHeaderRowIndexes.forEach(function (i) {
     sheet.getRange(i + 1, 1, 1, width).setBackground(EXPORT_FILL_GROUP);
   });
-  totalRowIndexes.forEach(function (i) {
+  built.totalRowIndexes.forEach(function (i) {
     sheet.getRange(i + 1, 1, 1, width).setBackground(EXPORT_FILL_TOTAL);
   });
 
   sheet.setFrozenRows(1);
   sheet.autoResizeColumns(1, width);
+}
+
+function writeExportRowsToSheet_(sheet, rows) {
+  var built = buildExportGrid_(rows);
+  writeExportGridValues_(sheet, built);
+  applyExportGridStyles_(sheet, built);
 }
 
 function padRow_(cells, width) {

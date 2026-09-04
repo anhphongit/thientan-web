@@ -46,6 +46,35 @@ var EXPORT_NO_INVOICE_KEY = '(no-invoice)';
 var EXPORT_NO_INVOICE_LABEL = 'CHƯA XUẤT HÓA ĐƠN';
 
 /**
+ * Milestone 4 / 4.5.2 (revised 2026-09-04 — Phong: count order LINES, not
+ * orders, and make it config-driven) — order LINE count above which the
+ * client switches XLSX/PDF export to the checkpointed job+polling path
+ * (ExportJob.gs) instead of the plain synchronous exportOrdersXlsx/Pdf
+ * actions. Order lines, not orders: ExportJob.gs's batching/checkpointing
+ * operates on SHEET ROWS, and this project writes one export row per
+ * order LINE (buildExportRows_ — true for both the order-date and
+ * invoice-date basis, since bucketByInvoiceDate_ also sub-groups by
+ * order but still emits one row per line), so line count is what
+ * actually predicts export time; a handful of orders with many lines
+ * each can take just as long as many single-line orders, and order count
+ * alone would miss that.
+ *
+ * Config-driven (`exportLargeThreshold` in CONFIG_DEFAULTS, Config.gs —
+ * default '500'), not a hardcoded constant, so an admin can retune it
+ * from the Config sheet without a code deploy. Not enforced server-side —
+ * the server accepts either export path for any size; this is purely the
+ * signal the CLIENT uses to automatically choose which action to call
+ * (ViewsOrders.html's doExportCsv). CSV never checks this — plain string
+ * building has no timeout risk the way the temp-Sheet + Drive-export-URL
+ * round trip does (see EXCEL_REFERENCE research notes above Milestone 4's
+ * task table).
+ */
+function exportLargeThreshold_(config) {
+  var n = parseInt(config && config.exportLargeThreshold, 10);
+  return (n > 0) ? n : 500;
+}
+
+/**
  * @param {Object} payload same filter shape as listOrders's payload
  *   (month/dateFrom/dateTo, customer, status, createdBy, approveStatus, q),
  *   plus `basis`: 'orderDate' (default) or 'invoiceDate'.

@@ -217,6 +217,30 @@ function apiExportOrdersPdf(payload) {
   });
 }
 
+/** Milestone 4 / 4.5.2 — starts a checkpointed XLSX/PDF export job for a
+ *  large filtered order set. Same filter/basis payload shape as
+ *  apiExportOrdersXlsx, plus `format`: 'xlsx' or 'pdf'. Returns
+ *  {jobId, status} — status is 'done' if the job happened to finish
+ *  inline (a job that turned out smaller than expected), or 'running' if
+ *  the client should start polling apiExportJobStatus(jobId).
+ *  @param {Object} payload */
+function apiStartExportJob(payload) {
+  return handle_('apiStartExportJob', function () {
+    return apiCall_('startExportJob', payload || {});
+  });
+}
+
+/** Milestone 4 / 4.5.2 — polls one export job's progress. Scoped to the
+ *  calling user's own job server-side (ExportJob.gs's
+ *  actionExportJobStatus_) — polling someone else's jobId or an
+ *  unknown/expired one returns the same "not found" error either way.
+ *  @param {string} jobId */
+function apiExportJobStatus(jobId) {
+  return handle_('apiExportJobStatus', function () {
+    return apiCall_('exportJobStatus', { jobId: jobId });
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {
