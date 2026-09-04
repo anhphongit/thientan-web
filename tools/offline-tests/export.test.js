@@ -21,6 +21,22 @@ function rows(csv) {
   return csv.replace(/^﻿/, '').split('\r\n').map(r => r.split(','));
 }
 
+/** Attaches an invoice to a specific line (by lineNo) of an order — writes
+ *  an Invoices row, then stamps invoiceId directly onto the OrderLines row
+ *  via updateRecord_ (bypassing any invoicing action/UI, which doesn't
+ *  exist yet — this is purely for exercising bucketByInvoiceDate_). */
+function attachInvoice(env, orderId, lineNo, invoiceDate, invoiceNo) {
+  const invoiceId = 'inv-' + orderId + '-' + lineNo + '-' + Math.random().toString(36).slice(2, 7);
+  env.appendRecord_('Invoices', {
+    invoiceId: invoiceId, invoiceNo: invoiceNo || ('HD' + lineNo), invoiceDate: invoiceDate,
+    customer: '', note: '', createdBy: '', createdAt: new Date()
+  });
+  const line = env.readAll_('OrderLines').find(l => l.orderId === orderId && Number(l.lineNo) === Number(lineNo));
+  if (!line) throw new Error('attachInvoice: no line ' + lineNo + ' on order ' + orderId);
+  env.updateRecord_('OrderLines', line._row, { invoiceId: invoiceId });
+  return invoiceId;
+}
+
 /* ---------- 1. permission enforcement ---------- */
 console.log('\n1. export requires the export permission');
 {
@@ -197,6 +213,90 @@ console.log('\n10. an order with zero lines still produces a row (STT/PO only)')
 
   const res = env.actionExportOrdersCsv_(admin, {});
   check('zero-line order still appears with its PO', res.csv.indexOf('PO-EMPTY') >= 0);
+}
+
+/* ---------- 11. invoice-date basis: default stays order-date ---------- */
+console.log('\n11. basis defaults to order-date when payload.basis is absent/unknown');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-20' }), lines: [line()] });
+
+  const resDefault = env.actionExportOrdersCsv_(admin, {});
+  const resJunk = env.actionExportOrdersCsv_(admin, { basis: 'bogus' });
+  check('no basis -> THÁNG 8 (order date)', resDefault.csv.indexOf('THÁNG 8') >= 0);
+  check('unknown basis -> falls back to order date', resJunk.csv.indexOf('THÁNG 8') >= 0);
+}
+
+/* ---------- 12. invoice-date basis: single order, single invoice ---------- */
+console.log('\n12. invoice-date basis buckets a fully-invoiced order by its invoice month');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-20' }), lines: [line()] });
+  const created = env.readAll_('Orders')[0];
+  attachInvoice(env, created.orderId, 1, '2026-09-05');
+
+  const res = env.actionExportOrdersCsv_(admin, { basis: 'invoiceDate' });
+  check('bucketed under THÁNG 9 (invoice month), not THÁNG 8 (order month)',
+    res.csv.indexOf('THÁNG 9') >= 0 && res.csv.indexOf('THÁNG 8') < 0);
+}
+
+/* ---------- 13. invoice-date basis: a split order appears in two buckets ---------- */
+console.log('\n13. invoice-date basis: one order split across two invoice months');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, {
+    order: order({ orderDate: '2026-08-20' }),
+    lines: [line({ description: 'Dòng A' }), line({ description: 'Dòng B' })]
+  });
+  const created = env.readAll_('Orders')[0];
+  attachInvoice(env, created.orderId, 1, '2026-08-28');
+  attachInvoice(env, created.orderId, 2, '2026-09-03');
+
+  const res = env.actionExportOrdersCsv_(admin, { basis: 'invoiceDate' });
+  const allRows = rows(res.csv);
+  const rowA = allRows.filter(r => r[3] === 'Dòng A')[0];
+  const rowB = allRows.filter(r => r[3] === 'Dòng B')[0];
+  check('both months present', res.csv.indexOf('THÁNG 8') >= 0 && res.csv.indexOf('THÁNG 9') >= 0);
+  check('Dòng A carries the order\'s PO/STT (first line of its bucket)', rowA[0] === '1' && rowA[1] === created.po);
+  check('Dòng B ALSO carries STT/PO (first line of ITS OWN bucket, a separate orderGroup)',
+    rowB[0] === '1' && rowB[1] === created.po);
+}
+
+/* ---------- 14. invoice-date basis: unbilled line goes to the "no invoice" bucket ---------- */
+console.log('\n14. invoice-date basis: unbilled line -> dedicated no-invoice bucket, sub-grouped by order');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-20' }), lines: [line()] });
+
+  const res = env.actionExportOrdersCsv_(admin, { basis: 'invoiceDate' });
+  check('no-invoice bucket label present', res.csv.indexOf('CHƯA XUẤT HÓA ĐƠN') >= 0);
+  const allRows = rows(res.csv);
+  const dataRow = allRows.filter(r => r[3] === 'Ống nhựa PVC 90')[0];
+  check('the unbilled line still shows PO/STT (its own orderGroup)', dataRow[0] === '1' && dataRow[1] === env.readAll_('Orders')[0].po);
+}
+
+/* ---------- 15. invoice-date basis: DOANH SỐ totals split correctly per bucket ---------- */
+console.log('\n15. invoice-date basis: revenue totals are attributed per bucket, not per order');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true });
+  env.actionCreateOrder_(admin, {
+    order: order({ orderDate: '2026-08-20' }),
+    lines: [line({ description: 'Dòng A', unitPrice: 100000, qty: 1, amountExVat: 100000, amountIncVat: 108000 }),
+            line({ description: 'Dòng B', unitPrice: 200000, qty: 1, amountExVat: 200000, amountIncVat: 216000 })]
+  });
+  const created = env.readAll_('Orders')[0];
+  attachInvoice(env, created.orderId, 1, '2026-08-28');
+  attachInvoice(env, created.orderId, 2, '2026-09-03');
+
+  const res = env.actionExportOrdersCsv_(admin, { basis: 'invoiceDate' });
+  const body = res.csv.replace(/^﻿/, '');
+  check('THÁNG 8 total reflects only Dòng A (100,000)', body.indexOf('DOANH SỐ THÁNG 8,100.000 / 108.000') >= 0);
+  check('THÁNG 9 total reflects only Dòng B (200,000)', body.indexOf('DOANH SỐ THÁNG 9,200.000 / 216.000') >= 0);
 }
 
 console.log('\n' + H.check.name); // no-op keeps `check` referenced if unused elsewhere

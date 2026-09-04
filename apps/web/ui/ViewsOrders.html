@@ -31,7 +31,7 @@
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     // Milestone 4 / 4.1 — CSV export in flight (disables the button + swaps
     // its label while the server builds/returns the CSV).
-    exporting: false,
+exporting: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
     // Milestone 3 / 3.2-3.3 — server-side filters. '' means "no filter" for
     // each field; they combine as AND. Kept separate from the list cache:
@@ -771,9 +771,142 @@
    */
   function doExportCsv() {
     if (state.exporting) return;
+    openExportDialog().then(function (choice) {
+      if (!choice || !choice.ok) return;
+      runExportCsv(choice.basis);
+    });
+  }
+
+  /**
+   * Milestone 4 / 4.2 revision (2026-09-03, "Option B2" of the reviewed
+   * mockups) — export-options dialog. Shows the filters currently applied
+   * to the list (activeFilterChips(), same data the filter-bar chips use),
+   * then two radio choices: date basis (order date / invoice date — an
+   * inline hint appears under "Ngày hóa đơn" explaining the per-line
+   * month-split behavior only once it's selected, not unconditionally)
+   * and file format (CSV only for now; XLSX/PDF, 4.3/4.4, add rows here
+   * rather than a new dialog).
+   *
+   * Bespoke modal (#export-modal, ui/Index.html) rather than TT.confirm():
+   * that popup's shape (title/message/one optional textarea) has no room
+   * for live radio groups or a conditionally-shown block. Resolves
+   * {ok:true, basis} on "Xuất file", {ok:false} on cancel/backdrop/Escape —
+   * same ok-flag shape as TT.confirm() so doExportCsv() above reads it the
+   * same way every other confirm-then-act flow in this file does.
+   */
+  function openExportDialog() {
+    return new Promise(function (resolve) {
+      var modal = document.getElementById('export-modal');
+      var body = document.getElementById('export-modal-body');
+      var chips = activeFilterChips();
+      var count = (state.ordersMeta && state.ordersMeta.total != null)
+        ? state.ordersMeta.total : state.orders.length;
+
+      body.innerHTML = '' +
+        '<div class="confirm-band">' +
+          '<span class="confirm-icon">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+            '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>' +
+            '</svg>' +
+          '</span>' +
+          '<h2 id="export-modal-title">Xuất danh sách đơn hàng</h2>' +
+        '</div>' +
+        '<div class="export-section">' +
+          '<span class="export-section-label">Đang áp dụng bộ lọc</span>' +
+          '<div class="export-chips">' +
+            (chips.length ? chips.map(function (c) {
+              return '<span class="export-chip">' + T.esc(c.label) + '</span>';
+            }).join('') : '<span class="export-chip export-chip--muted">Không có bộ lọc nào</span>') +
+            '<span class="export-chip export-chip--muted">' + count + ' đơn</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="export-divider"></div>' +
+        '<div class="export-section">' +
+          '<span class="export-section-label">Nhóm theo tháng dựa trên</span>' +
+          '<div class="export-rlist">' +
+            '<label class="export-rrow">' +
+              '<input type="radio" name="export-basis" value="orderDate" checked>' +
+              '<span><span class="rmain">Ngày đặt hàng</span>' +
+              '<span class="rsub">Khớp với file mẫu hiện tại — mặc định</span></span>' +
+            '</label>' +
+            '<label class="export-rrow">' +
+              '<input type="radio" name="export-basis" value="invoiceDate">' +
+              '<span><span class="rmain">Ngày hóa đơn</span></span>' +
+            '</label>' +
+          '</div>' +
+          '<div id="export-basis-hint" class="export-hint" hidden>' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"></path>' +
+            '<path d="M12 17h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>' +
+            '<span>Nếu chọn mục này: 1 đơn có nhiều dòng xuất hóa đơn khác tháng sẽ hiện tách ra ở từng ' +
+            'tháng tương ứng, dòng chưa có hóa đơn sẽ gộp vào mục riêng "Chưa xuất hóa đơn".</span>' +
+          '</div>' +
+          '<span class="export-section-label">Định dạng file</span>' +
+          '<div class="export-rlist">' +
+            '<label class="export-rrow">' +
+              '<input type="radio" name="export-format" value="csv" checked>' +
+              '<span><span class="rmain">CSV</span>' +
+              '<span class="rsub">Mở được bằng Excel, Google Sheets</span></span>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="confirm-actions">' +
+          '<button type="button" class="btn" data-export-choice="cancel">Huỷ</button>' +
+          '<button type="button" class="btn btn-ok" data-export-choice="ok">Xuất file</button>' +
+        '</div>';
+
+      var hint = document.getElementById('export-basis-hint');
+      function syncHint() {
+        var picked = body.querySelector('input[name="export-basis"]:checked');
+        hint.hidden = !picked || picked.value !== 'invoiceDate';
+      }
+      // Bug fix, 2026-09-03 (Phong live-tested: hint stayed visible under
+      // BOTH radio choices) — the CSS side is fixed too (.export-hint[hidden],
+      // Styles.html), but sync once up front regardless so the hint is
+      // never wrong for the first render, whatever the default checked
+      // radio ends up being.
+      syncHint();
+
+      function finish(result, basis) {
+        modal.classList.add('hidden');
+        modal.removeEventListener('click', onClick);
+        modal.removeEventListener('change', onChangeLocal);
+        document.removeEventListener('keydown', onKeydown);
+        resolve(result ? { ok: true, basis: basis } : { ok: false });
+      }
+      function onClick(e) {
+        var choice = e.target.closest && e.target.closest('[data-export-choice]');
+        if (choice) {
+          if (choice.getAttribute('data-export-choice') === 'ok') {
+            var basisEl = body.querySelector('input[name="export-basis"]:checked');
+            finish(true, basisEl ? basisEl.value : 'orderDate');
+          } else {
+            finish(false);
+          }
+          return;
+        }
+        if (e.target === modal) finish(false); // click on the dimmed backdrop = cancel
+      }
+      function onChangeLocal(e) {
+        if (e.target && e.target.name === 'export-basis') syncHint();
+      }
+      function onKeydown(e) {
+        if (e.key === 'Escape') finish(false);
+      }
+
+      modal.addEventListener('click', onClick);
+      modal.addEventListener('change', onChangeLocal);
+      document.addEventListener('keydown', onKeydown);
+      modal.classList.remove('hidden');
+    });
+  }
+
+  function runExportCsv(basis) {
     state.exporting = true;
     paintList();
-    T.call('apiExportOrdersCsv', listPayload(1))
+    var payload = listPayload(1);
+    payload.basis = basis;
+    T.call('apiExportOrdersCsv', payload)
       .then(function (res) {
         state.exporting = false;
         paintList();
@@ -905,6 +1038,21 @@
    * one filter (`month`) even though they're two dropdowns.
    */
   function chipsHtml() {
+    var chips = activeFilterChips();
+    if (!chips.length) return '';
+    return '<div class="chip-row">' + chips.map(function (c) {
+      return '<span class="chip">' + T.esc(c.label) +
+        '<button type="button" data-act="remove-filter" data-key="' + c.key + '" aria-label="Bỏ lọc ' + T.esc(c.label) + '">✕</button>' +
+      '</span>';
+    }).join('') + '</div>';
+  }
+
+  /** Same {key, label} pairs chipsHtml() renders as removable filter-bar
+   *  chips — extracted so the export dialog (Milestone 4 / 4.2 revision)
+   *  can show the exact same "what's currently applied" summary without
+   *  the ✕ buttons, instead of maintaining a second description of what
+   *  counts as an active filter. */
+  function activeFilterChips() {
     var chips = [];
     if (state.filters.month) {
       var parts = state.filters.month.split('-');
@@ -926,12 +1074,7 @@
     if (state.filters.approveStatus) {
       chips.push({ key: 'approveStatus', label: approveStatusLabel(state.filters.approveStatus) });
     }
-    if (!chips.length) return '';
-    return '<div class="chip-row">' + chips.map(function (c) {
-      return '<span class="chip">' + T.esc(c.label) +
-        '<button type="button" data-act="remove-filter" data-key="' + c.key + '" aria-label="Bỏ lọc ' + T.esc(c.label) + '">✕</button>' +
-      '</span>';
-    }).join('') + '</div>';
+    return chips;
   }
 
   /** Milestone 3 / 3.3. Empty option is always "Tất cả khách hàng" — unlike

@@ -198,6 +198,51 @@
   .confirm-actions { display: flex; gap: 8px; padding: 0 20px 20px; }
   .confirm-actions .btn { flex: 1 1 0; }
 
+  /* Milestone 4 / 4.2 revision — export-options dialog (#export-modal,
+     ViewsOrders.html's openExportDialog()). Reuses .confirm-modal-card's
+     band/icon/actions look; the body below the band is bespoke (filter
+     chips, two radio lists, a conditional hint box) since TT.confirm()'s
+     fixed shape has no room for live, interactive content. */
+  .export-modal-card { max-width: 380px; }
+  .export-section { padding: 0 20px 4px; text-align: left; }
+  .export-section-label {
+    display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--c-muted); margin: 0 0 8px;
+  }
+  .export-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .export-chip {
+    font-size: 11px; background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 999px; padding: 4px 10px; font-weight: 600;
+  }
+  .export-chip--muted { background: var(--c-bg); color: var(--c-muted); }
+  .export-divider { height: 1px; background: var(--c-border); margin: 4px 20px 14px; }
+
+  .export-rlist { border: 1px solid var(--c-border); border-radius: var(--r); overflow: hidden; margin: 0 0 14px; }
+  .export-rrow {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+    font-size: 13px; cursor: pointer;
+  }
+  .export-rrow:not(:last-child) { border-bottom: 1px solid var(--c-border); }
+  .export-rrow input[type=radio] { accent-color: var(--c-brand); width: 16px; height: 16px; margin-top: 1px; flex: none; }
+  .export-rrow .rmain { font-weight: 600; }
+  .export-rrow .rsub { color: var(--c-muted); font-size: 11.5px; display: block; margin-top: 2px; line-height: 1.5; }
+  .export-rrow.is-disabled { opacity: .45; cursor: not-allowed; }
+  .export-rrow-soon {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    background: var(--c-bg); color: var(--c-muted); border-radius: 5px; padding: 1px 5px; margin-left: 6px;
+  }
+  .export-hint {
+    background: var(--c-brand-soft); border-radius: 8px; padding: 8px 10px;
+    font-size: 11.5px; color: var(--c-brand); margin: -6px 0 14px; line-height: 1.5;
+    display: flex; gap: 6px;
+  }
+  /* Bug fix, 2026-09-03 (Phong live-tested: hint showed under BOTH radio
+     choices, never actually hid) — the class's own `display: flex` above
+     out-specifies the `hidden` attribute's UA-stylesheet `display: none`,
+     so toggling the attribute alone did nothing. This rule wins instead. */
+  .export-hint[hidden] { display: none; }
+  .export-hint svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+
   .switch-input {
     flex: 1; min-width: 0;
     font: inherit; font-size: 14px;

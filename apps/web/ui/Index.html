@@ -106,6 +106,27 @@
     </div>
   </div>
 
+  <!--
+    Milestone 4 / 4.2 revision (2026-09-03, "Option B2" of the reviewed
+    mockups) — export-options dialog. Replaces the toolbar toggle: "Xuất
+    CSV" now opens this instead of exporting immediately. Shows the
+    filters currently applied to the list, then the date-basis choice
+    (order date / invoice date, with an inline warning that only appears
+    when invoice date is selected) and the file-format choice (CSV only
+    for now; XLSX/PDF rows in 4.3/4.4 slot in here, not a new dialog).
+    Custom-built rather than reusing TT.confirm() — that popup's shape
+    (title/message/optional textarea) has no room for live radio groups
+    or a conditional hint block. Filled in and shown by
+    ViewsOrders.html's openExportDialog(); resolves the same
+    Promise<{ok,basis}|{ok:false}> shape as TT.confirm() for its caller.
+  -->
+  <div id="export-modal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="export-modal-title">
+    <div class="modal-card confirm-modal-card export-modal-card">
+      <div id="export-modal-body"></div>
+    </div>
+  </div>
+
   <?!= include_('ui/ViewsOrders'); ?>
   <?!= include_('ui/App'); ?>
 </body>

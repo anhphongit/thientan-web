@@ -1082,7 +1082,7 @@ any of this is built, so no task should hit an open question mid-work.
 | # | Task | Status |
 |---|------|--------|
 | 4.1 | CSV export — filtered list, order-date grouping, `EXCEL_REFERENCE.md` §7 layout | ☑ |
-| 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☐ |
+| 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☑ |
 | 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☐ |
 | 4.4 | PDF export (same temp-Sheet, PDF print params) | ☐ |
 | 4.5 | Async/large-export infra — checkpoint+retrigger, status polling, Drive+email delivery, retention cleanup | ☐ |
@@ -1197,3 +1197,103 @@ handling. Full suite: 522/522 passing
 crud 54, filter 60, permissions 116, ui 83).
 
 `BUILD`: `api-2026-09-03f-exportcsv` / `web-2026-09-03e-exportcsv`.
+
+## Milestone 4, task 4.2 — export month-basis toggle (built 2026-09-03)
+
+Adds `payload.basis` (`'orderDate'` default, or `'invoiceDate'`) to
+`exportOrdersCsv`, plus the shared bucketing function
+`bucketOrdersForExport_` (`apps/api/Export.gs`) that both 4.1's order-date
+grouping and this task's invoice-date grouping now go through — the
+single place export (and later, 4.6 stats) decides which month bucket a
+line's revenue belongs to.
+
+**order-date basis** (unchanged from 4.1): one bucket per order's
+`orderDate` month, an order's lines stay together regardless of invoice
+status.
+
+**invoice-date basis** (new): bucketed per LINE, not per order —
+`invoiceId` lives on `OrderLines` (`DATA_MODEL.md` §4), so a single order
+can have lines invoiced in different months. Each bucket sub-groups its
+lines by order (an order can legitimately produce an orderGroup in more
+than one month bucket — verified in test 13, "Dòng A"/"Dòng B" of the
+same order land in THÁNG 8 and THÁNG 9 respectively, each carrying its
+own STT/PO as the first line of its own bucket-local orderGroup). Lines
+with no invoice go into a dedicated `CHƯA XUẤT HÓA ĐƠN` bucket, sorted
+last, also sub-grouped by order (Phong's answer, 2026-09-03) — never
+spread across months or dropped. `DOANH SỐ` totals are computed per
+bucket, so a split order's revenue is correctly divided between its
+buckets (test 15) rather than double-counted or attributed to one month.
+
+An unrecognized/missing `basis` value falls back to `orderDate` rather
+than erroring — matches the reference file and never breaks on a stale
+client.
+
+**Client UI**: a "Theo ngày đặt / Theo ngày hóa đơn" `<select>` next to
+the "Xuất CSV" button on the orders list (`ViewsOrders.html`), read live
+at export time (same pattern as the month/year filter selects) and sent
+as `payload.basis`.
+
+Tests: `tools/offline-tests/export.test.js` extended with 5 new sections
+(11–15): basis defaults/falls back to order-date; a fully-invoiced order
+buckets by its invoice month; a split order produces two orderGroups in
+two different month buckets, each with its own STT/PO; an unbilled line
+lands in the no-invoice bucket; and per-bucket revenue totals are
+attributed correctly for a split order. 33 → 43 assertions in this file.
+Full suite: 532/532 passing (export 43, approvestatus-ui 51,
+approvestatus 97, changestatus 28, crud 54, filter 60, permissions 116,
+ui 83).
+
+`BUILD`: `api-2026-09-03g-exportbasis` / `web-2026-09-03f-exportbasis`.
+
+## Milestone 4, task 4.2 — UI revision: export-options dialog (2026-09-03)
+
+Phong's review of the shipped 4.2 toolbar toggle: "UI is not good, lets
+move toggle approach to options confirm when export... show me some UI
+options to choose first." 4 initial layouts sketched (segmented control,
+radio list, plain dropdowns, full-filter-summary) — Phong picked the
+radio-list direction ("Option 2"), then 4 more variants of it (icons,
+inline warning, 2-column, full-row-clickable). Picked: **B2** — filters
+shown as chips at the top, a divider, then the two radio groups, with an
+inline warning box that appears under "Ngày hóa đơn" only once it's
+selected (explaining the per-line month-split behavior at the moment
+it's relevant, not as unconditional subtext).
+
+Replaces the `<select>` toggle next to "Xuất CSV" entirely: the button now
+opens a dedicated `#export-modal` (`ui/Index.html`) — a bespoke dialog,
+not `TT.confirm()` (that popup's shape has no room for live radio groups
+or a conditionally-shown block). Shows `activeFilterChips()` (the same
+{key,label} data the filter-bar's own removable chips use — extracted
+from `chipsHtml()` so the two never describe "what's an active filter"
+differently), an order-count chip, then:
+- **Nhóm theo tháng dựa trên**: Ngày đặt hàng (default) / Ngày hóa đơn,
+  the latter revealing an inline hint box on selection.
+- **Định dạng file**: CSV only for now — XLSX/PDF (4.3/4.4) add rows here
+  rather than a new dialog.
+
+`openExportDialog()` resolves `{ok:true, basis}` / `{ok:false}`, same
+ok-flag shape as `TT.confirm()`; `doExportCsv()` now opens the dialog
+first and only calls the export (`runExportCsv(basis)`, previously
+`doExportCsv`'s body) if confirmed. No server-side change — `basis` still
+flows through the same `apiExportOrdersCsv` payload field from 4.2's
+first pass.
+
+No new offline tests (this is a client-only UI change; the underlying
+`bucketOrdersForExport_`/`actionExportOrdersCsv_` behavior it drives is
+already covered by `export.test.js`'s 43 assertions). Syntax-checked via
+`node --check` on the extracted script block.
+
+`BUILD`: `web-2026-09-03g-exportdialog` (api unchanged, still
+`api-2026-09-03g-exportbasis`).
+
+### Bug fix 2026-09-03 — export dialog hint never actually hid
+
+Phong live-tested and screenshotted: the "Ngày hóa đơn" hint box showed
+under BOTH radio choices, unchanged either way. Root cause: `.export-hint`
+(Styles.html) sets `display: flex` directly on the class — a stylesheet
+rule beats the native `hidden` attribute's UA-stylesheet `display: none`,
+so toggling `hint.hidden` in JS did nothing visually. Fixed with an
+explicit `.export-hint[hidden] { display: none; }` override, plus calling
+`syncHint()` once at dialog-open time (not just on `change`) so the first
+render is correct regardless of which radio starts checked.
+
+`BUILD`: `web-2026-09-03h-exportdialogfix`.
