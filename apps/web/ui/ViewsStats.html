@@ -1,9 +1,338 @@
 <!--
   ViewsStats.html — revenue statistics and charts.
 
-  STATUS: stub. No implementation yet. Built in Milestone 4.
+  Milestone 4 / 4.7.1 (2026-09-04, "Option A" of the reviewed mockups,
+  revised after live feedback): basis toggle (order date / invoice date,
+  mirrors the export dialog), period pills (tuần/tháng/quý/năm), a chart-
+  type switch (cột ghép / cột xếp chồng / xếp hạng — see chartTypeHtml_),
+  a totals table, and a skeleton loading state instead of a plain "Đang
+  tải…" line.
 
-  Notes:
-    - Period selector: tuần / tháng / quý / năm.
-    - Chart.js. Keep it to 2–3 charts; this is an internal tool, not a BI suite.
+  Chart drawn in pure CSS/HTML (bars sized via inline height/width %),
+  NOT Chart.js — an earlier draft loaded Chart.js from a CDN and it
+  silently failed to render (no visible error either, consistent with
+  how a blocked/failed external script behaves) when tried in a quick
+  mockup preview; rather than debug a CDN dependency for a fairly simple
+  bar/rank chart, drawing it directly in CSS removes that whole class of
+  failure — nothing to fail to load, nothing to silently break.
+
+  4.7.2 adds the by-customer/by-status breakdown views (apiStatsByCustomer/
+  apiStatsByStatus, Stats.gs's 4.6.2), filters, and polish. This task is
+  deliberately scoped to just the time-period view being usable end to
+  end on its own.
 -->
+<script>
+(function () {
+  'use strict';
+
+  /** Same reasoning as ViewsOrders.html's own comment: window.TT is only
+   *  assigned in render(), never captured at module-load time — this file
+   *  is included before App.html in Index.html. */
+  var T = null;
+  var root = null;
+
+  var state = {
+    basis: 'invoiceDate', // Q2 default
+    period: 'month',
+    chartType: 'grouped', // 'grouped' | 'stacked' | 'ranked'
+    loading: false,
+    error: null,
+    data: null, // last successful {basis, period, buckets, noInvoice} response
+    bound: false
+  };
+
+  var PERIOD_OPTIONS = [
+    { value: 'week', label: 'Tuần' },
+    { value: 'month', label: 'Tháng' },
+    { value: 'quarter', label: 'Quý' },
+    { value: 'year', label: 'Năm' }
+  ];
+
+  var CHART_TYPE_OPTIONS = [
+    { value: 'grouped', label: 'Cột ghép' },
+    { value: 'stacked', label: 'Cột chồng' },
+    { value: 'ranked', label: 'Xếp hạng' }
+  ];
+
+  // Cross-tab async race guard (4.7.1 follow-up, 2026-09-04): captured once
+  // per render() call. If the user switches away from Thống kê before an
+  // in-flight apiStatsRevenue call resolves, App.html's viewGeneration will
+  // have moved on by the time .then()/.catch() fires — isCurrentView() then
+  // returns false and we discard the stale result instead of painting it
+  // over whatever tab is actually on screen now.
+  var myGeneration = null;
+
+  function render(container) {
+    T = window.TT;
+    root = container;
+    myGeneration = T.viewGeneration();
+    if (!state.bound) {
+      root.addEventListener('click', onClick);
+      root.addEventListener('change', onChange);
+      state.bound = true;
+    }
+    if (!state.data && !state.loading) load();
+    paint();
+  }
+
+  function load() {
+    state.loading = true;
+    state.error = null;
+    paint();
+    var snapshot = myGeneration;
+    T.call('apiStatsRevenue', { basis: state.basis, period: state.period })
+      .then(function (res) {
+        if (!T.isCurrentView('statistics', snapshot)) return;
+        state.loading = false;
+        state.data = res;
+        paint();
+      })
+      .catch(function (err) {
+        if (!T.isCurrentView('statistics', snapshot)) return;
+        state.loading = false;
+        state.error = err.message;
+        paint();
+      });
+  }
+
+  function onClick(e) {
+    var target = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!target) return;
+    var act = target.getAttribute('data-act');
+    if (act === 'stats-basis') {
+      state.basis = target.getAttribute('data-basis');
+      load();
+    } else if (act === 'stats-period') {
+      state.period = target.getAttribute('data-period');
+      load();
+    } else if (act === 'stats-chart-type') {
+      // Pure client-side re-render — the data itself doesn't change, only
+      // how it's drawn, so no need to re-fetch.
+      state.chartType = target.getAttribute('data-chart-type');
+      paint();
+    } else if (act === 'stats-retry') {
+      load();
+    }
+  }
+
+  function onChange(e) {
+    // No <select>/<input> left in this screen after the pill/segmented
+    // controls replaced them, but onChange is wired up defensively in
+    // case a future control (e.g. 4.7.2's filters) needs it — cheaper to
+    // leave the listener bound than to add it back later and risk
+    // forgetting render()'s "only bind once" guard.
+  }
+
+  function paint() {
+    root.innerHTML = html();
+  }
+
+  function html() {
+    var head = '' +
+      '<div class="view-head">' +
+        '<h2>Thống kê doanh số</h2>' +
+      '</div>' +
+      '<div class="stats-controls">' +
+        '<div class="stats-control-group">' +
+          '<span class="stats-control-label">Cơ sở tính</span>' +
+          basisToggleHtml() +
+        '</div>' +
+        '<div class="stats-control-group">' +
+          '<span class="stats-control-label">Xem theo</span>' +
+          periodPillsHtml() +
+        '</div>' +
+      '</div>';
+
+    if (state.loading && !state.data) {
+      return head + skeletonHtml();
+    }
+    if (state.error) {
+      return head + '<section class="card"><p class="empty err-text">' + T.esc(state.error) +
+        '</p><button type="button" class="btn" data-act="stats-retry">Thử lại</button></section>';
+    }
+    if (!state.data || !state.data.buckets.length) {
+      return head + '<section class="card"><p class="empty">Không có dữ liệu doanh số cho khoảng thời gian này.</p></section>';
+    }
+
+    return head +
+      '<section class="card stats-chart-card">' +
+        chartTypeToggleHtml() +
+        chartHtml(state.data) +
+      '</section>' +
+      totalsTableHtml(state.data) +
+      noInvoiceHtml(state.data);
+  }
+
+  /** Placeholder cards for a genuine first load — same shimmer classes
+   *  (.sk-line/.sk-w*) ViewsOrders.html's skeletonHtml() already
+   *  established, applied to shapes that read as "a chart and a table are
+   *  about to appear here" rather than reusing the order-list card shape
+   *  verbatim (which would look like the wrong kind of loading screen). */
+  function skeletonHtml() {
+    var chartBars = ['sk-bar-1', 'sk-bar-2', 'sk-bar-3', 'sk-bar-4', 'sk-bar-5']
+      .map(function (cls) { return '<div class="sk-bar ' + cls + '"></div>'; }).join('');
+    return '' +
+      '<section class="card stats-chart-card skeleton" aria-hidden="true">' +
+        '<div class="sk-chart">' + chartBars + '</div>' +
+      '</section>' +
+      '<section class="card stats-table-card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w50"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+      '</section>';
+  }
+
+  /** Mirrors the export dialog's own basis choice (ViewsOrders.html) —
+   *  same two options, same labels, so a user who already knows what
+   *  "theo ngày đặt hàng"/"theo ngày hoá đơn" means from exporting isn't
+   *  learning a second vocabulary here. */
+  function basisToggleHtml() {
+    var options = [
+      { value: 'invoiceDate', label: 'Theo ngày hoá đơn' },
+      { value: 'orderDate', label: 'Theo ngày đặt hàng' }
+    ];
+    return '<div class="stats-segmented">' +
+      options.map(function (o) {
+        var active = state.basis === o.value;
+        return '<button type="button" class="' + (active ? 'active' : '') +
+          '" data-act="stats-basis" data-basis="' + o.value + '"' +
+          (state.loading ? ' disabled' : '') + '>' + T.esc(o.label) + '</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  function periodPillsHtml() {
+    return '<div class="stats-pills">' +
+      PERIOD_OPTIONS.map(function (o) {
+        var active = state.period === o.value;
+        return '<button type="button" class="stats-pill' + (active ? ' active' : '') +
+          '" data-act="stats-period" data-period="' + o.value + '"' +
+          (state.loading ? ' disabled' : '') + '>' + T.esc(o.label) + '</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  /** New: lets the user switch how the same fetched data is drawn — grouped
+   *  bars (ex-VAT/inc-VAT side by side per period, the default), stacked
+   *  bars (inc-VAT total per period, ex-VAT as the base segment — reads
+   *  faster when there are many periods, e.g. weekly over a year), or a
+   *  ranked list (biggest period first, easiest to scan for "which period
+   *  did best" without eyeballing bar heights). Purely a rendering choice
+   *  — never refetches, see onClick's stats-chart-type branch. */
+  function chartTypeToggleHtml() {
+    return '<div class="stats-chart-type">' +
+      CHART_TYPE_OPTIONS.map(function (o) {
+        var active = state.chartType === o.value;
+        return '<button type="button" class="stats-chart-type-btn' + (active ? ' active' : '') +
+          '" data-act="stats-chart-type" data-chart-type="' + o.value + '">' + T.esc(o.label) + '</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  function chartHtml(data) {
+    if (state.chartType === 'stacked') return stackedChartHtml(data);
+    if (state.chartType === 'ranked') return rankedChartHtml(data);
+    return groupedChartHtml(data);
+  }
+
+  function groupedChartHtml(data) {
+    var maxVal = Math.max.apply(null, data.buckets.map(function (b) { return b.incVat; }).concat([1]));
+    var groups = data.buckets.map(function (b) {
+      var exH = Math.round((b.exVat / maxVal) * 100);
+      var incH = Math.round((b.incVat / maxVal) * 100);
+      return '<div class="stats-bar-group">' +
+        '<div class="stats-bar-pair">' +
+          '<div class="stats-bar ex" style="height:' + exH + '%" title="Chưa VAT: ' + T.esc(T.formatVnd(b.exVat)) + '"></div>' +
+          '<div class="stats-bar inc" style="height:' + incH + '%" title="Có VAT: ' + T.esc(T.formatVnd(b.incVat)) + '"></div>' +
+        '</div>' +
+        '<span class="stats-bar-label">' + T.esc(b.label) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + groups + '</div></div>' + chartLegendHtml();
+  }
+
+  function stackedChartHtml(data) {
+    var maxVal = Math.max.apply(null, data.buckets.map(function (b) { return b.incVat; }).concat([1]));
+    var groups = data.buckets.map(function (b) {
+      var exH = Math.round((b.exVat / maxVal) * 100);
+      var vatOnlyH = Math.round(((b.incVat - b.exVat) / maxVal) * 100);
+      return '<div class="stats-bar-group">' +
+        '<div class="stats-bar-stack">' +
+          '<div class="stats-bar-seg vat" style="height:' + vatOnlyH + '%" title="VAT: ' + T.esc(T.formatVnd(b.incVat - b.exVat)) + '"></div>' +
+          '<div class="stats-bar-seg ex" style="height:' + exH + '%" title="Chưa VAT: ' + T.esc(T.formatVnd(b.exVat)) + '"></div>' +
+        '</div>' +
+        '<span class="stats-bar-label">' + T.esc(b.label) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="stats-chart-wrap"><div class="stats-barchart">' + groups + '</div></div>' + chartLegendHtml();
+  }
+
+  function rankedChartHtml(data) {
+    var sorted = data.buckets.slice().sort(function (a, b) { return b.incVat - a.incVat; });
+    var maxVal = Math.max.apply(null, sorted.map(function (b) { return b.incVat; }).concat([1]));
+    var rows = sorted.map(function (b, i) {
+      var pct = Math.round((b.incVat / maxVal) * 100);
+      return '<div class="stats-rank-row">' +
+        '<span class="stats-rank-label">' + T.esc(b.label) + '</span>' +
+        '<div class="stats-rank-track"><div class="stats-rank-fill' + (i === 0 ? '' : ' light') + '" style="width:' + pct + '%"></div></div>' +
+        '<span class="stats-rank-val">' + T.esc(T.formatVnd(b.incVat)) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="stats-rank-list">' + rows + '</div>';
+  }
+
+  function chartLegendHtml() {
+    return '<div class="stats-chart-legend">' +
+      '<span><i class="ex"></i>Chưa VAT</span><span><i class="inc"></i>Có VAT</span>' +
+      '</div>';
+  }
+
+  function totalsTableHtml(data) {
+    var grandExVat = 0, grandIncVat = 0, grandLines = 0;
+    var rowsHtml = data.buckets.map(function (b) {
+      grandExVat += b.exVat; grandIncVat += b.incVat; grandLines += b.lineCount;
+      return '<tr>' +
+        '<td>' + T.esc(b.label) + '</td>' +
+        '<td class="num">' + T.formatVnd(b.exVat) + '</td>' +
+        '<td class="num">' + T.formatVnd(b.incVat) + '</td>' +
+        '<td class="num">' + b.lineCount.toLocaleString('vi-VN') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '' +
+      '<section class="card stats-table-card">' +
+        '<table class="stats-table">' +
+          '<thead><tr><th>Kỳ</th><th class="num">Chưa VAT</th><th class="num">Có VAT</th><th class="num">Số dòng</th></tr></thead>' +
+          '<tbody>' + rowsHtml + '</tbody>' +
+          '<tfoot><tr>' +
+            '<td>Tổng</td>' +
+            '<td class="num">' + T.formatVnd(grandExVat) + '</td>' +
+            '<td class="num">' + T.formatVnd(grandIncVat) + '</td>' +
+            '<td class="num">' + grandLines.toLocaleString('vi-VN') + '</td>' +
+          '</tr></tfoot>' +
+        '</table>' +
+      '</section>';
+  }
+
+  /** Q2: "orders with no invoice yet are excluded from the invoice-date
+   *  view and shown as a separate 'chưa xuất hoá đơn' figure" — only ever
+   *  rendered for invoice-date basis (order-date basis has no noInvoice
+   *  concept at all, statsRevenue_ always returns null for it there). */
+  function noInvoiceHtml(data) {
+    if (!data.noInvoice) return '';
+    var n = data.noInvoice;
+    if (n.lineCount === 0) return '';
+    return '' +
+      '<section class="card stats-noinvoice-card">' +
+        '<p class="stats-noinvoice-label">Chưa xuất hoá đơn (' + n.lineCount.toLocaleString('vi-VN') + ' dòng)</p>' +
+        '<p class="stats-noinvoice-figures">' +
+          'Chưa VAT: <strong>' + T.formatVnd(n.exVat) + '</strong> · ' +
+          'Có VAT: <strong>' + T.formatVnd(n.incVat) + '</strong>' +
+        '</p>' +
+      '</section>';
+  }
+
+  window.TTStats = { render: render };
+})();
+</script>

@@ -843,4 +843,159 @@
     .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .order-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+
+  /* Milestone 4 / 4.7.1 — statistics screen (ViewsStats.html), revised
+     after live feedback on the first draft: pure-CSS bars (no Chart.js —
+     see ViewsStats.html's file doc comment for why), a chart-type switch,
+     and a skeleton loading state reusing the .sk-line shimmer classes
+     already established for the order list (Styles.html's earlier
+     Milestone 2.5 / P3 section).
+
+     Live-feedback revision (2026-09-04), three fixes:
+     1. The basis toggle (theo ngày hoá đơn/đặt hàng) and the period pills
+        (tuần/tháng/quý/năm) sat right on top of each other with the same
+        10px margin, reading as one control cluster instead of two
+        separate decisions. Wrapped both in a `.stats-controls` block:
+        a bit more breathing room between them, and a small caption above
+        each ("Cơ sở tính" / "Xem theo") so it's unambiguous which control
+        does what at a glance — same idea as Option B's sidebar labels
+        from the earlier mockup round, just inline instead of in a
+        sidebar since Option A's layout was the one picked.
+     2. The stacked chart's bars were vertically centered instead of
+        sitting on a shared baseline, which makes stacked bars unreadable
+        (the whole point of a stacked bar is that segments start from a
+        common bottom edge). Root cause: `.stats-bar-stack`'s
+        `align-items: stretch` fought the shared `.stats-bar-pair,
+        .stats-bar-stack` rule's `align-items: flex-end`, and neither
+        rule pinned the stack's own box to the bottom of `.stats-bar-
+        group` — `column-reverse` reverses paint ORDER, not alignment.
+        Fixed by giving `.stats-bar-stack` its own rule (not sharing
+        `.stats-bar-pair`'s), explicitly `align-self: flex-end` so the
+        whole stack — not just its child bars — anchors to the bottom of
+        its group, with `width` instead of `max-width`+`margin:auto` so
+        it doesn't collapse to content width and drift.
+     3. No responsive rules existed for this screen at all: the fixed
+        70px/1fr/110px rank-row grid and generous chart gaps overflowed
+        and clipped on narrow screens. Mobile rules added at the bottom of
+        this section, inside the existing `@media (max-width: 640px)`
+        block below.
+  */
+  .stats-controls { display: flex; flex-direction: column; gap: 14px; margin: 0 0 16px; }
+  .stats-control-group { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .stats-control-label {
+    font-size: 11px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .stats-segmented {
+    display: inline-flex; background: var(--c-bg); border: 1px solid var(--c-border);
+    border-radius: 8px; padding: 3px;
+  }
+  .stats-segmented button {
+    border: 0; background: none; padding: 7px 14px; font: inherit; font-size: 13px;
+    border-radius: 6px; cursor: pointer; color: var(--c-muted);
+  }
+  .stats-segmented button.active {
+    background: var(--c-surface); color: var(--c-brand); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .stats-segmented button[disabled] { opacity: .5; cursor: default; }
+  .stats-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .stats-pill {
+    border: 1px solid var(--c-border); background: var(--c-surface); padding: 6px 12px;
+    border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--c-muted); font: inherit;
+  }
+  .stats-pill.active { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .stats-pill[disabled] { opacity: .5; cursor: default; }
+
+  .stats-chart-card { padding: 16px; }
+  .stats-chart-type { display: flex; gap: 4px; justify-content: flex-end; margin: 0 0 12px; flex-wrap: wrap; }
+  .stats-chart-type-btn {
+    border: 0; background: none; font: inherit; font-size: 12px; color: var(--c-muted);
+    padding: 4px 9px; border-radius: 999px; cursor: pointer;
+  }
+  .stats-chart-type-btn.active { background: var(--c-brand-soft); color: var(--c-brand); font-weight: 600; }
+
+  .stats-chart-wrap { height: 200px; overflow-x: auto; overflow-y: hidden; }
+  .stats-barchart { display: flex; align-items: flex-end; gap: 18px; height: 100%; padding: 0 4px; min-width: min-content; }
+  .stats-bar-group {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    height: 100%; justify-content: flex-end; min-width: 28px;
+  }
+  .stats-bar-pair {
+    display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center;
+  }
+  /* Fix #2: own rule (not shared with .stats-bar-pair) so nothing else
+     can override align-self, and the stack itself — not just its bars —
+     is bottom-anchored within .stats-bar-group. */
+  .stats-bar-stack {
+    display: flex; flex-direction: column-reverse; align-items: stretch;
+    align-self: flex-end; justify-content: flex-start;
+    width: 32px; height: 100%;
+  }
+  .stats-bar { width: 22px; border-radius: 3px 3px 0 0; }
+  .stats-bar.ex, .stats-bar-seg.ex { background: #8fb8d6; }
+  .stats-bar.inc { background: var(--c-brand); }
+  .stats-bar-seg.vat { background: var(--c-brand); border-radius: 3px 3px 0 0; }
+  .stats-bar-seg.ex { border-radius: 0; }
+  .stats-bar-label { font-size: 11px; color: var(--c-muted); white-space: nowrap; }
+  .stats-chart-legend {
+    display: flex; gap: 16px; justify-content: center; margin-top: 10px;
+    font-size: 12px; color: var(--c-muted);
+  }
+  .stats-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .stats-chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .stats-chart-legend i.ex { background: #8fb8d6; }
+  .stats-chart-legend i.inc { background: var(--c-brand); }
+
+  .stats-rank-list { display: flex; flex-direction: column; gap: 10px; }
+  .stats-rank-row { display: grid; grid-template-columns: 70px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+  .stats-rank-label { color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-rank-track { background: var(--c-bg); border-radius: 5px; height: 22px; overflow: hidden; }
+  .stats-rank-fill { height: 100%; background: var(--c-brand); border-radius: 5px; }
+  .stats-rank-fill.light { background: #8fb8d6; }
+  .stats-rank-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .stats-table-card { padding: 0; overflow-x: auto; }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+  .stats-table th, .stats-table td { padding: 10px 14px; text-align: left; }
+  .stats-table th { color: var(--c-muted); font-weight: 600; border-bottom: 1px solid var(--c-border); }
+  .stats-table td { border-bottom: 1px solid var(--c-border); }
+  .stats-table tfoot td { font-weight: 700; border-top: 2px solid var(--c-border); border-bottom: 0; }
+  .stats-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .stats-noinvoice-card {
+    background: var(--c-brand-soft); border: 1px solid var(--c-brand);
+  }
+  .stats-noinvoice-label { margin: 0 0 4px; font-size: 13px; color: var(--c-muted); }
+  .stats-noinvoice-figures { margin: 0; font-size: 14px; }
+
+  /* Skeleton loading (ViewsStats.html's skeletonHtml()) — reuses the
+     .sk-line shimmer animation already defined above for the order list,
+     plus a chart-shaped variant (uneven bar heights, same gradient/
+     animation) so the loading state reads as "a chart is coming", not a
+     generic gray box. */
+  .sk-chart { display: flex; align-items: flex-end; gap: 14px; height: 160px; padding: 0 4px; }
+  .sk-bar {
+    flex: 1; border-radius: 4px 4px 0 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-bar-1 { height: 45%; } .sk-bar-2 { height: 70%; } .sk-bar-3 { height: 55%; }
+  .sk-bar-4 { height: 90%; } .sk-bar-5 { height: 65%; }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-bar { animation: none; background: var(--c-border); }
+  }
+
+  /* Fix #3: stats screen on narrow screens — no rules existed for this
+     screen before, so everything below is new. */
+  @media (max-width: 640px) {
+    .stats-chart-wrap { height: 170px; }
+    .stats-barchart { gap: 10px; }
+    .stats-bar-group { min-width: 22px; }
+    .stats-bar, .stats-bar-stack { width: 18px; }
+    .stats-bar-label { font-size: 10px; }
+    .stats-rank-row { grid-template-columns: 56px 1fr 84px; gap: 6px; font-size: 12px; }
+    .stats-rank-val { font-size: 12px; }
+    .stats-chart-type { justify-content: flex-start; }
+  }
 </style>

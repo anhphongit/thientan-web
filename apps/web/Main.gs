@@ -241,6 +241,39 @@ function apiExportJobStatus(jobId) {
   });
 }
 
+/** Milestone 4 / 4.6.1 — revenue by time period (week/month/quarter/year).
+ *  @param {Object} payload {basis, period, dateFrom, dateTo, month,
+ *    customer, status, createdBy, approveStatus, q} — same order-date
+ *    pre-filter shape apiExportOrdersCsv etc. accept; basis defaults to
+ *    invoiceDate (Q2), period defaults to month. Returns
+ *    {basis, period, buckets, noInvoice} — see Stats.gs's
+ *    actionStatsRevenue_ for the exact shape. */
+function apiStatsRevenue(payload) {
+  return handle_('apiStatsRevenue', function () {
+    return apiCall_('statsRevenue', payload || {});
+  });
+}
+
+/** Milestone 4 / 4.6.2 — revenue by customer, biggest first. Same filter/
+ *  basis payload shape as apiStatsRevenue. Returns {basis, groups,
+ *  noInvoice} — see Stats.gs's actionStatsByCustomer_.
+ *  @param {Object} payload */
+function apiStatsByCustomer(payload) {
+  return handle_('apiStatsByCustomer', function () {
+    return apiCall_('statsByCustomer', payload || {});
+  });
+}
+
+/** Milestone 4 / 4.6.2 — revenue by status, biggest first. Same shape as
+ *  apiStatsByCustomer, grouped by order status instead — see Stats.gs's
+ *  actionStatsByStatus_.
+ *  @param {Object} payload */
+function apiStatsByStatus(payload) {
+  return handle_('apiStatsByStatus', function () {
+    return apiCall_('statsByStatus', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

@@ -13,6 +13,34 @@
   var appUrl = '';
   var logoutUrl = 'https://accounts.google.com/Logout';
 
+  /**
+   * Milestone 4 / 4.7.1 follow-up (2026-09-04) — cross-tab async race fix.
+   *
+   * Found live: switching tabs quickly (e.g. Đơn hàng -> Thống kê) while
+   * the FIRST tab's own async load (T.call(...)) was still in flight let
+   * that slower response land AFTER the second tab had already painted,
+   * silently overwriting it — `main` is one shared DOM node every view
+   * module repaints wholesale, and nothing stopped a stale .then()/.catch()
+   * from one view module writing into it once a different view module had
+   * already taken over. Both view modules' own loading states (spinners,
+   * "Đang tải…") were irrelevant to the bug: the STALE view's callback
+   * still fired and still painted, regardless of what the CURRENT view's
+   * own state said.
+   *
+   * Fix: `viewGeneration` bumps by 1 on every show() call — a fresh
+   * "which switch are we on" token. A view module reads it at the top of
+   * render() (T.viewGeneration()) and closes over that snapshot; every
+   * async callback that's about to touch the DOM calls
+   * T.isCurrentView(viewId, snapshot) first and bails out silently if
+   * false — the response is simply discarded rather than painted, since
+   * by definition a newer switch has already happened and whatever it
+   * painted is the correct current screen. This is deliberately NOT
+   * "cancel the request" (google.script.run/fetch have no cheap way to
+   * abort mid-flight) — the request is left to finish, its result is just
+   * never allowed to reach the DOM once stale.
+   */
+  var viewGeneration = 0;
+
   /* ---------------- server bridge ---------------- */
 
   function call(fnName) {
@@ -83,7 +111,16 @@
     call: call, can: can, esc: esc, formatVnd: formatVnd,
     formatDate: formatDate, toast: toast, confirm: confirm_,
     config: function () { return (session && session.config) || {}; },
-    session: function () { return session; }
+    session: function () { return session; },
+    // See the viewGeneration doc comment above for why these exist: a view
+    // module snapshots viewGeneration() at the top of render(), then calls
+    // isCurrentView(viewId, snapshot) before any async callback paints the
+    // DOM, so a stale response from a tab the user already left silently
+    // no-ops instead of overwriting whatever is currently on screen.
+    viewGeneration: function () { return viewGeneration; },
+    isCurrentView: function (viewId, snapshot) {
+      return activeView === viewId && viewGeneration === snapshot;
+    }
   };
 
   /* ---------------- navigation ---------------- */
@@ -112,6 +149,7 @@
 
   function show(viewId) {
     activeView = viewId;
+    viewGeneration++;
     renderNav();
 
     var main = el('main');
@@ -137,7 +175,7 @@
   }
 
   /** viewId → the global a ui/Views*.html file registers itself under. */
-  var VIEW_MODULES = { orders: 'TTOrders' };
+  var VIEW_MODULES = { orders: 'TTOrders', statistics: 'TTStats' };
 
   /* ---------------- views ---------------- */
 

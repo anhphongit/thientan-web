@@ -1098,8 +1098,10 @@ finished job to deliver; cleanup needs delivered jobs to clean up).
 | 4.5.2 | Status polling — `exportJobStatus` action + client polling UI (progress, done/error states) so a large export doesn't hold the request open | ☑ |
 | 4.5.3 | Drive + email delivery — finished job uploads to a Drive export folder, emails a link or attachment (size-threshold fallback past Gmail's ~25MB ceiling) | ☑ |
 | 4.5.4 | Retention cleanup — time-based trigger that trashes old Drive exports/job records so the folder doesn't grow indefinitely | ☑ |
-| 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
-| 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
+| 4.6.1 | Revenue by time period (week/month/quarter/year, generalizing the existing month-bucketing) + `statsRevenue` action/permission wiring | ☑ |
+| 4.6.2 | Revenue by customer and by status (separate aggregation dimension from time-period) | ☑ |
+| 4.7.1 | Stats view UI — period toggle + one Chart.js chart + totals table | ☑ |
+| 4.7.2 | Customer/status breakdown views, filters, polish | ☐ |
 
 **Backlog — last task before go-live, not milestone-specific (noted
 2026-09-04, not yet built):** a `verifyAuthorization()`-style setup
@@ -2172,3 +2174,423 @@ checkpointed writes past the 6-minute limit, status polling, Drive +
 email delivery, and retention cleanup so nothing accumulates
 indefinitely. Remaining in Milestone 4: 4.6 (statistics aggregation) and
 4.7 (statistics UI) — not yet started.
+
+## Milestone 4, tasks 4.6/4.7 — split into sub-tasks (2026-09-04)
+
+Same reasoning as the 4.5 split: 4.6 (aggregation) + 4.7 (a whole new
+Chart.js UI screen) is large enough to lose the "one task, one tested
+step" convention (`AGENTS.md` §7) if built as two single tasks. Split,
+confirmed with Phong, into:
+
+- **4.6.1** — revenue by time period (week/month/quarter/year). The
+  existing `monthKey_`/`bucketOrdersForExport_` in `Export.gs` already
+  buckets by month for export (4.1/4.2) and is explicitly documented as
+  shared with statistics — this generalizes that same per-line
+  ex-VAT/inc-VAT bucketing to week/quarter/year as additional period
+  granularities, not a rewrite. Also covers the new `statsRevenue` action
+  and its `view_statistics` permission gate (`export_statistics` comes
+  later, with whatever export format 4.7 ends up needing, if any —
+  deferred until the UI shape is known).
+- **4.6.2** — revenue by customer and by status. A genuinely different
+  aggregation axis (group by `customer`/`status` field, not by date), so
+  kept as its own task rather than folded into 4.6.1's date-bucketing
+  logic.
+- **4.7.1** — the stats view itself: period toggle (week/month/quarter/
+  year, mirroring the export basis toggle's UX), one Chart.js chart, and
+  a totals table (ex-VAT/inc-VAT side by side, per Q2). Enough to be a
+  usable, reviewable screen on its own.
+- **4.7.2** — customer/status breakdown views (feeding off 4.6.2), any
+  filters (date range, customer, status — mirroring the order list's
+  existing filter bar where it makes sense), and polish.
+
+
+## Milestone 4, task 4.6.1 — revenue by time period (built 2026-09-04)
+
+New `Stats.gs`: `statsRevenue_(rows, basis, period)` aggregates the same
+per-line `amountExVat`/`amountIncVat` figures export already reads into
+summed totals per period bucket — deliberately a leaner path than
+`bucketOrdersForExport_` (which builds full `{order, lines}` groups sized
+for writing spreadsheet rows); statistics only ever needs
+`{exVat, incVat, lineCount}` per bucket.
+
+**Basis default is invoice date**, not order date — this is the opposite
+default from export (4.1/4.2), per Q2's explicit answer
+(`OPEN_QUESTIONS.md`: "Default is invoice date, because that is what the
+invoice numbers in the file imply"). Order-date basis buckets every
+order's lines by the order's own date, same shape export already uses.
+Invoice-date basis buckets **per line** (an order split across two
+invoiced months contributes to both buckets — same per-line reasoning as
+`bucketByInvoiceDate_`), and — also per Q2 — any line with no invoice yet
+is excluded from the date buckets entirely and summed into a separate
+`noInvoice` figure instead of being silently dropped or miscounted into
+some default bucket.
+
+**Period granularity** (new for stats, doesn't exist in export): week,
+month, quarter, or year, generalizing the existing `monthKey_`/
+`monthLabel_` rather than reimplementing date-bucketing from scratch —
+month/year both defer to simple key math, quarter derives from the month
+number, and week uses a real ISO-8601 week definition (week 1 = the week
+containing Jan 4th; computed via the standard Thursday-shift algorithm)
+so it lines up with what Sheets' own `WEEKNUM(date, 21)` would produce,
+not an arbitrary Sunday/Monday-start scheme that would disagree with how
+Phong might sanity-check a number by hand.
+
+**Filtering/scoping**: reuses `computeOrderFilters_`/
+`filteredOrderRowsForUser_` verbatim — the exact same date-range/
+customer/status/createdBy/search filters and permission gating
+(`view_all_orders` scoping, `fieldVisible_` on filter values) the order
+list and every export action already use, not a second set of rules that
+could quietly drift from those over time.
+
+**Action**: `statsRevenue` (`actionStatsRevenue_`), gated on the
+`view_statistics` permission (already existed in `PERMISSIONS.md`,
+granted to Admin/Accountant — see the matrix). Registered in `Router.gs`;
+client pass-through `apiStatsRevenue(payload)` added to `apps/web/Main.gs`
+(no UI wired to it yet — that's 4.7.1).
+
+**Tests**: new `tools/offline-tests/stats.test.js`, 34 assertions —
+permission gating, basis/period defaults, order-date monthly sums,
+invoice-date bucketing (single invoice, a split order across two months,
+an unbilled line landing in `noInvoice`), all four period granularities
+(year, quarter including a Q3-empty gap, week including two dates
+sharing an ISO week vs. one in the next), and filter/scoping parity with
+the order list (an account without `view_all_orders` only sees its own
+revenue, a customer filter narrows the aggregation the same way it does
+for export). `tools/offline-tests/harness.js` gained `Stats.gs` to its
+loaded-files list — no new stubs needed, everything `Stats.gs` touches
+was already covered by Orders.gs/Export.gs's existing harness support.
+Full offline suite: 720/720 passing across all twelve test files.
+
+`BUILD`: `api-2026-09-04i-statsrevenue` (no client-facing change yet —
+`apiStatsRevenue` exists but nothing calls it until 4.7.1's UI).
+
+**Live-test checklist for Phong**: nothing to click yet — this task is
+server-only aggregation logic with no UI. Once 4.7.1 wires up a stats
+screen, that task's checklist will be the first place this is actually
+exercised live end to end.
+
+## Milestone 4, task 4.6.2 — revenue by customer and by status (built 2026-09-04)
+
+New `statsByCustomer`/`statsByStatus` actions
+(`actionStatsByCustomer_`/`actionStatsByStatus_`, `Stats.gs`), the other
+aggregation axis 4.6.1 deferred: grouping by a field on the order
+(`customer`/`status`) instead of by date period.
+
+**Confirmed with Phong before building**: these also respect the same
+basis toggle (order date / invoice date) and `noInvoice` split as 4.6.1's
+time-period view, rather than always summing every matched order
+regardless of billing status — consistent with Q2's answer, and avoids a
+customer's revenue figure silently including work that hasn't been
+invoiced yet under invoice-date basis (the default).
+
+**Refactor**: `statsRevenue_`'s per-line walk (decide bucket key, sum
+into it, route an unbilled line to `noInvoice` under invoice-date basis)
+was pulled out into a new shared `statsAggregateByLine_(rows, basis,
+keyFn)` — `keyFn(order, invDate)` gets called once per LINE and decides
+the bucket key; `invDate` is only ever non-null for invoice-date basis on
+a line that resolved a real date. `statsRevenue_` uses `order.orderDate`/
+`invDate` + the period granularity to build a key; the new
+`statsByField_` (shared by both by-customer and by-status) ignores the
+date entirely and keys off a field on the order instead. This is the ONE
+place the basis/noInvoice logic lives now — 4.6.1's tests kept passing
+unchanged through the refactor, confirming the extraction didn't shift
+behavior.
+
+**Sorting**: groups come back sorted by `incVat` descending (biggest
+contributor first) — a revenue breakdown reads top-to-bottom as "who/
+what contributes most," unlike the time-period view, which stays
+chronological.
+
+**Status labels**: reuses `statusLabelIndex_`/`statusLabelText_`
+(Export.gs) to resolve each status key to its real Vietnamese label from
+`Config.statusList` — one label source for the whole app, not a second
+copy that could drift.
+
+**Permission gating**: both actions require `view_statistics` (same as
+4.6.1) AND `fieldVisible_(user, 'customer'/'status')` — a role that
+can't see the customer or status column on an order doesn't get a
+breakdown by that field either, same principle
+`computeOrderFilters_`/`matchesSearch_` already apply to filtering and
+searching on those fields.
+
+**Tests**: `stats.test.js` gained 5 sections (14 assertions): customer
+grouping with correct sort order and multi-order summing, the invoice-
+date basis + `noInvoice` split applied correctly to a customer breakdown,
+a customer-field-blind role refused, status grouping with real labels,
+and a status-field-blind role refused. Full offline suite: 734/734
+passing across all twelve test files.
+
+`BUILD`: `api-2026-09-04j-statsbyfield` (no client change yet —
+`apiStatsByCustomer`/`apiStatsByStatus` pass-throughs exist in
+`apps/web/Main.gs` but nothing calls them until 4.7.2's UI).
+
+**Live-test checklist for Phong**: still nothing to click — 4.7.1/4.7.2
+are what put a screen in front of this.
+
+---
+
+4.6 (statistics aggregation) is now fully built: time-period revenue
+(4.6.1) and customer/status breakdowns (4.6.2), both basis-aware and
+consistently permission-scoped. Remaining in Milestone 4: 4.7.1 (stats
+view UI — period toggle, one chart, totals table) and 4.7.2 (customer/
+status breakdown views, filters, polish).
+
+## Milestone 4, task 4.7.1 — stats view UI (built 2026-09-04)
+
+New `ViewsStats.html` (was a documented stub — no earlier implementation
+to preserve), wired into the same view-module pattern `ViewsOrders.html`
+established: `window.TTStats = { render }`, registered in `App.html`'s
+`VIEW_MODULES` as `statistics: 'TTStats'`, included in `Index.html`. The
+"Thống kê" nav tab already existed in `App.html`'s `VIEWS` list, gated on
+`view_statistics` — it just had nothing behind it until now.
+
+**Screen**: a basis toggle (Theo ngày hoá đơn / Theo ngày đặt hàng —
+same two options and Vietnamese labels as the export dialog's own basis
+choice, invoice-date active by default per Q2), a period `<select>`
+(Tuần/Tháng/Quý/Năm), one Chart.js bar chart (ex-VAT and inc-VAT as two
+series per period, per Q2's "neither is 'the' number, show the pair"),
+and a totals table below it with the same per-period figures plus a
+summed footer row. Every toggle/select change re-fetches from
+`apiStatsRevenue` (4.6.1) — no client-side re-aggregation, so the server
+stays the single source of truth for what a bucket contains. A
+"Chưa xuất hoá đơn" card appears only for invoice-date basis when there's
+actually an unbilled figure to show (Q2's separate figure, not folded
+into the chart/table).
+
+**Chart.js**: loaded via `<script src="https://cdnjs.cloudflare.com/...">`
+— confirmed feasible under `HtmlService`'s `XFrameOptionsMode.ALLOWALL`
+sandbox by this session's earlier research (see the Milestone 4 "Technical
+approach" notes above). `drawChart` guards on `typeof Chart === 'undefined'`
+so a CDN hiccup degrades to "table works, chart missing" rather than a
+broken page.
+
+**CSS**: new rules appended to `Styles.html` (`.stats-basis-toggle`,
+`.stats-period-row`, `.stats-chart-card`, `.stats-table-card`/
+`.stats-table`, `.stats-noinvoice-card`, `.btn-mini.active`) — reuses
+existing tokens/`.card`/`.btn-mini` rather than inventing a parallel
+style vocabulary for one screen.
+
+**No new offline tests** — this is browser DOM/rendering code with no
+Apps Script `.gs` logic of its own; the harness tests server-side `.gs`
+files in a Node `vm`, which doesn't apply here. The 4.6.1 aggregation
+this screen calls is already covered by `stats.test.js`'s 48 assertions.
+Full offline suite (unaffected by this task): 734/734 passing.
+
+`BUILD`: `web-2026-09-04h-statsview` (no API change this task).
+
+**Live-test checklist for Phong**: paste `ViewsStats.html`, `App.html`,
+`Index.html`, `Styles.html` into the web project's online editor and
+deploy a new version, then open the "Thống kê" tab (only visible to an
+account with `view_statistics` — Admin/Accountant per the permission
+matrix). Confirm: the chart actually renders (this is the one thing I
+could not verify myself — the CDN fetch for Chart.js couldn't be checked
+from this environment's network, so the very first thing to look for is
+whether a chart appears at all, not just whether the table does); the
+basis toggle and period selector each reload and change the numbers;
+switching to invoice-date basis shows a "Chưa xuất hoá đơn" card when
+there are unbilled orders, and it disappears under order-date basis;
+the totals table's footer row sums correctly against what's shown per
+period.
+
+### 4.7.1 revision — pure-CSS chart, chart-type switch, skeleton loading (2026-09-04)
+
+Live feedback on the first 4.7.1 draft: the layout felt cramped/
+unpolished, the basis/period controls were awkward, the totals table was
+hard to read, and — the real bug — **the chart never rendered at all**.
+
+**Root cause of the missing chart**: the first draft loaded Chart.js from
+a CDN `<script src>` tag. While mocking up redesign options as artifacts
+to review with Phong, the exact same CDN-script approach silently failed
+to render there too — no console error, nothing — which is how a blocked
+or failed external script behaves: quietly do nothing rather than throw.
+Rather than chase down whether the CDN URL, version, or CSP was the
+actual cause, the chart was rebuilt entirely in plain CSS (bar heights
+via inline `style="height:N%"`, all colors from existing `--c-*` tokens)
+— nothing left to fail to load. Confirmed working once redrawn this way
+in the same mockup review process.
+
+**Design process**: rather than iterate blind again, built and published
+several rounds of side-by-side mockups (A through H — segmented toggle +
+table, sidebar radios, minimal headline number, tabbed periods + totals
+strip, ranked leaderboard, dashboard hero + trend line, dense mobile
+card, data-labeled bars) as an Artifact for Phong to compare directly.
+Phong picked **Option A** (segmented basis toggle + pill period selector,
+chart above a stat-card row above a full totals table) and asked for two
+more things on top: letting the user choose how the chart is drawn, and
+a proper loading skeleton instead of a bare "Đang tải…" line.
+
+**Chart-type switch** (new): three ways to draw the SAME fetched data,
+switched client-side with no re-fetch (`state.chartType`, `onClick`'s
+`stats-chart-type` branch) — grouped bars (ex-VAT/inc-VAT side by side
+per period, the default), stacked bars (inc-VAT as the full bar height,
+ex-VAT as the base segment — reads faster with many periods, e.g. a full
+year of weeks), and a ranked list (biggest period first, horizontal bars
+— easiest to scan for "which period did best" without comparing bar
+heights by eye).
+
+**Skeleton loading**: reuses the `.sk-line`/shimmer animation
+`ViewsOrders.html`'s own skeleton already established (Milestone 2.5 /
+P3) rather than inventing a second loading-state visual language, plus a
+new chart-shaped variant (`.sk-chart`/`.sk-bar-*`, uneven bar heights,
+same gradient animation) so the loading state reads as "a chart is about
+to appear" rather than a generic gray box.
+
+**CSS**: the whole 4.7.1 stats section in `Styles.html` was replaced
+(not just added to) — segmented toggle, period pills, chart-type pills,
+grouped/stacked/ranked bar styles, chart legend, and the skeleton
+chart shape. Verified every CSS class the rewritten `ViewsStats.html`
+generates has a matching rule (no orphaned class names either
+direction).
+
+No server-side change — `Stats.gs`/`apiStatsRevenue` untouched, this is
+purely how the client fetches once and renders the same response three
+different ways.
+
+`BUILD`: `web-2026-09-04i-statsview-v2`.
+
+**Live-test checklist for Phong**: paste the updated `ViewsStats.html`
+and `Styles.html` into the web project's online editor and redeploy.
+Confirm: the chart now actually renders (grouped bars by default); the
+three chart-type pills (Cột ghép / Cột chồng / Xếp hạng) switch the same
+data between the three drawings without a network request each time
+(should feel instant); the loading skeleton appears briefly on first
+open of the "Thống kê" tab and looks like a chart+table shape, not a
+blank screen or the wrong kind of skeleton.
+
+---
+
+### 4.7.1 follow-up: cross-tab async race — stale tab's response overwrites the current tab
+
+**Bug reported live by Phong (2026-09-04)**: switching tabs quickly (e.g.
+Đơn hàng → Thống kê) sometimes showed the OLD tab's content first, then
+flipped over to the new tab's content only once that tab's own load
+finished — even though the new tab was already focused/selected. Phong's
+own words: "the tab reponse first make UI show it first (e.g the list)
+although the tab are already focus on Stat, then when stat load
+completed, the UI change to stat," and flagged it as a recurring class of
+bug ("the old issue").
+
+**Root cause**: `App.html`'s `show(viewId)` repaints one shared `<main>`
+DOM node by handing it to whichever view module (`TTOrders`/`TTStats`)
+is active. Each view module's own `load()`/fetch call is async
+(`google.script.run` via `T.call`), and nothing stopped a slow response
+from a view the user had already navigated AWAY from from still firing
+its `.then()`/`.catch()` and repainting `main` after a different, newer
+view had already rendered — the two tabs shared no synchronization, so
+whichever network response happened to land LAST won, regardless of
+which tab was actually selected. `ViewsOrders.html` already had a
+same-view staleness guard (`viewSeq`, from Milestone 2.5b/L2) for races
+*within* the Orders tab (e.g. two list reloads racing each other), but
+that counter was never bumped by anything outside `ViewsOrders.html`, so
+it did nothing to protect against a DIFFERENT tab's stale response.
+`ViewsStats.html` had no staleness guard of any kind yet (4.7.1 was its
+first working version).
+
+**Fix — a shared cross-tab generation counter**:
+- `App.html`: new `viewGeneration` counter, incremented once on every
+  `show(viewId)` call (i.e. every tab switch, including switching back to
+  a tab that's already open). Exposed on the `window.TT` bridge as
+  `T.viewGeneration()` (read the current value) and
+  `T.isCurrentView(viewId, snapshot)` (true only if that view is still
+  the active tab AND no switch has happened since `snapshot` was taken).
+- `ViewsStats.html`: `render()` captures `myGeneration = T.viewGeneration()`
+  once. `load()`'s `.then()`/`.catch()` now check
+  `T.isCurrentView('statistics', snapshot)` before touching `state`/
+  calling `paint()` — a stale response is silently dropped.
+- `ViewsOrders.html`: `render()` now also bumps `viewSeq` (in addition to
+  `showList()`'s own bump), so leaving the Orders tab — not just
+  reloading within it — invalidates every in-flight callback guarded by
+  the existing `seq !== viewSeq` checks (list load, silent refresh,
+  reload-current-order, save/delete/status-change flows, etc. — all of
+  them already used this same counter, they just weren't being bumped on
+  tab-away before). `ensureCreatorsLoaded()` (the filter-bar creators
+  dropdown, fetched on every `showList()`) had no staleness guard at all
+  before this and could repaint the list after the user left the tab; it
+  now snapshots `T.viewGeneration()` and checks `T.isCurrentView(...)`
+  the same way `ViewsStats.html` does.
+
+Deliberately NOT attempting to cancel the in-flight `google.script.run`
+call itself — there is no cheap abort for it. The request is left to run
+to completion; only its ability to reach the DOM is gated.
+
+No server-side (`.gs`) change — this is pure client DOM/timing logic, so
+`tools/offline-tests` (Node `vm` harness for `.gs` files) doesn't cover
+it; verified by syntax-checking each modified file's inline `<script>`
+block with `node -e "new Function(...)"` and re-running the full offline
+suite to confirm no `.gs` regressions (48/48 stats, all suites green).
+
+`BUILD`: `web-2026-09-04j-crosstabrace`.
+
+**Live-test checklist for Phong**: paste the updated `App.html`,
+`ViewsStats.html`, and `ViewsOrders.html` into the web project's online
+editor and redeploy (no API-side changes this time, so only the web
+project needs a new version). Then specifically try to reproduce the
+original bug: click Đơn hàng → immediately click Thống kê → immediately
+click Đơn hàng again, repeating quickly a few times in both directions,
+and confirm the screen always ends up showing whichever tab you're
+actually on, never a flash of the tab you left. Also worth trying once
+on a slower connection/throttled network if easy, since the bug is
+timing-dependent and a fast machine may not reliably reproduce it even
+when the bug is present.
+
+---
+
+### 4.7.1 follow-up 2: stats screen UI polish (control grouping, stacked-chart baseline, mobile)
+
+**Reported live by Phong (2026-09-04)**, three issues from screenshots after
+the cross-tab race fix was confirmed working:
+
+1. The basis toggle ("Theo ngày hoá đơn"/"Theo ngày đặt hàng") and the
+   period pills ("Tuần"/"Tháng"/"Quý"/"Năm") sat right on top of each
+   other with matching spacing, reading as one control instead of two
+   separate decisions ("look too close").
+2. In the "Cột chồng" (stacked) chart, bars were vertically centered
+   instead of anchored to a common bottom edge — Phong's question "why
+   don't make it align bottom to make sense?" is exactly right: a stacked
+   bar's whole point is a shared baseline, and this one didn't have one.
+3. On mobile width the chart broke (bars/labels overflowing or clipping —
+   no responsive rules existed for this screen at all before this fix).
+
+**Fixes, all in `ViewsStats.html`/`Styles.html`, no server-side change**:
+
+1. Wrapped the two toggles in a new `.stats-controls` block, each in its
+   own `.stats-control-group` with a small uppercase caption above it
+   ("CƠ SỞ TÍNH" / "XEM THEO") — same idea as the "Option B" sidebar
+   labels from the original mockup round, just inline under Option A's
+   layout instead of in a sidebar. More vertical gap between the two
+   groups than within either one.
+2. Root cause: `.stats-bar-stack` shared a rule with `.stats-bar-pair`
+   (`align-items: flex-end`) that its own `align-items: stretch`
+   couldn't fully override, and neither rule pinned the STACK's own box
+   to the bottom of `.stats-bar-group` — `flex-direction: column-reverse`
+   only reverses paint order of the two segments, it doesn't anchor the
+   stack itself. Gave `.stats-bar-stack` its own standalone rule with
+   `align-self: flex-end` (anchors the whole stack, not just its
+   children) and a fixed `width` instead of `max-width` + `margin: 0
+   auto` (which could drift instead of sitting flush). Verified visually
+   via a real rendered preview (published as a private Artifact, read
+   back to confirm no markup bugs, screenshotted with Claude in Chrome)
+   before calling this done — same verification discipline as the
+   original mockup round, not just reasoning about the CSS.
+3. Added `@media (max-width: 640px)` rules for this screen (there were
+   none before): smaller chart height/gaps/bar widths, a tighter
+   `.stats-rank-row` grid (56px/1fr/84px instead of 70px/1fr/110px) with
+   ellipsis on overflowing labels, and `.stats-chart-wrap` gained
+   `overflow-x: auto` so an unusually large period count degrades to a
+   horizontal scroll instead of visually breaking, on any screen size.
+
+No server-side (`.gs`) change. Verified: syntax-checked the modified
+`ViewsStats.html` inline `<script>` via `node -e "new Function(...)"`,
+re-ran the full offline suite (all green, unaffected — pure CSS/HTML),
+and visually confirmed both the control-grouping and stacked-baseline
+fixes against a real rendered preview before considering this done.
+
+`BUILD`: `web-2026-09-04k-statsuifix`.
+
+**Live-test checklist for Phong**: paste the updated `ViewsStats.html`
+and `Styles.html` into the web project's online editor and redeploy.
+Confirm: the basis toggle and period pills now read as two visually
+distinct groups with labels; switching to "Cột chồng" shows every bar's
+base sitting on the same bottom line regardless of height; and on a
+phone (or narrow browser window) the chart no longer overflows or clips
+— bars and labels should all stay visible and legible.

@@ -181,6 +181,16 @@ function getActions_() {
     startExportJob: actionStartExportJob_,
     exportJobStatus: actionExportJobStatus_,
 
+    /* Milestone 4 / 4.6.1 — revenue by time period (week/month/quarter/
+       year), gated on view_statistics. See Stats.gs. */
+    statsRevenue: actionStatsRevenue_,
+
+    /* Milestone 4 / 4.6.2 — revenue by customer / by status, same basis
+       semantics as statsRevenue, additionally gated on the relevant
+       fieldVisible_ check. See Stats.gs. */
+    statsByCustomer: actionStatsByCustomer_,
+    statsByStatus: actionStatsByStatus_,
+
     logDev: actionLogDev_
   };
 }

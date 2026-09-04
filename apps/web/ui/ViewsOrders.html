@@ -450,6 +450,14 @@ exporting: false,
   function render(container) {
     T = window.TT;
     root = container;
+    // Cross-tab async race guard (4.7.1 follow-up, 2026-09-04): every time
+    // this view is (re-)entered — including switching away to another tab
+    // and back — bump viewSeq so any callback still in flight from before
+    // (e.g. a slow apiListOrders from a previous visit, or one that was
+    // about to paint just as the user switched to a different tab) fails
+    // its existing `seq !== viewSeq` check and silently discards its result
+    // instead of overwriting whatever tab is actually on screen now.
+    viewSeq++;
     if (!state.bound) {
       root.addEventListener('click', onClick);
       root.addEventListener('input', onInput);
@@ -589,10 +597,16 @@ exporting: false,
     if (!T.can('view_all_orders')) return;
     if (state.creators !== null || state.creatorsLoading) return;
     state.creatorsLoading = true;
+    // Cross-tab async race guard (4.7.1 follow-up, 2026-09-04): this is
+    // triggered on every showList(), so a slow response can otherwise land
+    // and repaint the list after the user has already switched to a
+    // different tab. Snapshot the generation now and only paint if Đơn
+    // hàng is still the current tab by the time the response arrives.
+    var creatorsGeneration = T.viewGeneration();
     T.call('apiListOrderCreators', {}).then(function (data) {
       state.creators = (data && data.creators) || [];
       state.creatorsLoading = false;
-      if (state.order === null) paintList(); // repaint the filter bar now that options exist
+      if (state.order === null && T.isCurrentView('orders', creatorsGeneration)) paintList(); // repaint the filter bar now that options exist
     }).catch(function (err) {
       // Bug found live 2026-08-31: leaving state.creators === null here made
       // the dropdown show "Đang tải người tạo…" forever on any failure (a
@@ -603,7 +617,7 @@ exporting: false,
       state.creators = [];
       state.creatorsLoading = false;
       T.toast('Không tải được danh sách người tạo: ' + err.message, true);
-      if (state.order === null) paintList();
+      if (state.order === null && T.isCurrentView('orders', creatorsGeneration)) paintList();
     });
   }
 
