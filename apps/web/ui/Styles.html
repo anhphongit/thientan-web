@@ -461,6 +461,22 @@
   .list-count .link-btn { font-size: 13px; }
   .list-count .link-btn[disabled] { color: var(--c-muted); cursor: default; text-decoration: none; }
 
+  /* Milestone 4 / 4.5.3 — "large export ready" banner. A real <a> link
+     (see ViewsOrders.html's exportDeliveryHtml_ for why: browsers block
+     window.open() called from async poll code, but never block a click
+     on a visible anchor), styled success-toned since it's reporting a
+     completed action, with its own dismiss button so it doesn't linger
+     forever once read. */
+  .export-delivery-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-ok-soft); border: 1px solid var(--c-ok);
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 12px;
+    font-size: 13px; color: var(--c-text);
+  }
+  .export-delivery-banner a { color: var(--c-ok); font-weight: 600; }
+  .export-delivery-banner .link-btn { color: var(--c-muted); }
+
   /* Milestone 3 / 3.2 — month filter bar above the order list. */
   /* Milestone 3 / 3.2-3.4 UI — "Bảng lọc thu gọn" + "Thẻ đang áp dụng":
      search + toggle always visible, dropdowns hide inside a collapsible

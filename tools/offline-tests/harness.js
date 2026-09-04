@@ -36,7 +36,21 @@ function makeEnv(configOverrides) {
       })
     },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
-    Utilities: { getUuid: () => 'uuid-' + (++uuid) },
+    Utilities: {
+      getUuid: () => 'uuid-' + (++uuid),
+      base64Encode: bytes => Buffer.from(bytes).toString('base64'),
+      base64Decode: str => Array.from(Buffer.from(str, 'base64')),
+      newBlob(bytes, mimeType, name) {
+        const buf = Buffer.from(bytes);
+        let blobName = name;
+        return {
+          getBytes: () => buf,
+          getName: () => blobName,
+          setName(n) { blobName = n; return this; },
+          getContentType: () => mimeType
+        };
+      }
+    },
     CacheService: { getScriptCache: () => null },
     // Milestone 4 / 4.5.1 — minimal in-memory stand-ins for
     // SpreadsheetApp/ScriptApp so ExportJob.gs's checkpoint loop is
@@ -50,6 +64,75 @@ function makeEnv(configOverrides) {
     // exportjob.test.js).
     fakeSpreadsheets: {},
     fakeTriggers: [],
+    // Milestone 4 / 4.5.3 — in-memory stand-ins for the Drive/email/HTTP
+    // surface deliverExportJob_ touches, so its Drive-folder-lookup,
+    // Drive-file-save, and email-attach-vs-link-only branching are all
+    // testable offline without a real Google account. `fakeDriveFolders`
+    // keyed by folder name (DriveApp.getFoldersByName's real lookup key);
+    // `fakeDriveFiles` keyed by id, holding whatever blob/name was saved
+    // last plus a trashed flag; `fakeEmails` records every MailApp.sendEmail
+    // call verbatim so a test can assert on subject/body/attachments.
+    fakeDriveFolders: {},
+    fakeDriveFiles: {},
+    fakeEmails: [],
+    UrlFetchApp: {
+      // fetchSpreadsheetExportBase64_'s only use of UrlFetchApp: fetching
+      // a spreadsheet's own xlsx/pdf export URL. The harness has no real
+      // Sheets backend to render, so this returns a small fixed blob
+      // whose bytes are deterministic and cheap to assert against (e.g.
+      // "is the exported blob under the attach-size threshold").
+      fetch(url, options) {
+        return {
+          getResponseCode: () => 200,
+          getBlob: () => ({
+            getBytes: () => Buffer.from('fake-export-bytes:' + url)
+          })
+        };
+      }
+    },
+    DriveApp: {
+      getFoldersByName(name) {
+        const folder = sandbox.fakeDriveFolders[name];
+        let done = !folder;
+        return {
+          hasNext: () => !done,
+          next() { done = true; return folder; }
+        };
+      },
+      createFolder(name) {
+        const id = 'folder-' + (++uuid);
+        const folder = {
+          getId: () => id,
+          getName: () => name,
+          createFile(blob) {
+            const fileId = 'file-' + (++uuid);
+            const file = {
+              getId: () => fileId,
+              getName: () => blob.getName(),
+              getUrl: () => 'https://drive.example/file/' + fileId,
+              setTrashed(v) { sandbox.fakeDriveFiles[fileId].trashed = v; return file; }
+            };
+            sandbox.fakeDriveFiles[fileId] = { id: fileId, blob, folderId: id, trashed: false };
+            return file;
+          }
+        };
+        sandbox.fakeDriveFolders[name] = folder;
+        return folder;
+      },
+      getFileById(id) {
+        const rec = sandbox.fakeDriveFiles[id];
+        if (!rec) throw new Error('DriveApp.getFileById: no fake file ' + id);
+        return {
+          setTrashed(v) { rec.trashed = v; return this; },
+          getId: () => id
+        };
+      }
+    },
+    MailApp: {
+      sendEmail(to, subject, body, options) {
+        sandbox.fakeEmails.push({ to, subject, body, options: options || {} });
+      }
+    },
     SpreadsheetApp: {
       create(name) {
         const id = 'ss-' + (++uuid);
@@ -81,6 +164,7 @@ function makeEnv(configOverrides) {
       BorderStyle: { SOLID: 'SOLID' }
     },
     ScriptApp: {
+      getOAuthToken: () => 'fake-oauth-token',
       newTrigger(fnName) {
         const spec = { handlerFunction: fnName, after: null };
         const builder = {

@@ -35,6 +35,14 @@
     // path) since this one carries a live rowsWritten/totalRows to show
     // progress, not just an in-flight flag.
     exportJobProgress: null,
+    // Milestone 4 / 4.5.3 — result of the last finished large-export
+    // delivery, kept on state (not just toasted) so its Drive link stays
+    // reachable as a real, dismissible <a> the user clicks themselves —
+    // see pollExportJobOnce_'s doc comment for why a toast/auto window.open
+    // don't work here. Shape: {url, filename, format} on success, or
+    // {error, format} when the export finished but delivery itself failed.
+    // null the rest of the time (nothing to show, or dismissed).
+    exportDelivery: null,
     // Milestone 4 / 4.1 — CSV export in flight (disables the button + swaps
     // its label while the server builds/returns the CSV).
 exporting: false,
@@ -1036,15 +1044,13 @@ exporting: false,
   }
 
   /**
-   * Milestone 4 / 4.5.2 — large-export path: starts a checkpointed job
-   * (ExportJob.gs via apiStartExportJob), then polls apiExportJobStatus
-   * every EXPORTJOB_POLL_INTERVAL_MS until it reaches 'done' or 'error'.
-   * Deliberately does NOT attempt to download the finished file yet —
-   * 4.5.1/4.5.2 stop at the temp Sheet sitting in the API project's Drive
-   * with the job marked done; turning that into an actual download/email
-   * is 4.5.3 (Drive + email delivery). For now, reaching 'done' just tells
-   * Phong the export finished server-side; a manual note in the toast
-   * says so plainly rather than implying a file is about to appear.
+   * Milestone 4 / 4.5.2-4.5.3 — large-export path: starts a checkpointed
+   * job (ExportJob.gs via apiStartExportJob), then polls
+   * apiExportJobStatus every EXPORTJOB_POLL_INTERVAL_MS until it reaches
+   * 'done' or 'error'. Once 'done', the server (deliverExportJob_) has
+   * already saved the file into Drive and emailed the requester by the
+   * time the client sees that status — see pollExportJobOnce_'s handling
+   * of status.deliveryUrl below for how the client surfaces that.
    *
    * state.exportJobProgress carries {rowsWritten, totalRows, format} so
    * paintList() can render a live "N/M dòng" progress line on the export
@@ -1058,6 +1064,9 @@ exporting: false,
     payload.basis = basis;
     payload.format = format;
     state.exportJobProgress = { rowsWritten: 0, totalRows: 0, format: format };
+    // A leftover banner from a previous export shouldn't linger once a new
+    // one starts — same reasoning as clearing exportJobProgress itself.
+    state.exportDelivery = null;
     paintList();
 
     T.call('apiStartExportJob', payload)
@@ -1090,14 +1099,32 @@ exporting: false,
       }
 
       state.exportJobProgress = null;
-      paintList();
-      if (status.status === 'done') {
-        // 4.5.3 will turn this into an actual download/email delivery;
-        // for now the job finishing server-side is all there is to report.
-        T.toast('Đã xuất xong (' + status.totalRows + ' dòng). Tính năng tải/gửi file sẽ có ở bước tiếp theo.');
+      if (status.status === 'done' && status.deliveryUrl) {
+        // Milestone 4 / 4.5.3, revised — browsers block window.open()
+        // called from here: this runs at the end of a setTimeout/.then()
+        // poll chain, seconds after the click that started the export, so
+        // it's no longer inside the "direct user gesture" window Chrome
+        // (and others) require to allow a popup — confirmed live, see
+        // TASKS.md. A real, visible <a target="_blank"> the user clicks
+        // themselves is never blocked, so the link is rendered as a
+        // dismissible banner (exportDeliveryHtml_ in listHtml) instead of
+        // auto-opened. The email (already sent by the server) still gets
+        // the file to Phong even if this banner is never clicked.
+        state.exportDelivery = { url: status.deliveryUrl, format: status.format };
+        T.toast('Đã xuất xong (' + status.totalRows.toLocaleString('vi-VN') +
+          ' dòng). File đã lưu vào Drive và đã gửi email.');
+      } else if (status.status === 'done') {
+        // Rows finished fine but Drive/email delivery itself failed
+        // (deliverExportJob_ never turns this into status:'error' — see
+        // its doc comment) — say so plainly instead of silently opening
+        // nothing, and point at the file being safe rather than lost.
+        T.toast('Đã xuất xong (' + status.totalRows.toLocaleString('vi-VN') +
+          ' dòng) nhưng lưu vào Drive/gửi email thất bại: ' +
+          (status.deliveryError || 'lỗi không rõ') + '. Vui lòng thử lại hoặc báo quản trị viên.', true);
       } else {
         T.toast(status.error || 'Xuất file thất bại.', true);
       }
+      paintList();
     }).catch(function (err) {
       state.exportJobProgress = null;
       paintList();
@@ -1136,6 +1163,29 @@ exporting: false,
     root.innerHTML = listHtml();
   }
 
+  /**
+   * Milestone 4 / 4.5.3 — renders the "your large export is ready" banner
+   * as a real, visible link (never an auto window.open() — see
+   * pollExportJobOnce_'s doc comment for why that gets blocked as a
+   * popup). Empty string when there's nothing to show. A plain <a
+   * target="_blank"> rather than a data-act button: clicking a real
+   * anchor is never treated as a popup by the browser, so this is the
+   * one reliable way to hand the user the file without relying on script
+   * timing at all.
+   */
+  function exportDeliveryHtml_() {
+    var d = state.exportDelivery;
+    if (!d) return '';
+    var label = d.format === 'pdf' ? 'PDF' : 'Excel';
+    return '' +
+      '<div class="export-delivery-banner">' +
+        '<span>File ' + label + ' đã sẵn sàng: ' +
+          '<a href="' + T.esc(d.url) + '" target="_blank" rel="noopener">Mở file trên Drive</a>' +
+          ' (đã gửi email).</span>' +
+        '<button type="button" class="link-btn" data-act="dismiss-export-delivery">Đóng</button>' +
+      '</div>';
+  }
+
   function listHtml() {
     var canCreate = T.can('create_order');
     // Milestone 4 / 4.1 — CSV export of whatever's currently filtered/shown
@@ -1165,6 +1215,7 @@ exporting: false,
           (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
         '</div>' +
       '</div>' +
+      exportDeliveryHtml_() +
       filterBarHtml();
 
     if (!state.orders.length) {
@@ -2170,6 +2221,10 @@ exporting: false,
         break;
       case 'export-csv':
         doExportCsv();
+        break;
+      case 'dismiss-export-delivery':
+        state.exportDelivery = null;
+        paintList();
         break;
       case 'load-more':
         loadMore();

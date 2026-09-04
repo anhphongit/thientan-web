@@ -15,13 +15,17 @@
  * instead of losing the work or hitting the hard timeout mid-request.
  *
  * Scope of 4.5.1 specifically: the job record, the checkpoint/resume
- * mechanics, and the batched write+finish loop. It does NOT yet do
- * anything with a finished job besides mark it 'done' in the job record —
- * no status-polling action for the client (4.5.2), no Drive upload /
- * email delivery (4.5.3), no retention cleanup of old jobs/temp files
- * (4.5.4). A finished job's temp Sheet is deliberately left in place
- * (not deleted the way withTempExportSheet_'s inline path deletes it) for
- * 4.5.3 to hand off to Drive/email; 4.5.4 is what eventually reclaims it.
+ * mechanics, and the batched write+finish loop. 4.5.2 added the
+ * status-polling action for the client. 4.5.3 (see deliverExportJob_
+ * near the bottom of this file) added Drive upload + email delivery: once
+ * every row is written and styled, the temp Sheet is exported to real
+ * xlsx/pdf bytes, saved into a shared Drive folder, emailed to the
+ * requester (attached directly when small enough, link-only past
+ * EXPORTJOB_EMAIL_ATTACH_MAX_BYTES), and only THEN is the temp Sheet
+ * trashed — unlike 4.5.1/4.5.2, where it was deliberately left in place
+ * for this later step to pick up. Retention cleanup of OLD deliveries
+ * (the files now sitting in that Drive folder) and old job records is
+ * still 4.5.4, not yet built.
  *
  * Job record storage: PropertiesService.getScriptProperties(), one JSON
  * blob per job under key EXPORTJOB_PREFIX + jobId. Script Properties (not
@@ -71,9 +75,16 @@ function actionStartExportJob_(user, payload) {
  *
  * @param {Object} payload {jobId}
  * @return {{jobId:string, status:string, rowsWritten:number,
- *   totalRows:number, format:string, error:?string}} — deliberately
- *   narrow: never returns job.payload/job.user (the filters or the full
- *   requester identity), just what a progress UI needs to render.
+ *   totalRows:number, format:string, error:?string, deliveryUrl:?string,
+ *   deliveryError:?string}} — deliberately narrow: never returns
+ *   job.payload/job.user (the filters or the full requester identity),
+ *   just what a progress UI needs to render. deliveryUrl (Milestone 4 /
+ *   4.5.3) is only set once status is 'done' AND deliverExportJob_
+ *   succeeded — a 'done' job with deliveryUrl still null and
+ *   deliveryError set means the rows finished fine but Drive/email
+ *   delivery itself failed; the client shows that distinctly rather than
+ *   treating it the same as a full job failure (status stays 'done', not
+ *   'error' — see deliverExportJob_'s doc comment for why).
  */
 function actionExportJobStatus_(user, payload) {
   var jobId = payload && payload.jobId;
@@ -87,7 +98,9 @@ function actionExportJobStatus_(user, payload) {
     rowsWritten: job.rowsWritten,
     totalRows: job.totalRows,
     format: job.format,
-    error: job.error || null
+    error: job.error || null,
+    deliveryUrl: job.deliveryUrl || null,
+    deliveryError: job.deliveryError || null
   };
 }
 
@@ -273,13 +286,15 @@ function runExportJobWork_(job, built, sheet) {
     }
 
     // Every row written — apply styling once over the complete grid, then
-    // mark done. Delivery (Drive upload, email, temp-file cleanup) is
-    // 4.5.3/4.5.4 — out of scope here; the temp Sheet is deliberately left
-    // in place for that later step to pick up by job.tempSheetId.
+    // mark done. Delivery (Drive upload + email, Milestone 4 / 4.5.3) runs
+    // right here, still inside the lock, so a second poll can never race a
+    // half-delivered job — see deliverExportJob_'s doc comment. Retention
+    // cleanup of OLD deliveries/job records is 4.5.4, still out of scope.
     applyExportGridStyles_(sheet, built);
     job.status = 'done';
     job.updatedAt = new Date().toISOString();
     saveExportJob_(job);
+    deliverExportJob_(job);
   } finally {
     lock.releaseLock();
   }
@@ -327,4 +342,142 @@ function loadExportJob_(jobId) {
     console.error('loadExportJob_: corrupt job record for ' + jobId + ': ' + err);
     return null;
   }
+}
+
+/* =======================================================================
+   Milestone 4 / 4.5.3 — Drive + email delivery
+   ======================================================================= */
+
+/** Files under this size are attached directly to the email — Gmail's own
+ *  ceiling is 25MB per message, but that's for the WHOLE message (all
+ *  attachments + headers + quoted body together), so this stays
+ *  comfortably under it rather than targeting 25MB exactly. Anything at
+ *  or above this size gets a Drive-link-only email instead — see
+ *  deliverExportJob_. */
+var EXPORTJOB_EMAIL_ATTACH_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Name of the Drive folder (created once, reused after) that finished
+ *  large-export files are saved into. A flat, findable place for Phong to
+ *  browse past exports from Drive directly, separate from the throwaway
+ *  temp Sheets (named 'export-<uuid>', never renamed, always trashed) the
+ *  synchronous and checkpoint paths both create as scratch space along
+ *  the way — those two naming schemes are deliberately different so the
+ *  two kinds of file are never confused for each other while both exist
+ *  in the same Drive. */
+var EXPORTJOB_FOLDER_NAME = 'Xuất file đơn hàng (THIÊN TÂN)';
+
+/**
+ * Converts a finished job's temp Sheet into the requested final format,
+ * saves it into the shared export folder, emails the requester a link
+ * (always) plus the file itself as an attachment when it's small enough,
+ * and finally trashes the temp Sheet — the temp Sheet's whole reason to
+ * exist was to produce this one file, so once the file is safely in
+ * Drive there's nothing left to keep it around for (unlike the small/
+ * synchronous path's withTempExportSheet_, which never persists a Sheet
+ * at all — this is the large-path equivalent of that same cleanup, just
+ * one step later because the file has to be built first here).
+ *
+ * Runs synchronously inside runExportJobWork_, still holding the export
+ * job's lock, right after the job is marked 'done' — deliberately NOT a
+ * separate retriggered step: a single spreadsheet export (fetchSpreadsheet
+ * ExportBase64_) plus one MailApp call are both well within the time
+ * budget checkpointing exists for in the first place (that budget is
+ * about the ROW-WRITING loop scaling with order count; this step doesn't
+ * scale with row count, it's one UrlFetchApp call regardless of how big
+ * the sheet is). Keeping it inside the same lock/run also means a client
+ * polling apiExportJobStatus right after seeing 'done' can never observe
+ * a job that's finished-but-not-yet-delivered — delivery fields are
+ * always populated by the time status flips to 'done' becomes visible.
+ *
+ * Never throws to its caller: a delivery failure (Drive quota, MailApp
+ * quota, a transient UrlFetchApp error) must not turn an otherwise-
+ * successful export into a job the client sees as failed — the temp
+ * Sheet already has every row + styling applied at this point, so losing
+ * it on a delivery hiccup would be strictly worse than leaving it in
+ * place for a manual look. On failure, job.deliveryError is set (and the
+ * temp Sheet is deliberately NOT trashed) so 4.5.4's retention pass (or a
+ * manual look at the job record) has something to go on instead of a
+ * silently vanished file.
+ *
+ * @param {Object} job job record, already status:'done' and saved.
+ */
+function deliverExportJob_(job) {
+  try {
+    var ext = job.format === 'pdf' ? 'pdf' : 'xlsx';
+    var mimeType = job.format === 'pdf'
+      ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    var base64 = fetchSpreadsheetExportBase64_(job.tempSheetId, job.format === 'pdf' ? 'pdf' : 'xlsx', {});
+    var blob = Utilities.newBlob(Utilities.base64Decode(base64), mimeType, exportFilename_('orders', ext));
+
+    var folder = exportsFolder_();
+    var driveFile = folder.createFile(blob);
+    var driveUrl = driveFile.getUrl();
+
+    var toEmail = job.user && job.user.email;
+    if (toEmail) {
+      emailExportDelivery_(toEmail, driveFile.getName(), driveUrl, blob);
+    }
+
+    job.deliveryUrl = driveUrl;
+    job.deliveryFileId = driveFile.getId();
+    job.deliveryError = null;
+    job.updatedAt = new Date().toISOString();
+    saveExportJob_(job);
+
+    // Delivered — the temp Sheet has served its purpose. Same
+    // best-effort try/catch pattern withTempExportSheet_ uses (including
+    // going through DriveApp.getFileById, not Spreadsheet.getParent()
+    // (Sheet's own parent is the Spreadsheet object, which has no
+    // setTrashed — only the Drive FILE wrapper does)): cleanup failing
+    // must never be treated as the export itself failing.
+    try {
+      DriveApp.getFileById(job.tempSheetId).setTrashed(true);
+    } catch (cleanupErr) {
+      console.error('deliverExportJob_: temp sheet cleanup failed for ' +
+        job.tempSheetId + ': ' + (cleanupErr && cleanupErr.message));
+    }
+  } catch (err) {
+    job.deliveryError = String((err && err.message) || err);
+    job.updatedAt = new Date().toISOString();
+    saveExportJob_(job);
+    console.error('deliverExportJob_: delivery failed for job ' + job.jobId + ': ' + job.deliveryError);
+    // Temp Sheet intentionally left in place — see file doc comment.
+  }
+}
+
+/**
+ * Sends the "your export is ready" email. Always includes the Drive link
+ * (works regardless of size); additionally attaches the file itself when
+ * it's under EXPORTJOB_EMAIL_ATTACH_MAX_BYTES, so the common case (most
+ * exports, even large ones by row count, are a few MB at most as XLSX/PDF)
+ * lands directly in the inbox without an extra click through Drive.
+ */
+function emailExportDelivery_(toEmail, filename, driveUrl, blob) {
+  var subject = '[THIÊN TÂN] File xuất đơn hàng đã sẵn sàng — ' + filename;
+  var bodyLines = [
+    'File xuất đơn hàng của bạn đã xuất xong.',
+    '',
+    'Xem/tải trên Drive: ' + driveUrl
+  ];
+  var options = {};
+  if (blob.getBytes().length < EXPORTJOB_EMAIL_ATTACH_MAX_BYTES) {
+    bodyLines.push('', 'File cũng được đính kèm trong email này.');
+    options.attachments = [blob];
+  } else {
+    bodyLines.push('', 'File khá lớn nên chỉ gửi link Drive ở trên, không đính kèm trực tiếp trong email.');
+  }
+  MailApp.sendEmail(toEmail, subject, bodyLines.join('\n'), options);
+}
+
+/** Gets (or creates, the first time) the shared Drive folder that all
+ *  finished large-export files are saved into. Looked up by name each
+ *  call rather than caching the id in ScriptProperties — this runs at
+ *  most once per finished job, nowhere near hot enough to need caching,
+ *  and a fresh name lookup self-heals if the folder is ever manually
+ *  renamed back or a stale cached id would otherwise 404. */
+function exportsFolder_() {
+  var it = DriveApp.getFoldersByName(EXPORTJOB_FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(EXPORTJOB_FOLDER_NAME);
 }

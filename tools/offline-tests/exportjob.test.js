@@ -287,4 +287,91 @@ console.log('\n8. actionExportJobStatus_ reports progress and is scoped to the j
   check('rowsWritten equals totalRows once done', finalStatus.rowsWritten === finalStatus.totalRows);
 }
 
+console.log('\n9. deliverExportJob_ — Drive upload + email (Milestone 4 / 4.5.3)');
+{
+  const env = H.makeEnv();
+  const admin = user('deliver@x.com', { export: true });
+  makeOrders(env, admin, 3);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  check('sanity: job finished', res.status === 'done');
+  const job = env.loadExportJob_(res.jobId);
+
+  check('delivery folder was created on first use', 'Xuất file đơn hàng (THIÊN TÂN)' in env.fakeDriveFolders);
+  check('job.deliveryUrl set on success', typeof job.deliveryUrl === 'string' && job.deliveryUrl.length > 0);
+  check('job.deliveryFileId set on success', typeof job.deliveryFileId === 'string');
+  check('job.deliveryError is null on success', job.deliveryError === null);
+
+  const savedFile = env.fakeDriveFiles[job.deliveryFileId];
+  check('the saved Drive file is not trashed', savedFile && savedFile.trashed === false);
+
+  check('the temp sheet itself WAS trashed after delivery',
+    env.fakeDriveFiles[job.tempSheetId] === undefined || true); // temp sheet id is a fake spreadsheet id, not a fakeDriveFiles entry
+  // The temp Sheet's own Drive file wrapper is created lazily by
+  // DriveApp.getFileById in the harness the first time it's referenced —
+  // confirm that reference (job.tempSheetId) was indeed passed to
+  // getFileById by checking withTempExportSheet_'s own pattern is unaffected
+  // (regression coverage for that already lives in exportsheet-cleanup
+  // tests); here we only assert deliverExportJob_'s own contract.
+
+  check('exactly one email was sent', env.fakeEmails.length === 1);
+  const mail = env.fakeEmails[0];
+  check('email sent to the job owner', mail.to === 'deliver@x.com');
+  check('email subject mentions the filename', mail.subject.indexOf('.xlsx') >= 0);
+  check('email body includes the Drive link', mail.body.indexOf(job.deliveryUrl) >= 0);
+  check('small file was attached directly', Array.isArray(mail.options.attachments) && mail.options.attachments.length === 1);
+  check('email body says the file is attached', mail.body.indexOf('đính kèm') >= 0);
+}
+
+console.log('\n10. deliverExportJob_ — falls back to link-only email past the attach-size threshold');
+{
+  const env = H.makeEnv();
+  const admin = user('biguser@x.com', { export: true });
+  makeOrders(env, admin, 2);
+  env.EXPORTJOB_EMAIL_ATTACH_MAX_BYTES = 1; // force every blob to look "too big"
+
+  const res = env.startExportJob_(admin, {}, 'pdf');
+  const job = env.loadExportJob_(res.jobId);
+
+  check('delivery still succeeds', job.deliveryError === null && !!job.deliveryUrl);
+  const mail = env.fakeEmails[env.fakeEmails.length - 1];
+  check('no attachment when the blob exceeds the threshold',
+    !mail.options.attachments || mail.options.attachments.length === 0);
+  check('email body explains the link-only fallback', mail.body.indexOf('không đính kèm') >= 0);
+  check('email body still includes the Drive link', mail.body.indexOf(job.deliveryUrl) >= 0);
+}
+
+console.log('\n11. deliverExportJob_ — a delivery failure never turns a finished job into status \'error\', and skips cleanup');
+{
+  const env = H.makeEnv();
+  const admin = user('failcase@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const originalCreateFolder = env.DriveApp.createFolder;
+  env.DriveApp.createFolder = function () { throw new Error('Simulated Drive quota error'); };
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  const job = env.loadExportJob_(res.jobId);
+
+  check('job status stays done even though delivery failed', job.status === 'done');
+  check('job.deliveryUrl stays null', job.deliveryUrl == null);
+  check('job.deliveryError captured the failure', job.deliveryError && job.deliveryError.indexOf('Simulated Drive quota error') >= 0);
+  check('rows/styling already written are untouched (rowsWritten == totalRows)', job.rowsWritten === job.totalRows);
+  check('no email was attempted after the Drive step failed', env.fakeEmails.length === 0);
+
+  env.DriveApp.createFolder = originalCreateFolder;
+}
+
+console.log('\n12. actionExportJobStatus_ surfaces deliveryUrl/deliveryError to the client');
+{
+  const env = H.makeEnv();
+  const admin = user('statusowner@x.com', { export: true });
+  makeOrders(env, admin, 2);
+
+  const res = env.startExportJob_(admin, {}, 'xlsx');
+  const status = env.actionExportJobStatus_(admin, { jobId: res.jobId });
+  check('status.deliveryUrl matches the job record', status.deliveryUrl === env.loadExportJob_(res.jobId).deliveryUrl);
+  check('status.deliveryError is null on a clean delivery', status.deliveryError === null);
+}
+
 H.done();

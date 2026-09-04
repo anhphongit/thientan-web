@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-04f-drivescope';
+var BUILD = 'api-2026-09-04g-exportdelivery';
 
 /** Script Property keys. */
 var PROP = {

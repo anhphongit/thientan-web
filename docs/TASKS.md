@@ -1096,10 +1096,58 @@ finished job to deliver; cleanup needs delivered jobs to clean up).
 | 4.4 | PDF export (same temp-Sheet, PDF print params) | ☑ |
 | 4.5.1 | Job/checkpoint core — `PropertiesService` job record, `LockService`, batch-writing loop that checkpoints and self-retriggers before the 6-min execution limit | ☑ |
 | 4.5.2 | Status polling — `exportJobStatus` action + client polling UI (progress, done/error states) so a large export doesn't hold the request open | ☑ |
-| 4.5.3 | Drive + email delivery — finished job uploads to a Drive export folder, emails a link or attachment (size-threshold fallback past Gmail's ~25MB ceiling) | ☐ |
+| 4.5.3 | Drive + email delivery — finished job uploads to a Drive export folder, emails a link or attachment (size-threshold fallback past Gmail's ~25MB ceiling) | ☑ |
 | 4.5.4 | Retention cleanup — time-based trigger that trashes old Drive exports/job records so the folder doesn't grow indefinitely | ☐ |
 | 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
 | 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
+
+**Backlog — last task before go-live, not milestone-specific (noted
+2026-09-04, not yet built):** a `verifyAuthorization()`-style setup
+function in `Setup.gs`, run once from the online editor as the final step
+of setting up ANY environment (first production deploy, a future staging
+env, or recovering after `appsscript.json`'s scopes change again). Why
+this is worth having: this session found, the hard way, that
+`appsscript.json` listing a scope is not the same as that scope actually
+being consented/working — `drive.file` was silently insufficient for
+`DriveApp.getFileById`/`searchFiles` for every XLSX/PDF export since 4.3,
+caught only because Phong noticed files piling up in Drive and we built a
+one-off diagnostic script to isolate it. That was a manual, reactive hunt;
+it should instead be one function anyone can run at setup time (or after
+any manifest scope change) that deliberately exercises EVERY scope the
+app actually depends on and reports pass/fail for each, so a gap like
+that is caught in one minute instead of accumulating silently in
+production. Concretely, one function that, in order, and never throwing
+early so the whole report always completes:
+
+- `SpreadsheetApp`/data-sheet access (`spreadsheets` scope) — read one
+  real row from the data spreadsheet via `getSpreadsheet_()`.
+- `DriveApp` (`drive` scope) — create a throwaway file, confirm
+  `getFileById`/`searchFiles`/`setTrashed` all work, delete it. The exact
+  isolated check `manualTestExportCleanup`/`manualTestMailAuth` (ad-hoc
+  diagnostic scripts printed in chat this session, not part of the repo)
+  already did by hand.
+- `MailApp` (`script.send_mail` scope) — send one test email to
+  `ADMIN_EMAIL`.
+- `UrlFetchApp` (`script.external_request` scope) — the same spreadsheet-
+  export URL fetch `fetchSpreadsheetExportBase64_` uses, against the
+  throwaway Drive file above.
+- `ScriptApp` trigger creation/deletion (`script.scriptapp` scope) —
+  create a one-off trigger, confirm it's listed, delete it.
+
+Each check wrapped so one failure doesn't stop the rest (same pattern the
+ad-hoc diagnostic scripts used), ending in one summary log: which scopes
+are genuinely working right now, not just declared in the manifest. Add
+it to `guardSetup_`'s `editorOnly` allowlist alongside `setupMilestone1`/
+`rotateSecret` so it can never be reachable over HTTP. `docs/SETUP.md`
+should point to it as the standard first step of any new environment
+setup, replacing today's implicit "click through whatever dialog Apps
+Script happens to show you" approach. Deliberately deferred rather than
+built now — nothing currently in this project is unauthorized (as far as
+tested), and the exact scope list is still moving (this session alone
+added `drive`; more may follow before the project's done), so building
+this now risks having to revisit it more than once. Revisit as the last
+task before the project is considered feature-complete and ready to hand
+off/go live.
 
 Already decided going in (Q2, answered 2026-08-20 — see `OPEN_QUESTIONS.md`):
 revenue shown **both** ex-VAT and inc-VAT; month basis is a toggle (order
@@ -1922,3 +1970,117 @@ auto-cleaned by this change (that's what 4.5.4, retention cleanup, will
 eventually handle for the async path) — those need a one-time manual
 trash/delete in Drive if Phong wants to clear the backlog now rather than
 wait.
+
+### 4.5.3 — Drive + email delivery (2026-09-04)
+
+Closes the gap 4.5.1/4.5.2 deliberately left open: once a large-export
+job finishes writing and styling every row, it's `status: 'done'` but
+the data only existed as a temp Sheet sitting in Drive — nothing turned
+that into an actual downloadable file or told the requester it was
+ready. `deliverExportJob_` (new, `apps/api/ExportJob.gs`) closes that
+loop, called from `runExportJobWork_` right after a job is marked
+`'done'`, still inside the same lock/execution:
+
+1. Exports the finished temp Sheet to real xlsx/pdf bytes — reuses
+   `fetchSpreadsheetExportBase64_` (already built for 4.3/4.4's
+   synchronous path, no new export mechanism needed).
+2. Saves that as a real file into a shared Drive folder (`exportsFolder_`,
+   get-or-create by name: **"Xuất file đơn hàng (THIÊN TÂN)"**) — a flat,
+   Phong-browsable place for finished large exports, separate from the
+   throwaway `export-<uuid>` temp Sheets both export paths create along
+   the way.
+3. Emails the requester (`job.user.email`) a link to that Drive file,
+   always. If the file is under 20MB (`EXPORTJOB_EMAIL_ATTACH_MAX_BYTES`
+   — comfortably under Gmail's ~25MB per-message ceiling, which counts
+   the whole message not just the attachment), it's also attached
+   directly so the common case lands in the inbox with no extra click.
+   Past that size, the email explains it's link-only.
+4. Only now trashes the temp Sheet (`DriveApp.getFileById(job.tempSheetId)
+   .setTrashed(true)`, same pattern `withTempExportSheet_` already uses
+   for the synchronous path) — its job was to produce this one file, and
+   once the file is safely in Drive there's nothing left to keep the
+   scratch copy around for.
+
+**Failure handling**: delivery never turns a finished job into
+`status: 'error'` — the rows are already correctly written and styled at
+that point, so a Drive-quota or MailApp hiccup on the delivery step is
+strictly a delivery problem, not an export problem. Instead
+`job.deliveryError` is set and the temp Sheet is deliberately **not**
+trashed on a delivery failure, so the data isn't lost — 4.5.4's
+retention pass (or a manual look) has something to reconcile instead of
+a silently vanished file.
+
+**Status action**: `actionExportJobStatus_` now also returns
+`deliveryUrl`/`deliveryError`. A `'done'` job with `deliveryUrl` set means
+fully delivered; `'done'` with `deliveryUrl` null and `deliveryError` set
+means the export itself succeeded but delivery didn't — the client shows
+that distinctly rather than lumping it in with a real export failure.
+
+**Client** (`apps/web/ui/ViewsOrders.html`, `pollExportJobOnce_`): the
+placeholder "Tính năng tải/gửi file sẽ có ở bước tiếp theo" toast is gone.
+On `done` + `deliveryUrl`, it opens the Drive file in a new tab and toasts
+that the file is saved to Drive and emailed. On `done` without a
+`deliveryUrl` (delivery failed), it toasts the specific delivery error
+instead of implying nothing happened.
+
+**Tests**: `tools/offline-tests/harness.js` gained `DriveApp`/`MailApp`/
+`UrlFetchApp` in-memory stand-ins (`fakeDriveFolders`, `fakeDriveFiles`,
+`fakeEmails`) plus `Utilities.base64Encode`/`base64Decode`/`newBlob`
+(previously only `getUuid` was stubbed — `fetchSpreadsheetExportBase64_`
+and the new delivery code both needed the rest).
+`tools/offline-tests/exportjob.test.js` gained 4 new sections (30
+assertions): successful delivery (folder created, file saved+untrashed,
+temp sheet trashed, one email with the right recipient/subject/body/
+attachment), the link-only fallback past the size threshold, a simulated
+Drive failure leaving the job `'done'` with `deliveryError` set and the
+temp sheet un-trashed, and `actionExportJobStatus_` surfacing the new
+fields. Full offline suite: 669/669 passing across all ten test files.
+
+`BUILD`: `api-2026-09-04g-exportdelivery` / `web-2026-09-04e-exportdelivery`.
+
+**Live-test checklist for Phong** (after pasting the updated `.gs`/`.html`
+files into the online editors and deploying a new version): trigger a
+large export (temporarily lower `exportLargeThreshold` in the Config
+sheet if you don't have 500+ order lines handy to test with for real),
+confirm (a) a file actually appears in a new **"Xuất file đơn hàng (THIÊN
+TÂN)"** Drive folder, (b) an email arrives at your login address with the
+Drive link, and — if the file is small — the file attached directly, (c)
+clicking "Xuất file" in the app opens that Drive file in a new tab once
+the job finishes. No new OAuth scope is needed for this step (`drive`
+already covers folder/file creation and `MailApp.sendEmail` doesn't need
+a Drive scope at all), so this shouldn't need a fresh consent prompt —
+but if one appears anyway, click through it the same way as before.
+
+### 4.5.3 follow-up — popup blocked (found 2026-09-04)
+
+Phong tried the delivered file and got Chrome's "Pop-ups blocked" bar
+instead of the Drive file opening. Root cause: `pollExportJobOnce_` called
+`window.open(status.deliveryUrl, '_blank')` from inside a `setTimeout`/
+`.then()` poll chain — by the time a large job actually finishes, that's
+seconds to minutes after the click that started the export, well outside
+the "direct user gesture" window browsers require before allowing a
+script-triggered popup. Every major browser blocks this by default; it
+was never going to work reliably regardless of environment.
+
+**Fix**: stopped trying to auto-open anything. `status.deliveryUrl` is now
+stored on `state.exportDelivery` and rendered as a real, visible
+`<a target="_blank">` link in a dismissible banner above the order list
+(`exportDeliveryHtml_`, new, in `ViewsOrders.html`) instead of an
+auto-popup — a genuine click on a real anchor is never blocked as a
+popup, unlike a script call. The banner shows "File Excel/PDF đã sẵn sàng:
+Mở file trên Drive (đã gửi email)" with a "Đóng" dismiss button, clears
+itself when a new large export starts, and the toast on completion no
+longer implies a tab is about to open on its own. The emailed copy
+(already sent server-side by `deliverExportJob_`, unaffected by this bug)
+remains the reliable fallback either way.
+
+No server-side change — `actionExportJobStatus_`'s response shape is
+unchanged, this is purely how the client presents `deliveryUrl`.
+
+`BUILD`: `web-2026-09-04f-deliverypopupfix`.
+
+**Live-test checklist for Phong**: paste the updated `ViewsOrders.html`
+and `Styles.html` into the web project's online editor, redeploy, run a
+large export again, and confirm a green banner with a working "Mở file
+trên Drive" link appears once the job finishes (no popup-blocked bar this
+time) — click it to confirm it actually opens the file.
