@@ -73,7 +73,7 @@ function makeEnv(configOverrides) {
   sandbox.global = sandbox;
   vm.createContext(sandbox);
 
-  ['Config.gs', 'Permissions.gs', 'Orders.gs'].forEach(f => {
+  ['Config.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;

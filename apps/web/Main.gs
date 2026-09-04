@@ -180,6 +180,18 @@ function apiSetDraftOrder(payload) {
   });
 }
 
+/** Milestone 4 / 4.1 — CSV export of the currently-filtered order list.
+ *  Same filter payload shape as apiListOrders (month/dateFrom/dateTo,
+ *  customer, status, createdBy, approveStatus, q). Returns
+ *  {filename, mimeType, csv} — the client builds a Blob and triggers a
+ *  browser download; nothing is written to Drive for CSV.
+ *  @param {Object} payload */
+function apiExportOrdersCsv(payload) {
+  return handle_('apiExportOrdersCsv', function () {
+    return apiCall_('exportOrdersCsv', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

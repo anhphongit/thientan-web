@@ -29,6 +29,9 @@
   var root = null;
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
+    // Milestone 4 / 4.1 — CSV export in flight (disables the button + swaps
+    // its label while the server builds/returns the CSV).
+    exporting: false,
     ordersPage: 0, ordersHasMore: false, loadingMore: false,
     // Milestone 3 / 3.2-3.3 — server-side filters. '' means "no filter" for
     // each field; they combine as AND. Kept separate from the list cache:
@@ -751,16 +754,66 @@
       });
   }
 
+  /**
+   * Milestone 4 / 4.1 — CSV export of the currently-filtered list.
+   * Manual-testing button (no dedicated export screen yet): reuses the same
+   * filter fields as listPayload() (month/customer/status/createdBy/q/
+   * approveStatus), so "what you're looking at" is "what you export" — same
+   * filters actionExportOrdersCsv_ re-applies server-side via
+   * computeOrderFilters_/filteredOrderRowsForUser_ (shared with
+   * actionListOrders_, see Orders.gs). Not paginated: page/pageSize from
+   * listPayload() are harmless extras the export action ignores.
+   *
+   * The server returns {filename, mimeType, csv} (csv already carries a
+   * UTF-8 BOM prefix) — turned into a real download here via a Blob +
+   * temporary <a download> link, since google.script.run has no way to
+   * hand back a browser download directly.
+   */
+  function doExportCsv() {
+    if (state.exporting) return;
+    state.exporting = true;
+    paintList();
+    T.call('apiExportOrdersCsv', listPayload(1))
+      .then(function (res) {
+        state.exporting = false;
+        paintList();
+        var blob = new Blob([res.csv], { type: res.mimeType || 'text/csv' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = res.filename || 'orders.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        T.toast('Đã xuất file ' + (res.filename || 'orders.csv') + '.');
+      })
+      .catch(function (err) {
+        state.exporting = false;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
   function paintList() {
     root.innerHTML = listHtml();
   }
 
   function listHtml() {
     var canCreate = T.can('create_order');
+    // Milestone 4 / 4.1 — CSV export of whatever's currently filtered/shown
+    // in this list. Manual-testing button: exports the same filter payload
+    // as the list itself (see listPayload()/doExportCsv()).
+    var canExport = T.can('export');
     var head = '' +
       '<div class="view-head">' +
         '<h2>Đơn hàng</h2>' +
-        (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
+        '<div class="view-head-actions">' +
+          (canExport ? '<button type="button" class="btn" data-act="export-csv"' +
+            (state.exporting ? ' disabled' : '') + '>' +
+            (state.exporting ? 'Đang xuất…' : 'Xuất CSV') + '</button>' : '') +
+          (canCreate ? '<button type="button" class="btn btn-primary" data-act="new">+ Tạo đơn hàng</button>' : '') +
+        '</div>' +
       '</div>' +
       filterBarHtml();
 
@@ -1754,6 +1807,9 @@
         break;
       case 'refresh-list':
         manualRefresh();
+        break;
+      case 'export-csv':
+        doExportCsv();
         break;
       case 'load-more':
         loadMore();

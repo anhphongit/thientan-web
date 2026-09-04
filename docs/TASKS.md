@@ -1073,255 +1073,127 @@ client-side). Not yet verified live.
 
 ## Milestone 4 — Export + statistics
 
-M3 closed out 2026-09-03 (see `MILESTONES.md`). Splitting M4 into tasks now,
-same reasoning M2/M3 used: two genuinely separate features share this
-milestone (`Export.gs` vs `Stats.gs`/`ViewsStats.html`) — build and verify
-one at a time, not both at once. Plan below researched 2026-09-03
-(current Apps Script platform behavior, not assumed) before either task
-starts, per Phong's request.
+Planned 2026-09-03, split into small tasks per the rule (`AGENTS.md` §7):
+one task per conversation, order matters, each builds on the one before
+and is testable/verifiable on its own — same shape as Milestone 3's
+3.2→3.8 split. Design questions below were resolved with Phong BEFORE
+any of this is built, so no task should hit an open question mid-work.
 
-Already decided going in:
-- Q2 (answered 2026-08-20): revenue shown **both** ex-VAT and inc-VAT: the
-  month basis is a **toggle** on the statistics screen (order date /
-  invoice date), default invoice date. Applies to stats, and to the
-  export's `DOANH SỐ THÁNG n` totals — same figures, same toggle, not two
-  separate implementations of "which month does this order belong to".
-- `export` / `view_statistics` / `export_statistics` already exist as
-  distinct permissions (`PERMISSIONS.md`) — nothing new to add there.
-- `EXCEL_REFERENCE.md` §7 is the layout spec for the export: month blocks,
-  `STT`/`PO` on an order's first line only, `DOANH SỐ THÁNG n` totals,
-  money right-aligned with thousand separators and no decimals.
+| # | Task | Status |
+|---|------|--------|
+| 4.1 | CSV export — filtered list, order-date grouping, `EXCEL_REFERENCE.md` §7 layout | ☑ |
+| 4.2 | Export month-basis toggle (order date / invoice date) + shared per-line bucketing | ☐ |
+| 4.3 | XLSX export (temp-Sheet build + export URL + cleanup) | ☐ |
+| 4.4 | PDF export (same temp-Sheet, PDF print params) | ☐ |
+| 4.5 | Async/large-export infra — checkpoint+retrigger, status polling, Drive+email delivery, retention cleanup | ☐ |
+| 4.6 | Statistics aggregation (`Stats.gs`) — revenue by week/month/quarter/year, by customer, by status | ☐ |
+| 4.7 | Statistics UI (`ui/ViewsStats.html` + Chart.js) | ☐ |
 
-### ✅ Resolved: "by invoice date" is per-LINE, not per-order — Phong's answer 2026-09-03
+Already decided going in (Q2, answered 2026-08-20 — see `OPEN_QUESTIONS.md`):
+revenue shown **both** ex-VAT and inc-VAT; month basis is a toggle (order
+date / invoice date), default invoice date for stats. `export` /
+`view_statistics` / `export_statistics` already exist as permissions
+(`PERMISSIONS.md`) — nothing new to add there.
 
-`DATA_MODEL.md` §4: `invoiceId` lives on `OrderLines`, not `Orders` — one
-order can have lines invoiced under different invoices on different
-dates (or not invoiced at all yet). So "month basis = invoice date"
-can't bucket a whole order into one month the way "order date" does.
-Phong's answer, two distinct rules for the two bases:
+**Design decisions resolved with Phong 2026-09-03, before any task starts:**
 
-- **Order-date basis** (matches the reference Excel file as-is): group by
-  order, one month bucket per order (its `orderDate`). A line with no
-  invoice yet still appears normally, with `invoiceNo`/`invoiceDate`
-  simply blank on that line — same as the reference file does today,
-  nothing hidden or specially marked.
-- **Invoice-date basis**: bucket **by line**, using each line's own
-  invoice date — a single order legitimately splits across two (or more)
-  month buckets if its lines were invoiced on different dates, per-line,
-  grouped by order-within-month (so a split order still reads as "this
-  order, these lines, this month" rather than losing the order grouping
-  entirely). Lines with no invoice yet do NOT disappear and are NOT
-  spread across arbitrary months — they go into their own **"no
-  invoice"/unbilled bucket** (not a calendar month), itself sub-grouped
-  by order the same way every other bucket is.
+- **Invoice-date bucketing is per LINE, not per order** (`invoiceId` lives
+  on `OrderLines`, not `Orders` — `DATA_MODEL.md` §4, one order can have
+  lines invoiced on different dates or not yet invoiced). Order-date basis
+  groups by order as the reference file already does — unbilled lines just
+  show blank `invoiceNo`/`invoiceDate`, nothing special. Invoice-date basis
+  buckets per line, sub-grouped by order within each month bucket (a split
+  order legitimately appears in more than one bucket); unbilled lines go
+  into their own "no invoice" bucket, also sub-grouped by order, rather
+  than spread across months or dropped. One shared bucketing function for
+  both 4.2 (export) and 4.6 (stats) — not reimplemented per task.
+- **Export gets the same toggle as stats**, not order-date-only — default
+  stays order-date to match the reference file.
+- **Export size has no real limit — could be multiple years** (Phong's
+  answer), which rules out a purely synchronous build-then-return design
+  (risks the 6-minute execution limit). 4.5 covers this: checkpoint-and-
+  re-trigger past the limit, build/convert split into two phases, client
+  polls a status record instead of holding the request open. A small
+  export still completes inline in one execution — the async path is for
+  the large case only.
+- **Delivery is both a Drive link and an emailed attachment** (Phong's
+  answer, not either/or) — size-threshold fallback to link-only email past
+  Gmail's ~25MB attachment ceiling, plus a retention/cleanup trigger so
+  the Drive export folder doesn't accumulate indefinitely.
 
-This is one shared bucketing function, used by both 4.1's export and
-4.2's stats — not reimplemented per task. Applies to 4.1's export only
-if/when the export itself offers the invoice-date toggle (still open,
-see below) — the reference file's own layout is order-date-only, so the
-default export view needs no branching; the toggle question is really
-"does export ALSO support invoice-date view, alongside stats always
-needing both.
+**Technical approach, researched 2026-09-03 (current Apps Script platform
+behavior — see git history for the full research writeups if needed):**
 
-### Technical approach for XLSX/PDF generation (Apps Script, researched 2026-09-03)
+- XLSX/PDF: no npm/vendored library (SheetJS-style writers don't run
+  cleanly in the V8 sandbox) — standard approach is build a temp Google
+  Sheet (`SpreadsheetApp.create`, batched `Range.setValues()`, ~1,000–
+  5,000 rows/call), export via the Drive export URL (`UrlFetchApp` +
+  `ScriptApp.getOAuthToken()`, PDF print params: `size`/`portrait`/
+  `fitw`/`gridlines`/margins/`gid`/`range`), delete the temp Sheet in a
+  `try/finally`. Vietnamese diacritics are a non-issue in all three
+  formats (Unicode-native export path, not glyph rendering).
+- CSV: plain string-building, prepend a UTF-8 BOM so Excel on Windows
+  doesn't mangle Vietnamese diacritics.
+- Large exports (4.5): `PropertiesService` for job/progress state,
+  `LockService` against overlapping runs, one-off time-based triggers to
+  resume a checkpointed job, `MailApp`/`GmailApp` for the emailed copy.
+- Chart.js (4.7): loads fine via a normal CDN `<script>` tag under
+  HtmlService's IFRAME sandbox — no vendoring needed. `Stats.gs`
+  pre-aggregates server-side; ship bucketed totals as JSON, never raw
+  order/line rows.
 
-No npm/require in the V8 Apps Script runtime, and no native custom-layout
-XLSX/PDF writer — vendoring a JS XLSX-writing library (e.g. SheetJS) is
-not a well-supported pattern here (it expects Node/browser APIs Apps
-Script's sandbox doesn't fully provide). The standard approach for both:
+## Milestone 4, task 4.1 — CSV export (built 2026-09-03)
 
-1. Build the report in a **temporary Google Sheet** created on demand
-   (`SpreadsheetApp.create`), written with batched `Range.setValues()`
-   calls (real number/border formatting survives export fine, including
-   Vietnamese diacritics — this is text data, not glyph rendering, so no
-   font-embedding risk).
-2. Export it via the file's Drive export URL
-   (`.../export?format=xlsx` or `format=pdf`) fetched with
-   `UrlFetchApp` + `ScriptApp.getOAuthToken()`. For PDF, query params
-   control the print layout: `size`, `portrait`, `fitw=true`,
-   `gridlines`, margins, `gid`/`range` to target just the built sheet.
-3. **Delete the temp Sheet immediately after fetching the export** — an
-   easy leak to introduce (stray temp files piling up in Drive) and easy
-   to forget; needs a `try/finally` so a failed export still cleans up.
-4. CSV needs none of this — plain string-building. The one real gotcha:
-   Excel on Windows misreads a UTF-8 CSV with Vietnamese diacritics
-   unless it starts with a UTF-8 BOM (`\uFEFF`) — prepend it to the
-   Blob.
+Server-side CSV export of the currently-filtered order list, order-date
+basis only (the toggle to invoice-date is 4.2). New action `exportOrdersCsv`
+(`apps/api/Export.gs`), pass-through `apiExportOrdersCsv` (`apps/web/Main.gs`).
 
-### Async design for large exports — resolved 2026-09-03 (Phong: "no real limit — could be multiple years")
+**Shape:** groups orders by `orderDate` month (`THÁNG n`, oldest first),
+STT resets per month, STT/PO/status shown only on an order's first line,
+customer repeated every line, one row per order line (`filteredLine` join
+against `OrderLines`), a `DOANH SỐ THÁNG n` total row (ex-VAT / inc-VAT,
+`toLocaleString('vi-VN')`) closes each month — matches
+`EXCEL_REFERENCE.md` §7. Unbilled lines show blank `HÓA ĐƠN RA`/`NGÀY HĐ`,
+per Phong's answer (order-date basis keeps unbilled lines in place, no
+special handling). CSV is RFC 4180 escaped, UTF-8 BOM-prefixed for Excel
+on Windows.
 
-A synchronous build-then-return flow risks the 6-minute execution limit
-on a multi-year export, so the export path is async from day one, not
-bolted on later:
+**Reused `actionListOrders_`'s filters, not reimplemented:** extracted
+`computeOrderFilters_(user, payload, config)` and
+`filteredOrderRowsForUser_(user, filters)` out of `actionListOrders_` so
+export takes exactly the same payload shape (month/dateFrom/dateTo,
+customer, status, createdBy, approveStatus, q) and the same security
+gating (`fieldVisible_`, `canSeeAllOrders_`/`scopeToUser_`,
+`approvalFlowEnabled_`) as the list screen, with zero duplication. Full
+offline suite re-run after the extraction (489/489) and again with
+`Export.gs` added to the harness (still 489/489) confirmed the refactor
+is behavior-preserving before any export code depended on it.
 
-- **Checkpoint-and-re-trigger**: the build job tracks elapsed time,
-  bails out with margin (~4.5–5 min) before the limit, saves progress
-  (last row processed, partial Sheet state, job status) to
-  `PropertiesService`, and schedules a one-off time-based trigger
-  (`ScriptApp.newTrigger(...).timeBased().after(...)`) to resume itself.
-  `LockService` guards against two overlapping runs of the same job.
-- **Split into two phases**, each its own execution/trigger: (1) build
-  the temp Sheet (chunked `setValues()` writes, ~1,000–5,000 rows per
-  call), (2) convert/export + deliver. Keeps each phase's time margin
-  healthy and means a failed delivery step doesn't require rebuilding
-  the whole Sheet.
-- **UI**: kicks off the job and returns immediately (does not hold the
-  request open across the whole build) — a status record
-  (`{status, progress, fileUrl}`) in `PropertiesService` (or a small
-  status sheet keyed by job id) is polled by the client via
-  `google.script.run` every few seconds, showing "đang chuẩn bị file…"
-  with progress until it flips to done.
-- **Delivery — both, per Phong's answer**: the finished file is left in
-  a dedicated Drive folder (not the user's personal My Drive root) with
-  a shareable link shown in the UI once ready, AND emailed
-  (`MailApp`/`GmailApp`) as an attachment with that same link, so the
-  user doesn't have to keep the tab open or keep polling. Gmail's ~25MB
-  attachment ceiling is a real cap for a very large multi-year file —
-  needs a decision at build time whether to skip the attachment (link-
-  only email) past some size threshold, rather than silently failing to
-  send.
-- **Retention**: exports left in Drive need a cleanup rule (e.g. a
-  time-based trigger deleting files older than N days from the export
-  folder) so they don't accumulate indefinitely — not a hard quota risk
-  for a small business's Workspace storage, but accumulation is the
-  realistic failure mode worth guarding against from the start.
-- A small/typical export (a month, a filtered view) doesn't need the
-  full async machinery to feel instant — the design should let a small
-  job complete inline within one execution and skip straight to "done"
-  with a link, rather than forcing every export through a multi-second
-  polling UI regardless of size.
+**Money visibility:** gated by `seesMoney_(user)` (the actual
+price-blindness check, not `fieldVisible_`) — unit price, both amount
+columns, and the month total are all blank for a price-blind role.
+`export` permission required (`requirePermission_(user, 'export')`,
+already in `PERMISSION_KEYS`).
 
-Batching guidance either way: batch `setValues()`/`getValues()` calls
-(never per-cell — call overhead dominates, not row count), and chunk
-around 1,000–5,000 rows per call for large datasets.
+**Manual-testing UI added**: a "Xuất CSV" button on the orders list
+(`ViewsOrders.html`, gated by `T.can('export')`), next to "+ Tạo đơn
+hàng". Reuses `listPayload()` so the export always matches whatever
+filters are currently applied to the list. `doExportCsv()` calls
+`apiExportOrdersCsv`, then turns the returned `{filename, mimeType, csv}`
+into a real download via a Blob + temporary `<a download>` link (`csv`
+already carries its UTF-8 BOM). `state.exporting` disables the button and
+swaps its label to "Đang xuất…" while the round trip is in flight. This
+button is meant for manual verification, not a finished export
+experience — no format choice, no month-basis toggle (4.2), no async
+path for large exports (4.5) yet.
 
-Execution/quota constraints this design has to respect: 6-minute limit
-per single execution (handled by the checkpoint/re-trigger pattern
-above); `UrlFetchApp` daily quota (each export costs at least one fetch,
-budget for expected export volume); `MailApp`/`GmailApp` daily send
-quota (Workspace accounts get a materially higher daily email quota than
-consumer accounts — worth confirming which this deployment is on before
-assuming email delivery is unlimited).
+Tests: `tools/offline-tests/export.test.js`, 10 sections / 33 assertions —
+permission enforcement, CSV shape (BOM/header/filename/mimeType), month
+grouping + STT + DOANH SỐ totals, multi-line STT/PO/customer placement,
+unbilled-line blank invoice columns, price-blind money gating,
+`view_all_orders` scoping, filter reuse, CSV escaping, zero-line-order
+handling. Full suite: 522/522 passing
+(export 33, approvestatus-ui 51, approvestatus 97, changestatus 28,
+crud 54, filter 60, permissions 116, ui 83).
 
-### Technical approach for Chart.js (Apps Script HtmlService, researched 2026-09-03)
-
-`ViewsStats.html` runs in HtmlService's IFRAME sandbox (the current
-default) — this does **not** block loading Chart.js from a CDN via a
-normal `<script src>` tag, so a CDN include is the standard pattern here
-(matching how this project would use other CDN scripts) — no need to
-vendor/inline the whole library. Server-side (`Stats.gs`) should
-pre-aggregate before returning JSON — ship bucketed totals to the chart,
-not raw order/line rows, both for payload size and so the client isn't
-redoing aggregation Apps Script already did once.
-
-### Task 4.1 — Export (CSV / XLSX / PDF)
-
-- `Export.gs`: exports the **currently filtered** list (same filters as
-  the list screen — month/date range, customer, status, createdBy,
-  approveStatus, search), not the whole table.
-- **Includes the same order-date/invoice-date toggle as stats** — Phong's
-  answer 2026-09-03. Default is order-date (matches the reference file's
-  own convention: grouped by order, `STT`/`PO` on the first line only,
-  unbilled lines shown with blank `invoiceNo`/`invoiceDate`). Switching
-  to invoice-date re-groups using the shared per-line bucketing function
-  (above): bucket by each line's own invoice date, sub-grouped by order
-  within each month, with an extra "no invoice" bucket (sub-grouped by
-  order the same way) for lines not yet invoiced. Both modes still end
-  in a `DOANH SỐ THÁNG n`-style total row per bucket — money right-
-  aligned, thousand separators, no decimals, per §7.
-- Generation approach: temp Sheet → batched writes → export URL fetch →
-  delete temp Sheet (see above). CSV skips the temp-Sheet step entirely
-  (straight string-building + UTF-8 BOM).
-- Every exported field re-run through `filterVisibleFields_` — a column
-  outside the requesting user's `visible_fields` must be absent from the
-  file, not just hidden in the on-screen table.
-- `view_all_orders` scoping applies to exports the same as it does to the
-  list (`PERMISSIONS.md`'s checklist already calls this out explicitly).
-- Vietnamese text: confirmed a non-issue for all three formats per the
-  research above (Sheets/Drive export is Unicode-native; Google's PDF
-  export uses Unicode-capable fonts) — still worth one explicit
-  live-check per format rather than assuming, since "should work" and
-  "verified working" aren't the same thing.
-
-No open questions remain for this task — export size ("no real
-limit — could be multiple years", Phong's answer 2026-09-03) resolved
-into the async checkpoint/re-trigger + Drive-link-and-email design above.
-
-**Exit criteria** (from `MILESTONES.md`):
-- [ ] Exported file matches what is on screen, including filters
-- [ ] A user cannot export a column outside their `visible_fields`
-- [ ] The PDF is recognizable to someone used to the current Excel report
-- [ ] Vietnamese characters render correctly in all three formats
-- [ ] `export` is enforced server-side
-- [ ] A large (multi-year) export completes via the async job/trigger
-      path without hitting the 6-minute execution limit, and delivers
-      via both a Drive link and email as designed
-- [ ] A small (single-month) export still feels instant — no
-      unnecessary polling UI for a job that could complete inline
-
-### Task 4.2 — Statistics
-
-- `Stats.gs` + `ui/ViewsStats.html`: revenue by week / month / quarter /
-  year, by customer, by status.
-- Both revenue figures (ex-VAT and inc-VAT) shown together per Q2 — never
-  just one number standing in as "the" revenue.
-- Month-basis toggle (order date / invoice date, default invoice date)
-  affects every chart on the screen consistently, not per-chart — and
-  per the wrinkle above, the invoice-date basis buckets per LINE, so the
-  aggregation function needs to branch on the toggle at the line level,
-  not just re-group pre-summed order totals.
-- Chart.js loaded via CDN `<script>` tag in `ViewsStats.html` — confirmed
-  compatible with HtmlService's IFRAME sandbox, no vendoring needed.
-- `Stats.gs` pre-aggregates server-side and returns bucketed totals as
-  JSON — never ships raw order/line rows to the chart.
-- `view_all_orders` scoping applies here too — a user without it should
-  see statistics over their own orders only, same as the list/export.
-
-**Exit criteria** (from `MILESTONES.md`):
-- [ ] Revenue figures reconcile against the reference Excel for a sample
-      month
-- [ ] `view_statistics` / `export_statistics` are enforced
-
-### Decision log
-
-- 2026-09-03: split into 4.1 (export) and 4.2 (statistics) — build and
-  verify export first, since it reuses the existing filter/permission
-  machinery from M3 almost directly, while statistics needs new
-  aggregation logic and a charting library integration. Statistics can
-  reuse whatever month-bucketing/revenue-basis-toggle logic export's
-  `DOANH SỐ THÁNG n` totals end up needing, so building export first
-  avoids doing that work twice.
-- 2026-09-03: generation approach for XLSX/PDF researched and decided —
-  temp-Sheet-then-export-URL (SpreadsheetApp + UrlFetchApp), not a
-  vendored JS XLSX library — this is the current standard pattern for
-  Apps Script and avoids the V8-sandbox compatibility problems a
-  vendored library would hit. CSV stays plain string-building with a
-  UTF-8 BOM. Chart.js loads via CDN, no vendoring needed.
-- 2026-09-03: found that "by invoice date" is a per-line concept
-  (`invoiceId` lives on `OrderLines`, not `Orders` — `DATA_MODEL.md` §4),
-  not per-order — Phong answered same day: order-date basis groups by
-  order as the reference file already does (unbilled lines just show
-  blank invoiceNo/invoiceDate, nothing special); invoice-date basis
-  buckets per line, sub-grouped by order within each bucket, with
-  unbilled lines collected into their own "no invoice" bucket (also
-  sub-grouped by order) rather than spread across months or dropped.
-- 2026-09-03: export includes the order-date/invoice-date toggle, not
-  just stats — Phong's answer. Default stays order-date (matches the
-  reference file), switching to invoice-date reuses the same per-line
-  bucketing/unbilled-handling rules decided above.
-- 2026-09-03: export size in practice has "no real limit — could be
-  multiple years" (Phong's answer) — ruled out a purely synchronous
-  temp-Sheet-then-return design; export is async from the start
-  (checkpoint-and-re-trigger past the 6-minute limit, build/convert
-  split into two phases, client polls a status record rather than
-  holding the request open). Delivery is BOTH a Drive link and an
-  emailed attachment (Phong's answer, not one or the other) — with a
-  size-threshold fallback to link-only email past Gmail's ~25MB
-  attachment ceiling, and a retention/cleanup trigger for the Drive
-  export folder so files don't accumulate indefinitely. A small export
-  still completes inline in one execution — the async machinery is
-  there for the large case, not imposed on every export regardless of
-  size.
-
-All open questions for Task 4.1 are now resolved; nothing left to decide
-before starting to build it.
+`BUILD`: `api-2026-09-03f-exportcsv` / `web-2026-09-03e-exportcsv`.

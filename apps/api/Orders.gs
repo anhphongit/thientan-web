@@ -54,32 +54,18 @@ function actionListOrders_(user, payload) {
   var pageSize = Math.min(Math.max(parseInt(payload && payload.pageSize, 10) ||
                                     LIST_PAGE_SIZE_DEFAULT, 1), LIST_PAGE_SIZE_MAX);
   var page = Math.max(parseInt(payload && payload.page, 10) || 1, 1);
-  var dateFilter = orderDateFilter_(payload);
 
-  // Milestone 3 / 3.3: customer + status + created-by, combinable with each
-  // other and with the 3.2 date filter. `createdBy` only makes sense for a
-  // caller who can see everyone's orders — scopeToUser_ has already narrowed
-  // anyone else to just their own rows, so normalizeFilter_ below is skipped
-  // for them rather than silently matching (or not matching) their own email.
-  // Security fix, found live 2026-08-31: the same leak as search below —
-  // filtering by a field a role can't see (visible_fields excludes it)
-  // would tell them which orders have a given customer/status even though
-  // that field never renders on their card. Ignored, not honored, exactly
-  // like createdBy already is for a caller without view_all_orders.
-  var customerFilter = fieldVisible_(user, 'customer') ? normalizeFilter_(payload && payload.customer) : '';
-  var statusFilter = fieldVisible_(user, 'status')
-    ? normalizeFilter_(payload && payload.status, { keepCase: true }) : '';
-  var createdByFilter = canSeeAllOrders_(user) ? normalizeFilter_(payload && payload.createdBy) : '';
-  // Milestone 3 / 3.4: free-text search across orderId, po, customer (order
-  // level) and line description (needs a second sheet). Substring, not
-  // exact — normalizeFilter_ trims/lowercases like customer/createdBy do.
-  var searchQuery = normalizeFilter_(payload && payload.q);
-  // Milestone 3 / 3.8 — approveStatus filter. approveStatus is ALWAYS
-  // visible (ALWAYS_VISIBLE_FIELDS), so unlike customer/status above this is
-  // never gated on fieldVisible_; it only makes sense while the flag is on.
+  // Milestone 3 / 3.2–3.8's filters, computed by the shared helper (Milestone
+  // 4 / 4.1) so actionListOrders_ and Export.gs's actions can never drift
+  // apart on what a filter value means or which fields it's gated behind.
   var approveConfig = readPublicConfig_();
-  var approveStatusFilter = approvalFlowEnabled_(approveConfig)
-    ? normalizeFilter_(payload && payload.approveStatus, { keepCase: true }) : '';
+  var filters = computeOrderFilters_(user, payload, approveConfig);
+  var dateFilter = filters.dateFilter;
+  var customerFilter = filters.customerFilter;
+  var statusFilter = filters.statusFilter;
+  var createdByFilter = filters.createdByFilter;
+  var searchQuery = filters.searchQuery;
+  var approveStatusFilter = filters.approveStatusFilter;
 
   var version = getOrdersVersion_();
   var cacheKey = listCacheKey_(version, user.email, page, pageSize,
@@ -88,37 +74,14 @@ function actionListOrders_(user, payload) {
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
 
-  var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
-  if (dateFilter.fromTime !== null || dateFilter.toTime !== null) {
-    orders = orders.filter(function (row) { return matchesDateFilter_(row, dateFilter); });
-  }
-  if (customerFilter) {
-    orders = orders.filter(function (row) { return normalizeFilter_(row.customer) === customerFilter; });
-  }
-  if (statusFilter) {
-    orders = orders.filter(function (row) { return String(row.status || '') === statusFilter; });
-  }
-  if (createdByFilter) {
-    orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === createdByFilter; });
-  }
-  if (approveStatusFilter) {
-    orders = orders.filter(function (row) {
-      return String(row.approveStatus || 'draft') === approveStatusFilter;
-    });
-  }
-  if (searchQuery) {
-    // Security fix, found live 2026-08-31: search must never become an
-    // oracle for a field a role can't see. Before this, a caller blind to
-    // `po` (visible_fields excludes it) could type a PO number and see a
-    // matching order come back — leaking that the PO exists, and which
-    // order/customer it belongs to, even though the card itself never
-    // renders `po` (filterVisibleFields_ strips it later, too late to
-    // matter). One full OrderLines read per search only when `description`
-    // is actually visible — same "cheap at this volume" call as D4.
-    var lineMatchIds = fieldVisible_(user, 'description') ? searchLineOrderIds_(searchQuery) : {};
-    orders = orders.filter(function (row) { return matchesSearch_(row, searchQuery, lineMatchIds, user); });
-  }
-  orders.sort(compareOrdersNewestFirst_);
+  var orders = filteredOrderRowsForUser_(user, {
+    dateFilter: dateFilter,
+    customerFilter: customerFilter,
+    statusFilter: statusFilter,
+    createdByFilter: createdByFilter,
+    approveStatusFilter: approveStatusFilter,
+    searchQuery: searchQuery
+  });
 
   var total = orders.length;
   var start = (page - 1) * pageSize;
@@ -139,6 +102,72 @@ function actionListOrders_(user, payload) {
 
   putListCache_(cacheKey, result);
   return result;
+}
+
+/**
+ * Milestone 4 / 4.1 — factored out of actionListOrders_ so Export.gs's
+ * filtered-export actions apply the EXACT same filters (in the same order,
+ * against the same scoped/security-checked row set) rather than a second,
+ * possibly-drifting copy. Returns the full filtered+sorted set of RAW
+ * Orders rows (not list-card view, not paginated, not fields-filtered —
+ * callers do that themselves for their own purpose: actionListOrders_
+ * slices+trims to card view, Export.gs's actions build a report row shape).
+ *
+ * `filters` is the already-computed set of filter values (dateFilter object,
+ * customerFilter/statusFilter/createdByFilter/approveStatusFilter/searchQuery
+ * strings) — computing those from a raw payload is still the caller's job,
+ * since actionListOrders_ and the export actions want the identical
+ * gating logic (fieldVisible_/canSeeAllOrders_/approvalFlowEnabled_ checks)
+ * applied to the payload before it ever reaches here.
+ */
+function filteredOrderRowsForUser_(user, filters) {
+  var orders = scopeToUser_(user, readAll_(SHEETS.ORDERS));
+  if (filters.dateFilter && (filters.dateFilter.fromTime !== null || filters.dateFilter.toTime !== null)) {
+    orders = orders.filter(function (row) { return matchesDateFilter_(row, filters.dateFilter); });
+  }
+  if (filters.customerFilter) {
+    orders = orders.filter(function (row) { return normalizeFilter_(row.customer) === filters.customerFilter; });
+  }
+  if (filters.statusFilter) {
+    orders = orders.filter(function (row) { return String(row.status || '') === filters.statusFilter; });
+  }
+  if (filters.createdByFilter) {
+    orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === filters.createdByFilter; });
+  }
+  if (filters.approveStatusFilter) {
+    orders = orders.filter(function (row) {
+      return String(row.approveStatus || 'draft') === filters.approveStatusFilter;
+    });
+  }
+  if (filters.searchQuery) {
+    // Same security reasoning as actionListOrders_ originally had inline:
+    // search must never become an oracle for a field a role can't see.
+    var lineMatchIds = fieldVisible_(user, 'description') ? searchLineOrderIds_(filters.searchQuery) : {};
+    orders = orders.filter(function (row) { return matchesSearch_(row, filters.searchQuery, lineMatchIds, user); });
+  }
+  orders.sort(compareOrdersNewestFirst_);
+  return orders;
+}
+
+/**
+ * Milestone 4 / 4.1 — builds the same `filters` shape filteredOrderRowsForUser_
+ * expects, from a raw action payload. Shared by actionListOrders_ and every
+ * Export.gs action so the exact same gating (fieldVisible_, canSeeAllOrders_,
+ * approvalFlowEnabled_) decides what a filter value even MEANS, not just
+ * whether one was supplied — the same security fixes 3.3/3.4 made for the
+ * list stay true for exports automatically, not by remembering to copy them.
+ */
+function computeOrderFilters_(user, payload, config) {
+  return {
+    dateFilter: orderDateFilter_(payload),
+    customerFilter: fieldVisible_(user, 'customer') ? normalizeFilter_(payload && payload.customer) : '',
+    statusFilter: fieldVisible_(user, 'status')
+      ? normalizeFilter_(payload && payload.status, { keepCase: true }) : '',
+    createdByFilter: canSeeAllOrders_(user) ? normalizeFilter_(payload && payload.createdBy) : '',
+    searchQuery: normalizeFilter_(payload && payload.q),
+    approveStatusFilter: approvalFlowEnabled_(config)
+      ? normalizeFilter_(payload && payload.approveStatus, { keepCase: true }) : ''
+  };
 }
 
 /**

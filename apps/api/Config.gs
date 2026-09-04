@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-03e-approvedstamp';
+var BUILD = 'api-2026-09-03f-exportcsv';
 
 /** Script Property keys. */
 var PROP = {

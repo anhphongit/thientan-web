@@ -160,6 +160,10 @@ function getActions_() {
        pending order back to Nháp. Self-approver only; see Orders.gs. */
     setDraftOrder: actionSetDraftOrder_,
 
+    /* Milestone 4 / 4.1 — CSV export of the currently-filtered list. See
+       Export.gs; XLSX/PDF (4.3/4.4) register their own actions later. */
+    exportOrdersCsv: actionExportOrdersCsv_,
+
     logDev: actionLogDev_
   };
 }
