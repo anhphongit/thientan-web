@@ -278,6 +278,41 @@ function apiStatsByStatus(payload) {
   });
 }
 
+/** Milestone 5 / 5.1 — product/stock CRUD. Same pass-through shape as every
+ *  other apiXxx here: manage_inventory is re-checked on the API side
+ *  (Products.gs), nothing here decides anything. */
+function apiListProducts(payload) {
+  return handle_('apiListProducts', function () {
+    return apiCall_('listProducts', payload || {});
+  });
+}
+
+function apiGetProduct(productId) {
+  return handle_('apiGetProduct', function () {
+    return apiCall_('getProduct', { productId: productId });
+  });
+}
+
+/** @param {{product:Object}} payload */
+function apiCreateProduct(payload) {
+  return handle_('apiCreateProduct', function () {
+    return apiCall_('createProduct', payload || {});
+  });
+}
+
+/** @param {{productId:string, product:Object}} payload */
+function apiUpdateProduct(payload) {
+  return handle_('apiUpdateProduct', function () {
+    return apiCall_('updateProduct', payload || {});
+  });
+}
+
+function apiDeleteProduct(productId) {
+  return handle_('apiDeleteProduct', function () {
+    return apiCall_('deleteProduct', { productId: productId });
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

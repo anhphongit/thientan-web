@@ -3004,3 +3004,173 @@ ghép/Cột chồng/Xếp hạng; selecting it swaps the chart to two amber bars
 per group (Số đơn / Số dòng) with a matching legend, and switching back
 to any of the other three restores the normal VAT chart exactly as
 before.
+
+---
+
+## Milestone 5 — split into sub-tasks (2026-09-06)
+
+| # | Task | Status |
+|---|------|--------|
+| 5.1 | `Products.gs` + `ui/ViewsInventory.html` — product/stock CRUD, low-stock flag | ☑ |
+| 5.2 | `Admin.gs` + `ui/ViewsAdmin.html` — user list, add/edit/deactivate | ☐ |
+| 5.3 | Permission matrix editor | ☐ |
+| 5.4 | Config sheet editing from the Admin UI | ☐ |
+
+Same reasoning as the 4.5 and 4.6/4.7 splits: Milestone 5 (`MILESTONES.md`)
+covers two largely independent subsystems — Inventory (product/stock CRUD)
+and Admin (user management, permission matrix, Config editing) — each
+substantial enough on its own to lose the "one task, one tested step"
+convention if built as a single unit. Confirmed with Phong (Inventory
+first, then Admin) and split into:
+
+- **5.1** — `Products.gs` + `ui/ViewsInventory.html`: product/stock CRUD,
+  low-stock flag, `manage_inventory` permission gate. Also creates the
+  `Products` sheet for the first time (`Setup.gs`'s `setupMilestone2`
+  comment: "Products is deliberately absent — it belongs to Milestone 5" —
+  so this task adds the equivalent `setupMilestone5` sheet-creation step,
+  following `Users`'/`Orders`' existing `ensureSheetWithHeaders_` pattern).
+- **5.2** — `Admin.gs` + `ui/ViewsAdmin.html`: user list, add/edit/
+  deactivate. Admin self-protection rules from `PERMISSIONS.md` §6 apply
+  here (a user with `manage_users` cannot remove their own `manage_users`;
+  the last active admin cannot be deactivated).
+- **5.3** — permission matrix editor (users × permissions grid,
+  `PERMISSIONS.md`'s full list) — kept separate from 5.2 since it's a
+  materially different UI (a grid/matrix, one card per user on mobile per
+  `ViewsAdmin.html`'s existing stub note) rather than a simple add/edit
+  form.
+- **5.4** — Config sheet editing from the Admin UI (status list, UoM list,
+  customer list) — the last piece needed so an admin never has to open the
+  Sheet directly for day-to-day configuration.
+
+`ViewsInventory.html`/`ViewsAdmin.html` currently exist only as stub files
+("STATUS: stub. No implementation yet. Built in Milestone 5") —
+`App.html`'s nav already has both tabs wired (`manage_inventory`/
+`manage_users` gated, `apps/web/ui/App.html` lines ~132-133), and
+`Config.gs`'s permission list already includes both permissions — so 5.1
+starts from a real spec (`DATA_MODEL.md` §5 `Products`, `PERMISSIONS.md`)
+and existing nav wiring, not a blank slate.
+
+
+---
+
+## Milestone 5, task 5.1 — product/stock CRUD (built 2026-09-06)
+
+Full stack for the "Kho hàng" (inventory) screen: `apps/api/Products.gs`
+(new), the `Products` sheet (`setupMilestone5()`, mirroring `setupMilestone2`'s
+one-run/safe-to-re-run shape), the five `apiXxx` pass-throughs in
+`apps/web/Main.gs`, and `apps/web/ui/ViewsInventory.html` (new — was a
+5-line stub). Confirmed with Phong before building: list mirrors the order
+list's server-side pagination pattern (not a simpler client-filtered list),
+and the low-stock flag is a visual badge only — `stockQty` stays a plain,
+manually-edited number, with no integration into `Orders.gs` for this task.
+
+**Schema and permission model** — both already finalized before this task
+started (`DATA_MODEL.md` §5, `PERMISSIONS.md`): `productId, code, name,
+uom, stockQty, minStock, lastPrice, active, note`, no audit-trail columns
+(a catalog entry doesn't carry the same audit need an order does), and a
+single `manage_inventory` permission gating the *entire* screen — unlike
+Orders there is no separate view permission and no `visible_fields`
+concept here, so the client never needs a `fieldAllowed_`-style gate or a
+read-only form variant.
+
+**`Products.gs`** — `actionListProducts_` (pagination/search/
+`includeInactive`/`lowStockOnly`, sorted by `code` ascending — a catalog
+reads naturally as an alphabetized list, unlike Orders' "newest first"),
+`actionGetProduct_`, `actionCreateProduct_`/`actionUpdateProduct_`
+(sequential `SP-0001`-style ids via `nextProductId_`, no year segment
+since a catalog doesn't reset yearly; code uniqueness checked
+case/space-insensitively, self-excluded on update), and
+`actionDeleteProduct_` — refuses when any `OrderLines.productCode` still
+references the product's `code` (history must never go stale, same rule
+Orders/StatusHistory already follow), pointing the caller at deactivating
+instead. Every response carries a server-computed `isLowStock` flag
+(`stockQty <= minStock`, only when `minStock > 0` and the product is
+active — a product nobody set a threshold for is never flagged, and
+nothing about a discontinued product needs a restock warning) plus a
+`lowStockTotal` on every list response: counts every active low-stock
+product across the WHOLE catalog, ignoring the current search/
+`lowStockOnly` filter (only `includeInactive` scopes it) — same role
+`Stats.gs`'s `noInvoice` total plays for the stats screen: a standing
+summary independent of whatever's currently on screen.
+
+**`ViewsInventory.html`** — same two-screens-one-module shape as
+`ViewsOrders.html`: a paginated card list (`PAGE_SIZE` 20, mirrors
+`LIST_PAGE_SIZE_DEFAULT`), and a form shared by create/edit. Reused
+patterns wholesale rather than reinventing them: `field()`, the
+collect-at-save-time DOM read (`collect()`), `T.confirm()` for the delete
+flow (with a mini product-summary card), the `viewSeq`/`myGeneration`/
+`staleView_` cross-tab race guard (same fix as the 2026-09-04 bug where a
+stale response from an abandoned tab could paint over whatever tab a user
+had since switched to), and the L1/L2/P2/P3-style list cache (60s TTL,
+background silent revalidation, write-through cache on save/delete).
+Two deliberate simplifications versus `ViewsOrders.html`, both because
+Products' filter/field set is much smaller: (1) a compact always-visible
+filter bar (search + two checkboxes that apply immediately on change)
+instead of Orders' collapsible "Bộ lọc" panel — three filters don't
+need that machinery; (2) `stockQty`/`minStock` are plain decimal-friendly
+inputs, NOT grouped like money — `productQuantity_` parses with
+`parseFloat` (comma as decimal separator), so grouping "1.200" with
+dots-as-thousands would silently parse as `1.2` server-side; only
+`lastPrice` gets the money-grouping/`onBlur` reformat treatment, since
+`money_()` strips non-digit characters instead. The standing
+"N sản phẩm sắp hết hàng" low-stock summary renders under the title,
+independent of the active filter, straight from `lowStockTotal`.
+
+**`Styles.html`** — new section: `.product-list`/`.product-card` (a
+single `<button>` reusing `.order-card`'s chrome/shadow — simpler than
+Orders' split id/lines-vs-customer/money two-button card, since there's
+no quick-status select to keep separate), `.pc-lowstock` (the amber
+"needs attention, not an error" palette already established for
+`.oc-id-fused--waiting`), `.lowstock-summary`, `.filter-checks`/
+`.filter-check` (the compact always-on filter bar), and `.field-check`
+(a checkbox laid out inline with its own label, instead of the stacked
+label-above-control every other field in `.form-grid` uses).
+
+**Verification**:
+- `products.test.js` (new, 48 assertions) — permission enforcement on
+  every action, create/update validation, sequential ids + code
+  uniqueness (self-excluded on update), the low-stock flag's boundary
+  cases (exactly at threshold, above, below, no-threshold-set, never
+  flagged when inactive), list pagination/search/`includeInactive`/
+  `lowStockOnly`/`lowStockTotal`, and the delete-guard (referenced product
+  refuses to delete but can still be deactivated) — proven genuine by
+  deliberately removing the guard, confirming the test then fails (on an
+  unrelated `Không tìm thấy sản phẩm` error from the product having
+  actually been deleted), then restoring it and reconfirming 48/48 pass.
+- `products-ui.test.js` (new, 40 assertions, same eval-the-real-`<script>`
+  -body technique `orders-ui.test.js` uses) — list renders both products
+  with correctly escaped/hostile input, low-stock and inactive badges,
+  the standing low-stock summary, VND formatting, pagination
+  (`page`/`pageSize` sent correctly, "Xem thêm" fetches page 2); filter
+  checkboxes re-fetch immediately with the right payload; the blank
+  create form has the right fields/keyboards (decimal for
+  stock/threshold, money-grouped only for price) and no delete button;
+  opening a product already in the loaded list does NOT call
+  `apiGetProduct` (proven genuine — removing that shortcut breaks 4
+  assertions, confirmed, then restored); opening one NOT in the current
+  page falls back to `apiGetProduct` with a skeleton first; the delete
+  flow asks for confirmation with a real product summary before calling
+  `apiDeleteProduct`.
+- Full offline suite (14 files, `.gs` backend + both UI smoke tests):
+  638 assertions, 0 failed.
+
+`BUILD`: API `api-2026-09-06a-productscrud`, web
+`web-2026-09-06a-inventoryscreen`.
+
+**Live-test checklist for Phong**: paste `Products.gs` (new file),
+`Config.gs`, `Setup.gs`, `Router.gs` into the API project, and
+`ViewsInventory.html` (new file), `App.html`, `Index.html`, `Styles.html`
+into the web project, then redeploy both. Run `setupMilestone5()` once
+from the API editor (creates the `Products` sheet; safe to re-run).
+Confirm: "Kho hàng" tab now opens a real screen instead of the "chưa có
+ở giai đoạn này" placeholder. Create a product (code, name, đơn vị tính,
+tồn kho, ngưỡng tối thiểu, giá, ghi chú) and confirm it appears in the
+list with the right formatting. Set `stockQty` below `minStock` on a
+product and confirm the "Sắp hết hàng" badge appears on its card AND the
+standing low-stock count updates. Search by code/name; toggle "Hiện cả
+sản phẩm ngừng kinh doanh" and "Chỉ hiện sản phẩm sắp hết hàng"
+independently. Try creating a second product with a code that already
+exists — confirm it's refused. Try deleting a product that's used on an
+existing order line — confirm it's refused with a message pointing at
+deactivating instead; deactivate it instead and confirm that succeeds.
+Delete an unused product and confirm it disappears from the list.

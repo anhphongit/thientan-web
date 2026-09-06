@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-04k-statsbyorder';
+var BUILD = 'api-2026-09-06a-productscrud';
 
 /** Script Property keys. */
 var PROP = {
@@ -24,6 +24,10 @@ var PROP = {
   ADMIN_EMAIL: 'ADMIN_EMAIL',
   ORDER_SEQ_YEAR: 'ORDER_SEQ_YEAR',
   ORDER_SEQ_NEXT: 'ORDER_SEQ_NEXT',
+  // Milestone 5 / 5.1 — product id sequence (SP-0001, SP-0002, ...). No year
+  // segment (unlike ORDER_SEQ_*): a product catalog doesn't reset yearly the
+  // way an order sequence does, per docs/DATA_MODEL.md's example id.
+  PRODUCT_SEQ_NEXT: 'PRODUCT_SEQ_NEXT',
   DEV_MODE: 'DEV_MODE'
 };
 
@@ -49,6 +53,12 @@ var SHEETS = {
  */
 var HEADERS = {
   Users: ['email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'createdBy', 'note'],
+  // Milestone 5 / 5.1 — matches docs/DATA_MODEL.md §5 exactly (schema
+  // decided at design time, before this task started): no createdBy/At or
+  // updatedBy/At columns, unlike Orders — a product catalog entry doesn't
+  // carry the same audit-trail need an order does, and the doc's schema
+  // table was already finalized without them.
+  Products: ['productId', 'code', 'name', 'uom', 'stockQty', 'minStock', 'lastPrice', 'active', 'note'],
   Config: ['key', 'value', 'description'],
   Security: ['key', 'value', 'description'],
   SecurityLog: ['timestamp', 'event', 'detail'],
@@ -103,6 +113,16 @@ var ORDER_LIMITS = {
   MAX_LINES: 50,
   MAX_TEXT: 2000,
   MAX_MONEY: 1e12
+};
+
+/** Milestone 5 / 5.1 — product field limits, same shape as ORDER_LIMITS
+ *  (a cap keeps one bad request from writing an absurd value), reusing
+ *  Orders.gs's text_()/money_() helpers directly since ORDER_LIMITS.MAX_TEXT/
+ *  MAX_MONEY already cover both — this constant exists only for the one
+ *  product-specific cap those two don't: how large a stock quantity/
+ *  threshold is allowed to be. */
+var PRODUCT_LIMITS = {
+  MAX_QTY: 1e9
 };
 
 /**
@@ -351,5 +371,17 @@ var MSG = {
 
   /* ---- large export jobs (Milestone 4 / 4.5.2) ---- */
   EXPORTJOB_NOT_FOUND: 'Không tìm thấy tác vụ xuất file này (có thể đã hết hạn).',
-  EXPORTJOB_BAD_FORMAT: 'Định dạng xuất file không hợp lệ.'
+  EXPORTJOB_BAD_FORMAT: 'Định dạng xuất file không hợp lệ.',
+
+  /* ---- inventory (Milestone 5 / 5.1) ---- */
+  PRODUCT_NOT_FOUND: 'Không tìm thấy sản phẩm.',
+  PRODUCT_NO_CODE: 'Vui lòng nhập mã sản phẩm.',
+  PRODUCT_NO_NAME: 'Vui lòng nhập tên sản phẩm.',
+  PRODUCT_CODE_DUPLICATE: 'Mã sản phẩm này đã tồn tại.',
+  PRODUCT_BAD_STOCK: 'Số lượng tồn kho không hợp lệ.',
+  PRODUCT_BAD_MIN_STOCK: 'Ngưỡng tồn kho tối thiểu không hợp lệ.',
+  PRODUCT_BAD_PRICE: 'Giá không hợp lệ.',
+  PRODUCT_IN_USE: 'Không thể xoá: sản phẩm này đang được dùng trong đơn hàng. ' +
+    'Hãy chuyển sang trạng thái "Ngừng kinh doanh" thay vì xoá.',
+  PRODUCT_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.'
 };

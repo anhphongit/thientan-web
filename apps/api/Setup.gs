@@ -98,7 +98,10 @@ function guardSetup_() {
                     // finished/abandoned export jobs; same editor-only,
                     // trigger-only shape as installExpiryReminder/
                     // checkSecretExpiry above.
-                    'installExportJobCleanupReminder', 'cleanupExportJobs'];
+                    'installExportJobCleanupReminder', 'cleanupExportJobs',
+                    // Milestone 5 / 5.1 — creates the Products sheet, same
+                    // editor-only, run-once shape as setupMilestone2.
+                    'setupMilestone5'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {
@@ -238,6 +241,26 @@ function setupMilestone2() {
   log.push(seedConfigDefaults_(ss));
   log.push(seedCustomerListIfEmpty_());
   log.push(checkOrderHeaders_());
+
+  var summary = log.join('\n');
+  console.log(summary);
+  return summary;
+}
+
+/**
+ * setupMilestone5 — create the Products sheet (Milestone 5 / 5.1).
+ *
+ * Run once, from the API editor, any time after setupMilestone2. Safe to
+ * re-run, same as setupMilestone2: a sheet that already has data is left
+ * exactly as it is (ensureSheetWithHeaders_'s own guarantee).
+ */
+function setupMilestone5() {
+  guardSetup_();
+
+  var ss = getSpreadsheet_();
+  var log = [];
+
+  log.push(ensureSheetWithHeaders_(ss, SHEETS.PRODUCTS, HEADERS.Products));
 
   var summary = log.join('\n');
   console.log(summary);

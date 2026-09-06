@@ -191,6 +191,15 @@ function getActions_() {
     statsByCustomer: actionStatsByCustomer_,
     statsByStatus: actionStatsByStatus_,
 
+    /* Milestone 5 / 5.1 — product/stock CRUD, gated entirely on
+       manage_inventory (no separate view permission for this screen). See
+       Products.gs. */
+    listProducts: actionListProducts_,
+    getProduct: actionGetProduct_,
+    createProduct: actionCreateProduct_,
+    updateProduct: actionUpdateProduct_,
+    deleteProduct: actionDeleteProduct_,
+
     logDev: actionLogDev_
   };
 }

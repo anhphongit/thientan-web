@@ -1092,4 +1092,75 @@
   .stats-bar.count-line { background: #e8c497; }
   .stats-chart-legend i.count-order { background: #d68f4a; }
   .stats-chart-legend i.count-line { background: #e8c497; }
+
+  /* Milestone 5 / 5.1 (2026-09-06) — inventory screen (ViewsInventory.html).
+     The card list reuses .order-list's grid + .order-card's chrome/shadow
+     rather than duplicating them: a product card is simpler than an order
+     card (no split id/lines vs customer/money buttons, no quick-status
+     select overlaid on a pill), so it's a SINGLE <button class="product-
+     card"> — .oc-open already supplies the "look like a card, behave like
+     a button" reset this needs, applied directly to .product-card instead
+     of composed with a separate wrapper. */
+  .product-list { display: grid; gap: 10px; }
+  @media (min-width: 960px) {
+    .product-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .product-card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px; font: inherit; color: inherit;
+  }
+  .product-card:hover { border-color: var(--c-brand); }
+  .pc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pc-code { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  .pc-name {
+    font-weight: 600; margin: 4px 0 2px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pc-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; color: var(--c-muted); font-size: 13px;
+  }
+  .pc-price { color: var(--c-text); font-weight: 600; white-space: nowrap; }
+
+  /* Same "colour + never just colour alone" reasoning as STATUS_STYLE's
+     dot in ViewsOrders.html, reusing the exact amber palette already
+     established there for a "needs attention, not an error" state
+     (.oc-id-fused--waiting / .approve-status-pill--waiting). A plain text
+     badge (no icon) is enough here: unlike the order-id marker this is
+     never a click target, just a glance-able flag. */
+  .pc-lowstock {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #fff4e0; color: #9a6400; border: 1px solid #f6dfab;
+  }
+  .lowstock-summary {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 12px; font-size: 13px; color: var(--c-text);
+  }
+
+  /* Compact filter bar (search + two checkboxes, no collapsible panel —
+     see ViewsInventory.html's filterBarHtml doc comment for why three
+     filters don't need Orders' "Bộ lọc" panel treatment). Reuses
+     .list-filter/.list-filter-row/.list-filter-q/.btn-icon as-is. */
+  .filter-checks {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .filter-check {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--c-text); cursor: pointer;
+  }
+  .filter-check input { width: 16px; height: 16px; }
+
+  /* A checkbox field inside .form-grid reads oddly with the stacked
+     field-label-above-control layout every OTHER field here uses (money/
+     text/select) — this lays the checkbox and its own label out inline
+     instead, same row height as its siblings so the grid still lines up. */
+  .field-check {
+    flex-direction: row; align-items: center; gap: 8px;
+    justify-content: flex-start;
+  }
+  .field-check input { width: 18px; height: 18px; flex: 0 0 auto; }
 </style>

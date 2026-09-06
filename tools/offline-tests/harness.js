@@ -9,6 +9,7 @@ const path = __dirname + '/../../apps/api/';
 
 function makeEnv(configOverrides) {
   const store = { Orders: [], OrderLines: [], Invoices: [], StatusHistory: [],
+                  Products: [], // Milestone 5 / 5.1
                   Config: [
                     { key: 'customerList', value: JSON.stringify(['Yamato']) }
                   ] };
@@ -232,7 +233,7 @@ function makeEnv(configOverrides) {
   sandbox.global = sandbox;
   vm.createContext(sandbox);
 
-  ['Config.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs', 'ExportJob.gs', 'Stats.gs'].forEach(f => {
+  ['Config.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs', 'ExportJob.gs', 'Stats.gs', 'Products.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;
