@@ -1101,7 +1101,8 @@ finished job to deliver; cleanup needs delivered jobs to clean up).
 | 4.6.1 | Revenue by time period (week/month/quarter/year, generalizing the existing month-bucketing) + `statsRevenue` action/permission wiring | ☑ |
 | 4.6.2 | Revenue by customer and by status (separate aggregation dimension from time-period) | ☑ |
 | 4.7.1 | Stats view UI — period toggle + one Chart.js chart + totals table | ☑ |
-| 4.7.2 | Customer/status breakdown views, filters, polish | ☐ |
+| 4.7.2 | Customer/status breakdown views, filters, polish | ☑ (filters/basis-toggle since removed per live feedback — see 4.7.2 follow-up and 4.7.3 below) |
+| 4.7.3 | "Stat by order" revision + include-no-invoice toggle + toggle placement/count chart follow-up | ☑ |
 
 **Backlog — last task before go-live, not milestone-specific (noted
 2026-09-04, not yet built):** a `verifyAuthorization()`-style setup
