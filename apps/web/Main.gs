@@ -322,6 +322,15 @@ function apiDeleteProduct(productId) {
   });
 }
 
+/** Milestone 5 / 5.5 — lookup products for the order line picker.
+ *  @param {Object} payload {q} — search query for code or name
+ *  Returns: {code, name, uom, lastPrice}[] array of matching products */
+function apiLookupProducts(payload) {
+  return handle_('apiLookupProducts', function () {
+    return apiCall_('lookupProducts', payload || {});
+  });
+}
+
 /** Milestone 5 / 5.2 — user management. Same thin pass-through shape as
  *  every other apiXxx here: manage_users is re-checked on the API side
  *  (Admin.gs), nothing here decides anything. */

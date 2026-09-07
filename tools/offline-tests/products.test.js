@@ -177,4 +177,62 @@ console.log('\n8. getProduct on an unknown id throws PRODUCT_NOT_FOUND');
   throws('blank productId', () => env.actionGetProduct_(admin, {}), 'Không tìm thấy sản phẩm');
 }
 
+/* ---------- 9. lookupProducts: permission gate on create_order, response shape ---------- */
+console.log('\n9. actionLookupProducts_ (product picker for order lines)');
+{
+  const env = H.makeEnv();
+  const noPermAtAll = user('a@x.com', { create_order: false, manage_inventory: false });
+  const warehouse = user('b@x.com', { create_order: false, manage_inventory: true });  // can see inventory, not orders
+  const sales = user('c@x.com', { create_order: true, manage_inventory: false });      // can create orders, not inventory
+  const admin = user('d@x.com', { create_order: true, manage_inventory: true });
+
+  throws('user with no permissions refused', () => env.actionLookupProducts_(noPermAtAll, { q: 'test' }), 'không có quyền');
+  throws('warehouse (manage_inventory but no create_order) refused', () => env.actionLookupProducts_(warehouse, { q: 'test' }), 'không có quyền');
+
+  // Create some test products
+  const p1 = env.actionCreateProduct_(admin, { product: product({ code: 'VAL-001', name: 'Van lõi trắng' }) });
+  const p2 = env.actionCreateProduct_(admin, { product: product({ code: 'VAL-002', name: 'Van lõi vàng' }) });
+  const p3 = env.actionCreateProduct_(admin, { product: product({ code: 'ONG-001', name: 'Ống PVC xanh' }) });
+  const inactive = env.actionCreateProduct_(admin, { product: product({ code: 'OLD-001', name: 'Sản phẩm cũ' }) });
+  env.actionUpdateProduct_(admin, { productId: inactive.productId, product: product({ code: 'OLD-001', name: 'Sản phẩm cũ', active: false }) });
+
+  // Sales user can call lookupProducts
+  const byCodePrefix = env.actionLookupProducts_(sales, { q: 'val' });
+  eq('code prefix match returns 2 products (VAL-001, VAL-002)', byCodePrefix.length, 2);
+  eq('first result code', byCodePrefix[0].code, 'VAL-001');
+
+  const byName = env.actionLookupProducts_(sales, { q: 'van' });
+  eq('name substring match returns 2 products', byName.length, 2);
+
+  const noMatch = env.actionLookupProducts_(sales, { q: 'xxx' });
+  eq('no match returns empty array', noMatch.length, 0);
+
+  const underMinLen = env.actionLookupProducts_(sales, { q: 'v' });
+  eq('query < 2 chars returns empty array', underMinLen.length, 0);
+
+  // Response shape: should have code, name, uom, lastPrice; should NOT have productId, stockQty, minStock
+  const result = byCodePrefix[0];
+  check('response has code', result.code === 'VAL-001');
+  check('response has name', result.name === 'Van lõi trắng');
+  check('response has uom', result.uom !== undefined);
+  check('response has lastPrice', result.lastPrice !== undefined);
+  check('response does NOT have productId', result.productId === undefined);
+  check('response does NOT have stockQty', result.stockQty === undefined);
+  check('response does NOT have minStock', result.minStock === undefined);
+
+  // Inactive products excluded
+  const allActive = env.actionLookupProducts_(sales, { q: 'on' }); // Matches ONG-001 (active), OLD-001 (inactive)
+  eq('inactive products excluded from lookup', allActive.length, 1);
+  eq('only active product returned', allActive[0].code, 'ONG-001');
+
+  // Results sorted by code
+  const multiMatch = env.actionLookupProducts_(sales, { q: 'va' }); // Matches VAL-001, VAL-002
+  const codes = multiMatch.map(p => p.code);
+  eq('results sorted by code ascending', codes[0] <= codes[1], true);
+
+  // Admin can also call (they have create_order: true)
+  const adminResult = env.actionLookupProducts_(admin, { q: 'val' });
+  eq('admin can also call lookupProducts', adminResult.length, 2);
+}
+
 H.done();

@@ -200,6 +200,11 @@ function getActions_() {
     updateProduct: actionUpdateProduct_,
     deleteProduct: actionDeleteProduct_,
 
+    /* Milestone 5 / 5.5 — lookup products for the order line picker.
+       Gated on create_order (not manage_inventory) so sales users can pick.
+       See Products.gs. */
+    lookupProducts: actionLookupProducts_,
+
     /* Milestone 5 / 5.2 — user management, gated entirely on manage_users
        (no separate view permission, same shape as Products.gs above). No
        deleteUser — Users are never hard-deleted, only deactivated via

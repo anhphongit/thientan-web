@@ -181,6 +181,44 @@ function actionDeleteProduct_(user, payload) {
   });
 }
 
+/**
+ * Lookup products by code or name for the order line picker.
+ * Gated on create_order (not manage_inventory) so sales users can pick products.
+ * Returns minimal shape: {code, name, uom, lastPrice} — no stockQty, minStock, or productId.
+ *
+ * @param {Object} payload {q} — search query (≥2 chars for code prefix or name substring)
+ * @return {Object[]} array of matching products sorted by code, capped at 50 results
+ */
+function actionLookupProducts_(user, payload) {
+  requirePermission_(user, 'create_order');
+
+  var q = normalizeFilter_(payload && payload.q);
+  if (!q || q.length < 2) {
+    return [];
+  }
+
+  var all = readAll_(SHEETS.PRODUCTS);
+  var active = all.filter(function (row) { return bool_(row.active); });
+
+  var matches = active.filter(function (row) {
+    var code = normalizeFilter_(row.code);
+    var name = normalizeFilter_(row.name);
+    return code.indexOf(q) === 0 || name.indexOf(q) >= 0;
+  });
+
+  matches = matches.slice().sort(compareProductsByCode_);
+  var capped = matches.slice(0, 50);
+
+  return capped.map(function (row) {
+    return {
+      code: row.code,
+      name: row.name,
+      uom: row.uom,
+      lastPrice: num_(row.lastPrice)
+    };
+  });
+}
+
 /* =======================================================================
    Helpers
    ======================================================================= */
