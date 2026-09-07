@@ -156,7 +156,7 @@ Scope:
 - Layout mirrors the existing monthly report (month grouping, `STT`/`PO` on first
   line only, `DOANH SỐ THÁNG n` totals) — see `EXCEL_REFERENCE.md`
 - `Stats.gs`: revenue by week / month / quarter / year, by customer, by status
-- `ui/ViewsStats.html`: Chart.js charts
+- `ui/ViewsStats.html`: CSS-based chart rendering (design choice per TASKS.md 4.7.x)
 
 **Exit criteria**
 
@@ -165,14 +165,14 @@ Scope:
 - [ ] The PDF is recognizable to someone used to the current Excel report
 - [ ] Vietnamese characters render correctly in all three formats
 - [ ] Revenue figures reconcile against the reference Excel for a sample month
-- [ ] `view_statistics` / `export_statistics` are enforced
+- [ ] `view_statistics` is enforced; `export_statistics` is reserved for a future stats-export surface (deferred per TASKS.md 2191–2193, no call site exists)
 
 ---
 
 ## ☐ Milestone 5 — Inventory + Admin UI
 
 Scope:
-- `Inventory.gs` + `ui/ViewsInventory.html`: product/stock CRUD, low-stock flag
+- `Products.gs` + `ui/ViewsInventory.html`: product/stock CRUD, low-stock flag
 - `Admin.gs` + `ui/ViewsAdmin.html`: user list, add/edit/deactivate, permission
   matrix editor, `Config` sheet editing (status list, UoM list, customer list)
 

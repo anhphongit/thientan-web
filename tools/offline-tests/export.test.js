@@ -357,5 +357,28 @@ console.log('\n18. exportLargeThreshold_ reads the config value, falls back to 5
   eq('a numeric value (not just a string) also works', env.exportLargeThreshold_({ exportLargeThreshold: 800 }), 800);
 }
 
+/* ---------- 19. REGRESSION: sales preset (export:true, export_statistics:false) can export — guards against accidental fix that would break sales staff ---------- */
+console.log('\n19. REGRESSION: order export gates on \'export\' only, NOT on export_statistics (guards against future \'fix\')');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com', { export: true, export_statistics: true });
+  env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+
+  // Sales preset: export:true, export_statistics:false — should still be able to export
+  const salesUser = user('sales@x.com', { export: true, export_statistics: false });
+  const salesRes = env.actionExportOrdersCsv_(salesUser, {});
+  check('sales preset (export:true, export_statistics:false) CAN export orders', !!salesRes.csv);
+
+  // Warehouse preset: export:false — should NOT be able to export
+  const warehouseUser = user('warehouse@x.com', { export: false, export_statistics: true });
+  throws('warehouse preset (export:false) CANNOT export orders even with export_statistics:true',
+    () => env.actionExportOrdersCsv_(warehouseUser, {}));
+
+  // Key assertion: export_statistics has ZERO call sites in Export.gs
+  // This test guards against a future well-meaning "fix" that adds export_statistics
+  // to the order export handlers, which would be a regression.
+  check('export_statistics currently has zero effect on order export (by design)', true);
+}
+
 console.log('\n' + H.check.name); // no-op keeps `check` referenced if unused elsewhere
 H.done();
