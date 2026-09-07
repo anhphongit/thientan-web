@@ -33,6 +33,10 @@
   var root = null;
 
   var state = {
+    // Milestone 5 / 5.4 — tab switcher for users vs. config
+    activeTab: 'users',
+
+    // ---- Users tab ----
     users: [], usersLoadedAt: 0, refreshing: false,
     // Presets fetched once, lazily (mirrors ViewsOrders.html's
     // ensureCreatorsLoaded/state.creators pattern) — null = not fetched
@@ -46,7 +50,11 @@
     user: null, editing: false, bound: false,
     // One user-detail mutation in flight at a time — mirrors
     // ViewsOrders.html's busyAction/isBusy() exactly.
-    busyAction: null
+    busyAction: null,
+
+    // ---- Config tab (Milestone 5 / 5.4) ----
+    config: [], configLoadedAt: 0, configRefreshing: false,
+    configEdits: {} // Tracks unsaved changes per key
   };
 
   function isBusy() { return !!state.busyAction; }
@@ -81,7 +89,12 @@
       state.bound = true;
     }
     ensurePresetsLoaded();
-    showList();
+    // Milestone 5 / 5.4 — default to users tab; later tab navigation will switch
+    if (state.activeTab === 'config') {
+      showConfigTab();
+    } else {
+      showList();
+    }
   }
 
   /**
@@ -243,6 +256,7 @@
       '<div class="view-head">' +
         '<h2>Người dùng</h2>' +
         '<div class="view-head-actions">' +
+          '<button type="button" class="btn btn-secondary" data-act="switch-to-config">Cài đặt hệ thống</button>' +
           '<button type="button" class="btn btn-primary" data-act="new">+ Thêm người dùng</button>' +
         '</div>' +
       '</div>' +
@@ -700,6 +714,202 @@
   }
 
   /* =====================================================================
+     Config tab (Milestone 5 / 5.4)
+     ===================================================================== */
+
+  function showConfigTab() {
+    state.activeTab = 'config';
+    var seq = ++viewSeq;
+
+    if (state.config.length) {
+      paintConfigTab();
+      if (!configCacheIsFresh()) silentRefreshConfig(seq);
+      return;
+    }
+
+    root.innerHTML = configSkeletonHtml();
+    fetchConfig()
+      .then(function () {
+        if (staleView_(seq)) return;
+        paintConfigTab();
+      })
+      .catch(function (err) {
+        if (staleView_(seq)) return;
+        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+          T.esc(err.message) + '</p></section>';
+      });
+  }
+
+  function configCacheIsFresh() {
+    return !!(state.config.length && state.configLoadedAt &&
+      (Date.now() - state.configLoadedAt) < LIST_CACHE_TTL_MS);
+  }
+
+  function fetchConfig() {
+    return T.call('apiListConfig', {}).then(
+      function (data) {
+        state.config = (data && data.config) || [];
+        state.configLoadedAt = Date.now();
+        state.configEdits = {};
+        return data;
+      }
+    );
+  }
+
+  function silentRefreshConfig(seq) {
+    if (state.configRefreshing) return;
+    state.configRefreshing = true;
+    fetchConfig()
+      .then(function () {
+        state.configRefreshing = false;
+        if (staleView_(seq)) return;
+        paintConfigTab();
+      })
+      .catch(function () { state.configRefreshing = false; });
+  }
+
+  function paintConfigTab() {
+    root.innerHTML = configTabHtml();
+  }
+
+  function configTabHtml() {
+    return '' +
+      '<div class="view-head">' +
+        '<h2>Cài đặt hệ thống</h2>' +
+        '<div class="view-head-actions">' +
+          '<button type="button" class="btn btn-secondary" data-act="back-to-users">← Quay lại</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="config-sections">' +
+        state.config.map(configSectionHtml).join('') +
+      '</div>' +
+      '<div class="config-actions">' +
+        '<button type="button" class="btn btn-primary" data-act="save-config"' +
+          (Object.keys(state.configEdits).length ? '' : ' disabled') +
+          '>Lưu cài đặt</button>' +
+      '</div>';
+  }
+
+  function configSectionHtml(item) {
+    var key = item.key;
+    var value = state.configEdits[key] !== undefined ? state.configEdits[key] : item.value;
+
+    var editorHtml = '';
+    if (item.type === 'array') {
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+        // statusList/approveStatusList-like format (array of objects with key/label)
+        editorHtml = configStatusListEditorHtml(key, value);
+      } else {
+        // uomList/customerList format (array of strings)
+        editorHtml = configArrayEditorHtml(key, value || []);
+      }
+    } else if (item.type === 'string') {
+      editorHtml = '<input type="text" class="config-input" data-key="' + T.esc(key) +
+        '" value="' + T.esc(value || '') + '" />';
+    } else if (item.type === 'number') {
+      editorHtml = '<input type="number" class="config-input" data-key="' + T.esc(key) +
+        '" value="' + T.esc(value || '') + '" />';
+    }
+
+    return '' +
+      '<section class="config-section card">' +
+        '<h3>' + T.esc(key) + '</h3>' +
+        '<p class="config-description">' + T.esc(item.description || '') + '</p>' +
+        '<div class="config-editor">' + editorHtml + '</div>' +
+      '</section>';
+  }
+
+  function configStatusListEditorHtml(key, items) {
+    return '<div class="config-list-editor">' +
+      '<div class="config-list-items">' +
+        (items || []).map(function (item, i) {
+          return '<div class="config-list-item">' +
+            '<input type="text" class="config-status-key" data-key="' + T.esc(key) +
+              '" data-index="' + i + '" value="' + T.esc((item && item.key) || '') +
+              '" placeholder="Mã" />' +
+            '<input type="text" class="config-status-label" data-key="' + T.esc(key) +
+              '" data-index="' + i + '" value="' + T.esc((item && item.label) || '') +
+              '" placeholder="Tên hiển thị" />' +
+            '<button type="button" class="btn-icon config-delete-item" data-key="' +
+              T.esc(key) + '" data-index="' + i + '" aria-label="Xoá">&times;</button>' +
+            '</div>';
+        }).join('') +
+      '</div>' +
+      '<button type="button" class="btn btn-sm" data-act="add-status" data-key="' +
+        T.esc(key) + '">+ Thêm</button>' +
+      '</div>';
+  }
+
+  function configArrayEditorHtml(key, items) {
+    return '<div class="config-list-editor">' +
+      '<div class="config-list-items">' +
+        (items || []).map(function (item, i) {
+          return '<div class="config-list-item">' +
+            '<input type="text" class="config-array-item" data-key="' + T.esc(key) +
+              '" data-index="' + i + '" value="' + T.esc(item || '') + '" />' +
+            '<button type="button" class="btn-icon config-delete-item" data-key="' +
+              T.esc(key) + '" data-index="' + i + '" aria-label="Xoá">&times;</button>' +
+            '</div>';
+        }).join('') +
+      '</div>' +
+      '<button type="button" class="btn btn-sm" data-act="add-array-item" data-key="' +
+        T.esc(key) + '">+ Thêm</button>' +
+      '</div>';
+  }
+
+  function configSkeletonHtml() {
+    return '' +
+      '<div class="view-head"><h2>Cài đặt hệ thống</h2></div>' +
+      '<section class="card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+      '</section>';
+  }
+
+  function saveConfig() {
+    var seq = viewSeq;
+    var updates = Object.keys(state.configEdits);
+    if (!updates.length) return;
+
+    // Validate and collect all changes
+    var changes = [];
+    for (var i = 0; i < updates.length; i++) {
+      var key = updates[i];
+      var item = state.config.filter(function (c) { return c.key === key; })[0];
+      if (!item) continue;
+
+      var newValue = state.configEdits[key];
+      changes.push({ key: key, value: newValue, type: item.type });
+    }
+
+    // Save each change
+    state.busyAction = 'saving-config';
+    paintConfigTab();
+
+    var saveNext = function (idx) {
+      if (idx >= changes.length) {
+        state.busyAction = null;
+        if (staleView_(seq)) return;
+        T.toast('Lưu cài đặt thành công.');
+        silentRefreshConfig(seq);
+        return;
+      }
+
+      var change = changes[idx];
+      T.call('apiUpdateConfig', { key: change.key, value: change.value })
+        .then(function () { saveNext(idx + 1); })
+        .catch(function (err) {
+          state.busyAction = null;
+          if (staleView_(seq)) return;
+          paintConfigTab();
+          T.toast(err.message, true);
+        });
+    };
+
+    saveNext(0);
+  }
+
+  /* =====================================================================
      Behaviour — one delegated listener per event, bound once in render()
      ===================================================================== */
 
@@ -711,7 +921,58 @@
     var open = target.getAttribute('data-open');
     if (open) { openForm(open); return; }
 
-    switch (target.getAttribute('data-act')) {
+    var act = target.getAttribute('data-act');
+
+    // Milestone 5 / 5.4 — config tab actions
+    if (act === 'switch-to-config') {
+      showConfigTab();
+      return;
+    }
+    if (act === 'back-to-users') {
+      state.activeTab = 'users';
+      state.configEdits = {};
+      showList();
+      return;
+    }
+    if (act === 'save-config') {
+      saveConfig();
+      return;
+    }
+    if (act === 'add-status') {
+      var key = target.getAttribute('data-key');
+      var statusList = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
+      if (!Array.isArray(statusList)) statusList = [];
+      statusList = (statusList || []).slice();
+      statusList.push({ key: 'new_status', label: 'Trạng thái mới' });
+      state.configEdits[key] = statusList;
+      paintConfigTab();
+      return;
+    }
+    if (act === 'add-array-item') {
+      var key = target.getAttribute('data-key');
+      var arrValue = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
+      if (!Array.isArray(arrValue)) arrValue = [];
+      arrValue = (arrValue || []).slice();
+      arrValue.push('');
+      state.configEdits[key] = arrValue;
+      paintConfigTab();
+      return;
+    }
+    if (act === 'delete-config-item') {
+      var key = target.getAttribute('data-key');
+      var idx = parseInt(target.getAttribute('data-index'), 10);
+      var val = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value;
+      if (Array.isArray(val)) {
+        val = val.slice();
+        val.splice(idx, 1);
+        state.configEdits[key] = val;
+        paintConfigTab();
+      }
+      return;
+    }
+
+    // Original users tab actions
+    switch (act) {
       case 'new':
         openForm(null);
         break;
@@ -738,6 +999,46 @@
       state.searchDraft = e.target.value;
       var searchBtn = root.querySelector('[data-act="submit-search"]');
       if (searchBtn) searchBtn.disabled = !canSubmitSearch();
+    }
+
+    // Milestone 5 / 5.4 — track config input changes
+    if (e.target && e.target.classList.contains('config-input')) {
+      var key = e.target.getAttribute('data-key');
+      state.configEdits[key] = e.target.value;
+      updateSaveButtonState();
+    }
+    if (e.target && (e.target.classList.contains('config-status-key') ||
+                     e.target.classList.contains('config-status-label'))) {
+      var key = e.target.getAttribute('data-key');
+      var idx = parseInt(e.target.getAttribute('data-index'), 10);
+      var list = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
+      if (!Array.isArray(list)) list = [];
+      list = list.slice();
+      if (!list[idx]) list[idx] = {};
+      if (e.target.classList.contains('config-status-key')) {
+        list[idx].key = e.target.value;
+      } else {
+        list[idx].label = e.target.value;
+      }
+      state.configEdits[key] = list;
+      updateSaveButtonState();
+    }
+    if (e.target && e.target.classList.contains('config-array-item')) {
+      var key = e.target.getAttribute('data-key');
+      var idx = parseInt(e.target.getAttribute('data-index'), 10);
+      var list = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
+      if (!Array.isArray(list)) list = [];
+      list = list.slice();
+      list[idx] = e.target.value;
+      state.configEdits[key] = list;
+      updateSaveButtonState();
+    }
+  }
+
+  function updateSaveButtonState() {
+    var saveBtn = root.querySelector('[data-act="save-config"]');
+    if (saveBtn) {
+      saveBtn.disabled = !Object.keys(state.configEdits).length;
     }
   }
 

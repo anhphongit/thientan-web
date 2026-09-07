@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-07a-permission-matrix';
+var BUILD = 'api-2026-09-07b-config-editing';
 
 /** Script Property keys. */
 var PROP = {
@@ -466,5 +466,28 @@ var MSG = {
   /* ---- permission matrix (Milestone 5 / 5.3) ---- */
   USER_BAD_PERMISSION_KEY: 'Quyền không hợp lệ: ',
   USER_AMBIGUOUS_PERMISSION_PAYLOAD: 'không thể chỉ định cả nhóm quyền (presetKey) và quyền tùy chỉnh (permissions) cùng lúc. Vui lòng chọn một trong hai.',
-  USER_BAD_VISIBLE_FIELDS: 'Danh sách cột hiển thị không hợp lệ.'
+  USER_BAD_VISIBLE_FIELDS: 'Danh sách cột hiển thị không hợp lệ.',
+
+  /* ---- config editing (Milestone 5 / 5.4) ---- */
+  CONFIG_KEY_NOT_ALLOWED: 'Không được phép chỉnh sửa cài đặt này.',
+  CONFIG_KEY_NOT_FOUND: 'Không tìm thấy cài đặt này trong hệ thống.',
+  CONFIG_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
+  CONFIG_STATUS_NOT_ARRAY: 'Danh sách trạng thái phải là một mảng.',
+  CONFIG_STATUS_EMPTY: 'Danh sách trạng thái không được để trống.',
+  CONFIG_STATUS_INVALID_ITEM: 'Mỗi trạng thái phải có "key" và "label".',
+  CONFIG_STATUS_EMPTY_FIELD: 'Trạng thái không được có trường trống.',
+  CONFIG_STATUS_DUPLICATE_KEY: 'Trạng thái có mã (key) trùng lặp.',
+  CONFIG_STATUS_KEY_REMOVAL_NOT_ALLOWED: 'Không được xoá trạng thái đã tồn tại. Chỉ được thêm hoặc thay đổi tên.',
+  CONFIG_UOM_NOT_ARRAY: 'Danh sách đơn vị tính phải là một mảng.',
+  CONFIG_UOM_EMPTY: 'Danh sách đơn vị tính không được để trống.',
+  CONFIG_UOM_EMPTY_ITEM: 'Đơn vị tính không được để trống.',
+  CONFIG_UOM_DUPLICATE: 'Đơn vị tính trùng lặp.',
+  CONFIG_CUSTOMER_NOT_ARRAY: 'Danh sách khách hàng phải là một mảng.',
+  CONFIG_CUSTOMER_DUPLICATE: 'Tên khách hàng trùng lặp.',
+  CONFIG_VAT_NOT_ARRAY: 'Danh sách mức thuế phải là một mảng.',
+  CONFIG_VAT_EMPTY: 'Danh sách mức thuế không được để trống.',
+  CONFIG_VAT_INVALID_NUMBER: 'Mức thuế phải là một số.',
+  CONFIG_VAT_OUT_OF_RANGE: 'Mức thuế phải nằm trong khoảng 0 đến 1.',
+  CONFIG_CURRENCY_EMPTY: 'Đơn vị tiền tệ không được để trống.',
+  CONFIG_CURRENCY_TOO_LONG: 'Đơn vị tiền tệ quá dài (tối đa 10 ký tự).'
 };

@@ -210,6 +210,12 @@ function getActions_() {
     updateUser: actionUpdateUser_,
     listPermissionPresets: actionListPermissionPresets_,
 
+    /* Milestone 5 / 5.4 — config sheet editing (status list, UoM list,
+       customer list, VAT rates, currency) without direct sheet access.
+       See AdminConfig.gs. */
+    listConfig: actionListConfig_,
+    updateConfig: actionUpdateConfig_,
+
     logDev: actionLogDev_
   };
 }

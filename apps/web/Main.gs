@@ -360,6 +360,21 @@ function apiListPermissionPresets() {
   });
 }
 
+/** Milestone 5 / 5.4 — config sheet editing. Gated on manage_users.
+ *  @return {{config:Object[]}} */
+function apiListConfig() {
+  return handle_('apiListConfig', function () {
+    return apiCall_('listConfig', {});
+  });
+}
+
+/** @param {{key:string, value:*}} payload */
+function apiUpdateConfig(payload) {
+  return handle_('apiUpdateConfig', function () {
+    return apiCall_('updateConfig', payload || {});
+  });
+}
+
 /** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {

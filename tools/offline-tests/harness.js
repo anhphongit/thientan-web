@@ -11,9 +11,7 @@ function makeEnv(configOverrides) {
   const store = { Orders: [], OrderLines: [], Invoices: [], StatusHistory: [],
                   Products: [], // Milestone 5 / 5.1
                   Users: [],    // Milestone 5 / 5.2
-                  Config: [
-                    { key: 'customerList', value: JSON.stringify(['Yamato']) }
-                  ] };
+                  Config: [] };  // Will be populated below after publicConfig is set
   const props = {};
   let uuid = 0;
   // Milestone 3 / 3.8 — approvalFlowEnabled defaults to false, same as a
@@ -24,8 +22,22 @@ function makeEnv(configOverrides) {
     uomList: ['Cái', 'Cuộn'],
     vatRates: [0.08, 0.1],
     customerList: ['Yamato'],
-    approvalFlowEnabled: false
+    approvalFlowEnabled: false,
+    currency: 'VND'
   }, configOverrides || {});
+
+  // Milestone 5 / 5.4 — populate Config sheet with editable keys for actionListConfig_
+  const editableKeys = ['statusList', 'uomList', 'customerList', 'vatRates', 'currency'];
+  editableKeys.forEach(key => {
+    if (key in publicConfig) {
+      const val = publicConfig[key];
+      store.Config.push({
+        key: key,
+        value: typeof val === 'object' ? JSON.stringify(val) : String(val),
+        description: ''
+      });
+    }
+  });
 
   const sandbox = {
     console: { log(){}, warn(){}, error(){} },
@@ -228,14 +240,29 @@ function makeEnv(configOverrides) {
       if (!store[name][rowNumber - 2]) throw new Error('deleteRecord_: no row ' + rowNumber);
       store[name].splice(rowNumber - 2, 1);
     },
-    readPublicConfig_: () => publicConfig,
+    readPublicConfig_() {
+      // Milestone 5 / 5.4 — read from Config sheet, same as real implementation
+      const result = {};
+      (store.Config || []).forEach(row => {
+        const key = row.key;
+        if (!key) return;
+        try {
+          result[key] = (typeof row.value === 'string' && (row.value.charAt(0) === '[' || row.value.charAt(0) === '{'))
+            ? JSON.parse(row.value)
+            : row.value;
+        } catch (err) {
+          result[key] = row.value;
+        }
+      });
+      return result;
+    },
     invalidateConfigCache_() {}
   };
   sandbox.global = sandbox;
   vm.createContext(sandbox);
 
   ['Config.gs', 'Auth.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs',
-   'ExportJob.gs', 'Stats.gs', 'Products.gs', 'Admin.gs'].forEach(f => {
+   'ExportJob.gs', 'Stats.gs', 'Products.gs', 'Admin.gs', 'AdminConfig.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;
