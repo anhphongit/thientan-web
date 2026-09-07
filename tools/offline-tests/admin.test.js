@@ -235,4 +235,234 @@ console.log('\n11. getUser on an unknown email throws USER_NOT_FOUND');
   throws('blank email', () => env.actionGetUser_(admin, {}), 'Không tìm thấy người dùng');
 }
 
+/* ---------- 12. create: matrix-based permissions (M5.3) ---------- */
+console.log('\n12. createUser with custom permission matrix');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  const custom = env.actionCreateUser_(admin, {
+    user: { email: 'm@x.com', displayName: 'Matrix User' },
+    permissions: { view_orders: true, create_order: true, manage_inventory: false, manage_users: false, visible_fields: ['*'] }
+  });
+  eq('matrix user created with custom permissions', custom.email, 'm@x.com');
+  eq('role set to "custom" for matrix-based', custom.role, 'custom');
+  eq('view_orders true', custom.permissions.view_orders, true);
+  eq('create_order true', custom.permissions.create_order, true);
+  eq('manage_inventory false', custom.permissions.manage_inventory, false);
+  eq('manage_users false', custom.permissions.manage_users, false);
+  eq('presetKey null for matrix (no exact preset match)', custom.presetKey, null);
+}
+
+/* ---------- 13. create: unknown keys dropped (deny-by-default) ---------- */
+console.log('\n13. unknown permission keys in matrix are silently dropped');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  const custom = env.actionCreateUser_(admin, {
+    user: { email: 'n@x.com', displayName: 'Unknown Keys' },
+    permissions: { view_orders: true, unknown_key: true, another_bad_key: false, manage_users: false, visible_fields: [] }
+  });
+  eq('unknown_key not in response', custom.permissions.unknown_key, undefined);
+  eq('another_bad_key not in response', custom.permissions.another_bad_key, undefined);
+  eq('view_orders still there', custom.permissions.view_orders, true);
+  eq('all 14 PERMISSION_KEYS present', Object.keys(custom.permissions).filter(k => k !== 'visible_fields').length, 14);
+}
+
+/* ---------- 14. create: ambiguous payload (both presetKey and permissions) ---------- */
+console.log('\n14. supplying both presetKey and permissions is an error');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  throws('ambiguous payload', () =>
+    env.actionCreateUser_(admin, {
+      user: { email: 'o@x.com', displayName: 'Ambiguous' },
+      presetKey: 'sales',
+      permissions: { view_orders: true, manage_users: false, visible_fields: [] }
+    }),
+    'không thể chỉ định cả');
+}
+
+/* ---------- 15. update: matrix-based permissions without changing displayName ---------- */
+console.log('\n15. updateUser can apply a custom permission matrix');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create admin as a user in the sheet first (so there's at least one admin)
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin' },
+    presetKey: 'admin'
+  });
+
+  const created = env.actionCreateUser_(admin, {
+    user: { email: 'p@x.com', displayName: 'P' },
+    presetKey: 'sales'
+  });
+  eq('initial preset is sales', created.presetKey, 'sales');
+
+  const updated = env.actionUpdateUser_(admin, {
+    email: 'p@x.com',
+    user: { displayName: 'P' },
+    active: true,
+    permissions: { view_orders: true, export: false, create_order: false, manage_users: false, visible_fields: ['orderId', 'customer'] }
+  });
+  eq('updated to custom matrix', updated.role, 'custom');
+  eq('view_orders true', updated.permissions.view_orders, true);
+  eq('export false (not in visible preset list)', updated.permissions.export, false);
+  eq('presetKey now null (no exact match)', updated.presetKey, null);
+}
+
+/* ---------- 16. update: empty visible_fields defaults to DEFAULT_VISIBLE_FIELDS at read time ---------- */
+console.log('\n16. visible_fields can be empty array; defaults to DEFAULT_VISIBLE_FIELDS on read');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create admin in the sheet
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin' },
+    presetKey: 'admin'
+  });
+
+  const sales = env.actionCreateUser_(admin, {
+    user: { email: 'q@x.com', displayName: 'Q' },
+    presetKey: 'sales'
+  });
+
+  // Update with same permissions but empty visible_fields array
+  // Per Permissions.gs line 74-76, empty visible_fields defaults to DEFAULT_VISIBLE_FIELDS
+  const updated = env.actionUpdateUser_(admin, {
+    email: 'q@x.com',
+    user: { displayName: 'Q' },
+    active: true,
+    permissions: {
+      view_orders: true, view_all_orders: false, create_order: true, edit_order: true,
+      delete_order: false, change_status: true, approve_order: false,
+      can_edit_approved_order: false, search_filter: true, export: true,
+      view_statistics: false, export_statistics: false, manage_inventory: false,
+      manage_users: false, visible_fields: []
+    }
+  });
+  // Empty visible_fields in storage defaults to DEFAULT_VISIBLE_FIELDS on read
+  eq('empty visible_fields defaults to DEFAULT_VISIBLE_FIELDS', updated.permissions.visible_fields.length > 0, true);
+  // But presetKey is still null because the permissions don't match the sales preset exactly
+  // (sales preset has view_all_orders=true, but we set it to false)
+  eq('presetKey null (permissions dont match sales preset)', updated.presetKey, null);
+}
+
+/* ---------- 17. matrix: self-protection rule still enforced ---------- */
+console.log('\n17. matrix path enforces: cannot remove own manage_users');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create admin in the sheet with admin permissions
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin' },
+    presetKey: 'admin'
+  });
+
+  throws('self cannot remove own manage_users via matrix', () =>
+    env.actionUpdateUser_(admin, {
+      email: 'a@x.com',
+      user: { displayName: 'Admin' },
+      active: true,
+      permissions: { manage_users: false, view_orders: true, visible_fields: ['*'] }
+    }),
+    'không thể tự gỡ');
+}
+
+/* ---------- 18. matrix: last-admin protection still enforced ---------- */
+console.log('\n18. matrix path enforces: cannot strip manage_users from last active admin');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create first admin in the sheet
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin A' },
+    presetKey: 'admin'
+  });
+
+  const secondAdmin = env.actionCreateUser_(admin, {
+    user: { email: 's@x.com', displayName: 'S' },
+    presetKey: 'admin'
+  });
+
+  // Deactivate the second admin
+  env.actionUpdateUser_(admin, { email: 's@x.com', user: { displayName: 'S' }, active: false });
+
+  // Now try to strip manage_users from the last remaining admin via matrix
+  throws('cannot strip manage_users from last admin via matrix', () =>
+    env.actionUpdateUser_(admin, {
+      email: 'a@x.com',
+      user: { displayName: 'Admin A' },
+      active: true,
+      permissions: { manage_users: false, view_orders: true, visible_fields: ['*'] }
+    }),
+    'quản trị viên');
+}
+
+/* ---------- 19. preset path still works unchanged (regression test) ---------- */
+console.log('\n19. updateUser with presetKey still applies preset (regression)');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create admin in the sheet
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin' },
+    presetKey: 'admin'
+  });
+
+  const user1 = env.actionCreateUser_(admin, {
+    user: { email: 't@x.com', displayName: 'T' },
+    presetKey: 'sales'
+  });
+  eq('initial preset sales', user1.presetKey, 'sales');
+
+  const user2 = env.actionUpdateUser_(admin, {
+    email: 't@x.com',
+    user: { displayName: 'T' },
+    active: true,
+    presetKey: 'warehouse'
+  });
+  eq('updated to warehouse preset', user2.presetKey, 'warehouse');
+  eq('warehouse permissions applied', user2.permissions.manage_inventory, true);
+  eq('warehouse view_all_orders true', user2.permissions.view_all_orders, true);
+  eq('warehouse manage_users false', user2.permissions.manage_users, false);
+}
+
+/* ---------- 20. omitting both presetKey and permissions leaves permissions untouched ---------- */
+console.log('\n20. updateUser without presetKey or permissions leaves role/permissions untouched');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+
+  // Create admin in the sheet
+  env.actionCreateUser_(admin, {
+    user: { email: 'a@x.com', displayName: 'Admin' },
+    presetKey: 'admin'
+  });
+
+  const user1 = env.actionCreateUser_(admin, {
+    user: { email: 'u@x.com', displayName: 'U' },
+    presetKey: 'warehouse'
+  });
+  eq('initial role warehouse', user1.role, 'staff');
+
+  const user2 = env.actionUpdateUser_(admin, {
+    email: 'u@x.com',
+    user: { displayName: 'U Updated' },
+    active: true
+    // no presetKey, no permissions
+  });
+  eq('role unchanged (still warehouse)', user2.role, 'staff');
+  eq('manage_inventory still true', user2.permissions.manage_inventory, true);
+  eq('presetKey still warehouse', user2.presetKey, 'warehouse');
+}
+
 H.done();

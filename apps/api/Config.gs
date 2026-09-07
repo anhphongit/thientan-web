@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-06b-usersadmin';
+var BUILD = 'api-2026-09-07a-permission-matrix';
 
 /** Script Property keys. */
 var PROP = {
@@ -461,5 +461,10 @@ var MSG = {
     'chính mình. Hãy nhờ một quản trị viên khác thực hiện.',
   USER_LAST_ADMIN: 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng. ' +
     'Hệ thống phải luôn có ít nhất một quản trị viên.',
-  USER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.'
+  USER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
+
+  /* ---- permission matrix (Milestone 5 / 5.3) ---- */
+  USER_BAD_PERMISSION_KEY: 'Quyền không hợp lệ: ',
+  USER_AMBIGUOUS_PERMISSION_PAYLOAD: 'không thể chỉ định cả nhóm quyền (presetKey) và quyền tùy chỉnh (permissions) cùng lúc. Vui lòng chọn một trong hai.',
+  USER_BAD_VISIBLE_FIELDS: 'Danh sách cột hiển thị không hợp lệ.'
 };

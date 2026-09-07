@@ -359,7 +359,7 @@
 
   function blankUser() {
     return { email: '', displayName: '', note: '', active: true, presetKey: '',
-             isSelf: false, isLastAdmin: false };
+             isSelf: false, isLastAdmin: false, showPermissionMatrix: false };
   }
 
   function openForm(email) {
@@ -466,6 +466,7 @@
             '<input id="f-displayName" value="' + T.esc(u.displayName) + '"' + d + '>') +
           field(isNew ? 'Nhóm quyền *' : 'Nhóm quyền',
             presetSelectHtml(u, isNew, lockPermissions)) +
+          permissionMatrixHtml(u, lockPermissions) +
           '<label class="field field-check">' +
             '<input type="checkbox" id="f-active"' + (u.active ? ' checked' : '') +
               (lockActive ? ' disabled' : '') + '> Đang hoạt động' +
@@ -505,6 +506,72 @@
       '</select>';
   }
 
+  /**
+   * Permission matrix UI for M5.3 — shows 14 checkboxes allowing an admin
+   * to grant/deny individual permission keys without preset constraints.
+   * Uses state.permissionDescriptions (fetched on demand) for labels.
+   */
+  function permissionMatrixHtml(u, locked) {
+    if (!u.permissions) return '';
+    // Matrix only shown when not locked (self/last-admin) per PERMISSIONS.md
+    if (locked) return '';
+
+    var perms = u.permissions;
+    var showMatrix = !!u.showPermissionMatrix; // toggled by checkbox
+
+    if (!showMatrix) {
+      return '' +
+        '<label class="field field-check" style="margin-top: 1rem;">' +
+          '<input type="checkbox" id="f-show-matrix"> ' +
+          '<strong>Tuỳ chỉnh: Chỉnh sửa từng quyền riêng lẻ</strong>' +
+        '</label>';
+    }
+
+    // Matrix is shown — render all 14 permission checkboxes in a grid
+    var matrix = '' +
+      '<div style="margin-top: 1rem; padding: 1rem; background: #f5f5f5; border-radius: 4px;">' +
+        '<label class="field field-check">' +
+          '<input type="checkbox" id="f-show-matrix" checked> ' +
+          '<strong>Tuỳ chỉnh: Chỉnh sửa từng quyền riêng lẻ</strong>' +
+        '</label>' +
+        '<div class="perm-matrix" style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">';
+
+    // Permission key → Vietnamese label mapping
+    var labels = {
+      'view_orders': 'Xem đơn hàng của tôi',
+      'view_all_orders': 'Xem tất cả đơn hàng',
+      'create_order': 'Tạo đơn hàng',
+      'edit_order': 'Sửa đơn hàng',
+      'delete_order': 'Xoá đơn hàng',
+      'change_status': 'Đổi trạng thái',
+      'approve_order': 'Duyệt đơn hàng',
+      'can_edit_approved_order': 'Sửa đơn đã duyệt',
+      'search_filter': 'Tìm kiếm & Lọc',
+      'export': 'Xuất dữ liệu',
+      'view_statistics': 'Xem thống kê',
+      'export_statistics': 'Xuất thống kê',
+      'manage_inventory': 'Quản lý kho hàng',
+      'manage_users': 'Quản lý người dùng'
+    };
+
+    var keys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
+                'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
+                'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'];
+
+    keys.forEach(function (key) {
+      var checked = !!perms[key];
+      var checkboxId = 'f-perm-' + key;
+      matrix += '' +
+        '<label class="field field-check">' +
+          '<input type="checkbox" id="' + checkboxId + '"' + (checked ? ' checked' : '') + '> ' +
+          T.esc(labels[key] || key) +
+        '</label>';
+    });
+
+    matrix += '</div></div>';
+    return matrix;
+  }
+
   function actionsHtml(busy) {
     var savingNow = state.busyAction === 'saving';
     var save = '<button type="button" class="btn btn-primary" data-act="save"' +
@@ -531,6 +598,25 @@
     u.presetKeyToSave = get('#f-preset'); // '' means "keep current" on edit
     var activeEl = root.querySelector('#f-active');
     u.active = activeEl ? !!activeEl.checked : true;
+
+    // Read matrix checkboxes if the matrix is shown
+    var showMatrixEl = root.querySelector('#f-show-matrix');
+    u.showPermissionMatrix = showMatrixEl ? !!showMatrixEl.checked : false;
+
+    if (u.showPermissionMatrix) {
+      // Build permissions object from checked matrix
+      var perms = {};
+      var keys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
+                  'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
+                  'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'];
+      keys.forEach(function (key) {
+        var el = root.querySelector('#f-perm-' + key);
+        perms[key] = el ? !!el.checked : false;
+      });
+      // visible_fields defaults to ['*'] for now (or empty array — Permissions.gs handles default)
+      perms.visible_fields = ['*'];
+      u.permissionsToSave = perms;
+    }
   }
 
   /* ---------------- save ---------------- */
@@ -563,8 +649,17 @@
       actionName = 'apiCreateUser';
       payload = {
         user: { email: state.user.email, displayName: state.user.displayName, note: state.user.note },
-        presetKey: state.user.presetKeyToSave, active: state.user.active
+        active: state.user.active
       };
+      // Create: three-way intent resolved
+      // 1. permissionsToSave (matrix mode) → use custom
+      // 2. presetKeyToSave (preset mode) → use preset
+      // 3. neither → error (for create, a preset is required)
+      if (state.user.permissionsToSave) {
+        payload.permissions = state.user.permissionsToSave;
+      } else {
+        payload.presetKey = state.user.presetKeyToSave;
+      }
     } else {
       actionName = 'apiUpdateUser';
       payload = {
@@ -572,10 +667,17 @@
         user: { displayName: state.user.displayName, note: state.user.note },
         active: state.user.active
       };
-      // presetKeyToSave is '' when the dropdown was left on "— Giữ nguyên —"
-      // — omit it entirely so Admin.gs's actionUpdateUser_ leaves
-      // role/permissions untouched, per its own doc comment.
-      if (state.user.presetKeyToSave) payload.presetKey = state.user.presetKeyToSave;
+      // Update: three-way intent preserved from collect()
+      // 1. permissionsToSave (matrix mode) → use custom
+      // 2. presetKeyToSave (preset mode, non-empty) → use preset
+      // 3. presetKeyToSave === '' or omitted (keep mode) → omit both, leaving server to use current
+      if (state.user.permissionsToSave) {
+        payload.permissions = state.user.permissionsToSave;
+      } else if (state.user.presetKeyToSave) {
+        payload.presetKey = state.user.presetKeyToSave;
+      }
+      // If neither permissionsToSave nor presetKeyToSave, payload has neither:
+      // Admin.gs's actionUpdateUser_ will leave role/permissions untouched.
     }
 
     state.busyAction = 'saving';
@@ -650,6 +752,12 @@
     if (e.target && e.target.id === 'f-filter-includeInactive') {
       state.filters.includeInactive = e.target.checked;
       paintList();
+    }
+    // Handle matrix toggle: when user clicks the "Tuỳ chỉnh" checkbox,
+    // repaint the form to show/hide the matrix grid
+    if (e.target && e.target.id === 'f-show-matrix') {
+      state.user.showPermissionMatrix = !!e.target.checked;
+      paintForm();
     }
   }
 

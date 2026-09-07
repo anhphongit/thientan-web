@@ -57,14 +57,30 @@ function actionGetUser_(user, payload) {
 
 /**
  * @param {Object} payload {user: {email, displayName, note}, presetKey,
- *   active}. `active` defaults to true when omitted (a brand-new account
- *   is normally created ready to use).
+ *   permissions, active}. `active` defaults to true when omitted (a brand-new
+ *   account is normally created ready to use). Either presetKey OR permissions
+ *   may be supplied, but not both (ambiguous intent).
  */
 function actionCreateUser_(user, payload) {
   requirePermission_(user, 'manage_users');
   var clean = cleanUserInput_(payload && payload.user);
-  var preset = presetOrThrow_(payload && payload.presetKey);
   var active = (payload && payload.active === false) ? false : true;
+
+  var presetKey = payload && payload.presetKey;
+  var applyingPreset = presetKey !== undefined && presetKey !== null && presetKey !== '';
+  var applyingMatrix = !!(payload && payload.permissions);
+
+  // Ambiguous: reject if both supplied
+  if (applyingPreset && applyingMatrix) {
+    throw new Error(MSG.USER_AMBIGUOUS_PERMISSION_PAYLOAD);
+  }
+
+  var preset = applyingPreset ? presetOrThrow_(presetKey) : null;
+  var permissions = applyingMatrix ? cleanPermissionMatrix_(payload.permissions) :
+                    (applyingPreset ? preset.permissions : null);
+  var role = applyingPreset ? preset.role : (applyingMatrix ? 'custom' : null);
+
+  if (!permissions) throw new Error(MSG.USER_BAD_PRESET);
 
   return withUserLock_(function () {
     if (findBy_(SHEETS.USERS, 'email', clean.email)) throw new Error(MSG.USER_EMAIL_DUPLICATE);
@@ -72,9 +88,9 @@ function actionCreateUser_(user, payload) {
     appendRecord_(SHEETS.USERS, {
       email: clean.email,
       displayName: clean.displayName,
-      role: preset.role,
+      role: role,
       active: active,
-      permissions: JSON.stringify(preset.permissions),
+      permissions: JSON.stringify(permissions),
       createdAt: new Date(),
       createdBy: user.email,
       note: clean.note
@@ -86,11 +102,13 @@ function actionCreateUser_(user, payload) {
 
 /**
  * @param {Object} payload {email, user: {displayName, note}, active,
- *   presetKey}. `presetKey` is OPTIONAL — omit it to change displayName/
- *   active/note without touching permissions at all (e.g. just fixing a
- *   typo'd name, or reactivating someone with whatever preset they already
- *   had). When present, the target's role AND full permissions object are
- *   replaced wholesale by that preset — see the file doc comment.
+ *   presetKey, permissions}. `presetKey` and `permissions` are both OPTIONAL
+ *   — omit both to change displayName/active/note without touching permissions
+ *   at all (e.g. just fixing a typo'd name, or reactivating someone with
+ *   whatever preset they already had). When presetKey is present, the target's
+ *   role AND full permissions object are replaced wholesale by that preset.
+ *   When permissions is present, those custom permissions are applied instead.
+ *   Supplying both is an error (ambiguous intent).
  */
 function actionUpdateUser_(user, payload) {
   requirePermission_(user, 'manage_users');
@@ -100,16 +118,27 @@ function actionUpdateUser_(user, payload) {
 
   var presetKey = payload && payload.presetKey;
   var applyingPreset = presetKey !== undefined && presetKey !== null && presetKey !== '';
-  var preset = applyingPreset ? presetOrThrow_(presetKey) : null;
-  var resultingPermissions = applyingPreset ? preset.permissions : parsePermissions_(current.permissions);
-  var resultingRole = applyingPreset ? preset.role : current.role;
+  var applyingMatrix = !!(payload && payload.permissions);
 
+  // Ambiguous: reject if both supplied
+  if (applyingPreset && applyingMatrix) {
+    throw new Error(MSG.USER_AMBIGUOUS_PERMISSION_PAYLOAD);
+  }
+
+  var preset = applyingPreset ? presetOrThrow_(presetKey) : null;
+  var resultingPermissions = applyingPreset ? preset.permissions :
+                            (applyingMatrix ? cleanPermissionMatrix_(payload.permissions) :
+                             parsePermissions_(current.permissions));
+  var resultingRole = applyingPreset ? preset.role :
+                     (applyingMatrix ? 'custom' : current.role);
+
+  // Validate permission guards BEFORE the lock
   requireNotSelfRemovingAdmin_(user, current, resultingPermissions);
   requireNotStrippingLastAdmin_(current.email, active, !!resultingPermissions.manage_users);
 
   return withUserLock_(function () {
     var patch = { displayName: clean.displayName, active: active, note: clean.note, role: resultingRole };
-    if (applyingPreset) patch.permissions = JSON.stringify(resultingPermissions);
+    if (applyingPreset || applyingMatrix) patch.permissions = JSON.stringify(resultingPermissions);
     updateRecord_(SHEETS.USERS, current._row, patch);
     return buildUserResponse_(findBy_(SHEETS.USERS, 'email', current.email), user);
   });
@@ -150,6 +179,52 @@ function presetOrThrow_(presetKey) {
     role: preset.role,
     permissions: JSON.parse(JSON.stringify(preset.permissions))
   };
+}
+
+/**
+ * Validates and sanitizes a permission matrix from the client.
+ * Implements deny-by-default: unknown keys are dropped, missing keys default
+ * to false. visible_fields is validated as an array of known column names.
+ *
+ * @param {Object} input — client-supplied permissions object
+ * @return {Object} — sanitized object with exactly PERMISSION_KEYS (all boolean)
+ *   + validated visible_fields array
+ * @throws on invalid visible_fields
+ */
+function cleanPermissionMatrix_(input) {
+  var src = input || {};
+  var out = {};
+
+  // Deny-by-default: iterate ONLY over allowed keys, coerce to boolean
+  for (var i = 0; i < PERMISSION_KEYS.length; i++) {
+    var key = PERMISSION_KEYS[i];
+    out[key] = !!src[key];
+  }
+
+  // visible_fields: accept ['*'], a subset of column names, or empty array
+  // (which defaults to DEFAULT_VISIBLE_FIELDS at read time in Permissions.gs).
+  var vf = src.visible_fields;
+  if (!Array.isArray(vf)) {
+    vf = [];
+  } else {
+    // Validate: each element must be a known column name or '*'
+    for (var j = 0; j < vf.length; j++) {
+      var field = String(vf[j] || '');
+      if (field === '*') continue;
+      // Check against all known column headers
+      var validColumns = [].concat(
+        HEADERS.Orders || [],
+        HEADERS.OrderLines || [],
+        HEADERS.Invoices || []
+      );
+      if (validColumns.indexOf(field) < 0) {
+        throw new Error(MSG.USER_BAD_VISIBLE_FIELDS);
+      }
+    }
+  }
+  out.visible_fields = vf;
+
+  return out;
 }
 
 /**
