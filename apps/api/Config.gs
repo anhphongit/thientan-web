@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-06a-productscrud';
+var BUILD = 'api-2026-09-06b-usersadmin';
 
 /** Script Property keys. */
 var PROP = {
@@ -209,6 +209,71 @@ var MONEY_FIELDS = [
 ];
 
 /**
+ * Milestone 5 / 5.2 — starting-profile presets, straight off PERMISSIONS.md
+ * §3's table. Admin's add/edit user form assigns one of these WHOLESALE
+ * (both `role` and the full `permissions` object) rather than exposing a
+ * checkbox-by-checkbox editor — that fine-grained matrix is Milestone 5 /
+ * 5.3, not built yet, so a preset is the only way today to grant/revoke
+ * permissions without opening the Users sheet by hand. `role` is a
+ * convenience label only (DATA_MODEL.md §1) — it always mirrors whichever
+ * preset was picked, never edited as its own field.
+ *
+ * Object key order is the dropdown's display order (Object.keys on a
+ * string-keyed object preserves insertion order in V8/Apps Script) — Admin
+ * first since it's the profile every other one is measured against.
+ *
+ * PERMISSIONS.md §3's "no prices" (Warehouse's visible_fields column) is
+ * exactly DEFAULT_VISIBLE_FIELDS below — that array never included any
+ * MONEY_FIELDS column to begin with, so Warehouse just uses it directly
+ * rather than needing a second "no money" list to keep in sync.
+ */
+var PERMISSION_PRESETS = {
+  admin: {
+    label: 'Quản trị viên (toàn quyền)',
+    role: 'admin',
+    permissions: (function () {
+      var p = {};
+      PERMISSION_KEYS.forEach(function (k) { p[k] = true; });
+      p.visible_fields = ['*'];
+      return p;
+    })()
+  },
+  sales: {
+    label: 'Nhân viên kinh doanh',
+    role: 'staff',
+    permissions: {
+      view_orders: true, view_all_orders: false, create_order: true, edit_order: true,
+      delete_order: false, change_status: true, approve_order: false,
+      can_edit_approved_order: false, search_filter: true, export: true,
+      view_statistics: false, export_statistics: false, manage_inventory: false,
+      manage_users: false, visible_fields: ['*']
+    }
+  },
+  warehouse: {
+    label: 'Nhân viên kho',
+    role: 'staff',
+    permissions: {
+      view_orders: true, view_all_orders: true, create_order: false, edit_order: false,
+      delete_order: false, change_status: true, approve_order: false,
+      can_edit_approved_order: false, search_filter: true, export: false,
+      view_statistics: false, export_statistics: false, manage_inventory: true,
+      manage_users: false, visible_fields: DEFAULT_VISIBLE_FIELDS.slice()
+    }
+  },
+  accounting: {
+    label: 'Kế toán',
+    role: 'staff',
+    permissions: {
+      view_orders: true, view_all_orders: true, create_order: false, edit_order: false,
+      delete_order: false, change_status: true, approve_order: false,
+      can_edit_approved_order: false, search_filter: true, export: true,
+      view_statistics: true, export_statistics: true, manage_inventory: false,
+      manage_users: false, visible_fields: ['*']
+    }
+  }
+};
+
+/**
  * Caches.
  *
  * Only the Config sheet is cached — display vocabulary that changes rarely and
@@ -383,5 +448,18 @@ var MSG = {
   PRODUCT_BAD_PRICE: 'Giá không hợp lệ.',
   PRODUCT_IN_USE: 'Không thể xoá: sản phẩm này đang được dùng trong đơn hàng. ' +
     'Hãy chuyển sang trạng thái "Ngừng kinh doanh" thay vì xoá.',
-  PRODUCT_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.'
+  PRODUCT_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.',
+
+  /* ---- admin / user management (Milestone 5 / 5.2) ---- */
+  USER_NOT_FOUND: 'Không tìm thấy người dùng.',
+  USER_NO_EMAIL: 'Vui lòng nhập email.',
+  USER_BAD_EMAIL: 'Địa chỉ email không hợp lệ.',
+  USER_EMAIL_DUPLICATE: 'Email này đã có trong hệ thống.',
+  USER_NO_NAME: 'Vui lòng nhập tên hiển thị.',
+  USER_BAD_PRESET: 'Vui lòng chọn một nhóm quyền hợp lệ.',
+  USER_SELF_REMOVE_ADMIN: 'Bạn không thể tự gỡ quyền Quản trị viên (quản lý người dùng) của ' +
+    'chính mình. Hãy nhờ một quản trị viên khác thực hiện.',
+  USER_LAST_ADMIN: 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng. ' +
+    'Hệ thống phải luôn có ít nhất một quản trị viên.',
+  USER_LOCK_BUSY: 'Hệ thống đang bận, vui lòng thử lại sau vài giây.'
 };

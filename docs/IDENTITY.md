@@ -288,3 +288,111 @@ warning entirely.
    one real hazard (version drift) is solvable with a deployment checklist.
 3. **Choose A only** if a single deployment matters more than the redirect flash and
    the Cloud setup.
+
+
+---
+
+## 9. "scope_missing" — a visitor whose OAuth consent for THIENTAN-WEB never completed
+
+**Status:** RESOLVED 2026-09-06. **Found:** 2026-09-06, first real onboarding of a
+brand-new employee account (`parkmar490@gmail.com`) after Milestone 5 / 5.2 shipped
+the Admin screen that lets an admin create that account without touching the Sheet.
+
+### 9.1 What went wrong
+
+The employee opened the app link and saw the generic *"Không truy cập được"* card
+with message *"Không kết nối được máy chủ dữ liệu... [DEV] fetch threw: Exception:
+You do not have permission to call UrlFetchApp.fetch. Required permissions:
+https://www.googleapis.com/auth/script.external_request."* — and it did not clear
+on retry, including a fresh top-level browser tab.
+
+This is not connectivity. `apps/web` is deployed `Execute as: User accessing`
+(§6c), so **every visitor's own Google account** must individually grant the
+scopes in `apps/web/appsscript.json` (`userinfo.email`, `script.external_request`)
+before their code can call `UrlFetchApp.fetch` to reach `apps/api` — that fetch is
+the entire cross-project hop this architecture depends on. Google is supposed to
+show a first-time visitor a one-time consent screen (the *"unverified app"*
+warning documented in §8.1) covering every scope at once. When that consent never
+actually completes — the tab was closed mid-flow, an in-app browser (Zalo,
+Messenger) breaks the OAuth redirect, or the account granted an older/narrower
+scope set before a scope was added to the manifest — Google does not reliably
+re-prompt on a routine page load. The visitor instead gets this exact permission
+exception, indefinitely, with no clue what it means or what to do.
+
+**Confirmed live 2026-09-06:** retrying in a plain top-level browser tab did NOT
+clear it for this account. That rules out "just hadn't tried yet" and confirms the
+fix has to be an explicit reset, not a retry.
+
+### 9.2 The fix: revoke, then re-consent — not sign-out/sign-in
+
+Important distinction from §6d's problem (wrong Google account active in the
+browser): **signing out and back in resets nothing about scope consent.** OAuth
+authorization is tied to the (Google account, script project) pair, independent of
+which account is "active" in a browser session. The only way to force Google to
+re-show the full consent screen is for the affected person to revoke this app's
+existing access from their own Google Account, then reopen the link and complete
+the "unverified app" click-through fully this time:
+
+1. Open `myaccount.google.com/permissions` (their own account, a normal tab).
+2. Find **THIENTAN-WEB** in the list of apps with access, open it, choose
+   **Xoá quyền truy cập** (Remove Access).
+3. Reopen the app link and click all the way through: *Advanced → Go to
+   THIENTAN-WEB (unsafe) → Allow.* Stopping partway is exactly how this happens
+   in the first place.
+
+We cannot do this FOR a visitor — there is no Workspace admin console here
+(§8.4), so revoking another person's OAuth grant is not a lever we have.
+
+### 9.3 What was built
+
+- **`apps/web/ApiClient.gs`** — `isMissingAuthScopeError_(err)` matches Google's
+  stable `"you do not have permission to call"` substring (general across every
+  restricted service, not hardcoded to `UrlFetchApp`/`external_request` — a future
+  call added here that hits the same class of error is still caught). `apiCall_`'s
+  fetch-catch checks it FIRST and, when true, skips the existing one-retry-on-
+  transient-failure logic entirely (a missing grant does not appear mid-retry, so
+  the retry only wasted 400ms) and throws a distinctly-tagged
+  `MSG.SCOPE_NOT_GRANTED` message instead of the generic `MSG.API_UNREACHABLE`.
+- **`apps/web/Config.gs`** — new `MSG.SCOPE_NOT_GRANTED` constant.
+- **`apps/web/Main.gs`** — `apiGetSession()`'s catch block now classifies a
+  `SCOPE_NOT_GRANTED`-prefixed error as `reason: 'scope_missing'` (distinct from
+  the generic `reason: 'denied'` every other failure still gets).
+- **`apps/web/ui/Index.html`/`App.html`/`Styles.html`** — a NEW dedicated card
+  (`#scope-help`), shown instead of the three account-switch rows for this one
+  reason (switching account fixes nothing here) but alongside the existing
+  "ask admin" mailto fallback. Three numbered steps (revoke at
+  myaccount.google.com/permissions → find THIENTAN-WEB → re-consent fully),
+  reusing the account-switch dialog's own `.opt-steps`/`.opt-warn`/`.opt-actions`
+  styling rather than inventing a new visual language.
+
+### 9.4 Verification
+
+`tools/offline-tests/apiclient-scope.test.js` (new, 15 assertions) — the first
+offline coverage for `ApiClient.gs`/`Main.gs`'s session flow (previously untested,
+since it touches `Session`/`PropertiesService`/`UrlFetchApp`, services this
+project's harness does not stand in for): `isMissingAuthScopeError_` matches the
+real message and a differently-worded restricted-service error the same way,
+never matches a plain network failure; `apiCall_` calls `UrlFetchApp.fetch`
+exactly once (no wasted retry/sleep) and tags the thrown message correctly for
+the permission case, while a genuine transient network failure still retries
+twice and lands on the ordinary `API_UNREACHABLE` message — proving the hotfix
+does not swallow real outages into the wrong bucket; `apiGetSession()` classifies
+`reason: 'scope_missing'` only for the tagged message, `reason: 'denied'` for
+everything else including an unrelated API-side refusal. Proven genuine by
+reverting `apiCall_`'s catch block to its pre-fix shape in a scratch copy:
+exactly the 3 assertions tied to the fix failed (fetch called twice, slept once,
+wrong message), nothing else — restored and reconfirmed 15/15. Full offline
+suite: 17 files, 943 assertions, 0 failed.
+
+`BUILD`: web `web-2026-09-06d-scopehelp` (API unchanged — this entire failure
+mode and fix live in the web project).
+
+**Live-test checklist for Phong**: paste the updated `ApiClient.gs`, `Main.gs`,
+`Config.gs`, `App.html`, `Index.html`, `Styles.html` into the web project and
+redeploy. Have `parkmar490@gmail.com` (or whichever account is still stuck) go
+to `myaccount.google.com/permissions`, remove THIENTAN-WEB's access, then reopen
+the app link and click all the way through the "unverified app" warning —
+confirm the app now loads normally for that account. Separately confirm the
+generic denied screen (e.g. a real not-yet-registered account) still shows the
+normal three account-switch rows unchanged, so this fix has not disturbed the
+existing path.

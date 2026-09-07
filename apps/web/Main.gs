@@ -54,9 +54,18 @@ function apiGetSession() {
     try {
       data = apiCall_('getSession', {});
     } catch (err) {  // includes the security gate refusing a non-getSession action
+      // 2026-09-06 — a distinct reason for the one case where the generic
+      // "denied" card actively misleads: the visitor's own account never
+      // completed (or holds a stale) OAuth consent for THIENTAN-WEB, so
+      // apiCall_ never even reached the API — retrying or switching Google
+      // account both do nothing. See ApiClient.gs's isMissingAuthScopeError_
+      // and docs/IDENTITY.md §9 for the full failure mode and why the fix
+      // is revoking access at myaccount.google.com/permissions, not the
+      // three account-switch options this screen normally offers.
+      var scopeMissing = String(err.message || '').indexOf(MSG.SCOPE_NOT_GRANTED) === 0;
       return merge_(base, {
         authorized: false,
-        reason: 'denied',
+        reason: scopeMissing ? 'scope_missing' : 'denied',
         message: err.message,
         email: email,
         build: buildStamp_(lastApiBuild_)
@@ -310,6 +319,44 @@ function apiUpdateProduct(payload) {
 function apiDeleteProduct(productId) {
   return handle_('apiDeleteProduct', function () {
     return apiCall_('deleteProduct', { productId: productId });
+  });
+}
+
+/** Milestone 5 / 5.2 — user management. Same thin pass-through shape as
+ *  every other apiXxx here: manage_users is re-checked on the API side
+ *  (Admin.gs), nothing here decides anything. */
+function apiListUsers() {
+  return handle_('apiListUsers', function () {
+    return apiCall_('listUsers', {});
+  });
+}
+
+function apiGetUser(email) {
+  return handle_('apiGetUser', function () {
+    return apiCall_('getUser', { email: email });
+  });
+}
+
+/** @param {{user:Object, presetKey:string, active:boolean}} payload */
+function apiCreateUser(payload) {
+  return handle_('apiCreateUser', function () {
+    return apiCall_('createUser', payload || {});
+  });
+}
+
+/** @param {{email:string, user:Object, active:boolean, presetKey:string=}} payload
+ *  presetKey is OPTIONAL — omit it to change displayName/active/note without
+ *  touching permissions at all. See Admin.gs's actionUpdateUser_ doc comment. */
+function apiUpdateUser(payload) {
+  return handle_('apiUpdateUser', function () {
+    return apiCall_('updateUser', payload || {});
+  });
+}
+
+/** The {key,label} pairs the add/edit form's preset dropdown offers. */
+function apiListPermissionPresets() {
+  return handle_('apiListPermissionPresets', function () {
+    return apiCall_('listPermissionPresets', {});
   });
 }
 

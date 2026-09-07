@@ -3012,7 +3012,7 @@ before.
 | # | Task | Status |
 |---|------|--------|
 | 5.1 | `Products.gs` + `ui/ViewsInventory.html` — product/stock CRUD, low-stock flag | ☑ |
-| 5.2 | `Admin.gs` + `ui/ViewsAdmin.html` — user list, add/edit/deactivate | ☐ |
+| 5.2 | `Admin.gs` + `ui/ViewsAdmin.html` — user list, add/edit/deactivate | ☑ |
 | 5.3 | Permission matrix editor | ☐ |
 | 5.4 | Config sheet editing from the Admin UI | ☐ |
 
@@ -3174,3 +3174,202 @@ exists — confirm it's refused. Try deleting a product that's used on an
 existing order line — confirm it's refused with a message pointing at
 deactivating instead; deactivate it instead and confirm that succeeds.
 Delete an unused product and confirm it disappears from the list.
+
+
+---
+
+## Milestone 5, task 5.2 — user management (built 2026-09-06)
+
+Full stack for the "Người dùng" (admin) screen: `apps/api/Admin.gs` (new),
+five new `apiXxx` pass-throughs in `apps/web/Main.gs`, five new registry
+entries in `apps/api/Router.gs`, `PERMISSION_PRESETS` + 9 new `MSG` entries
+in `apps/api/Config.gs`, and `apps/web/ui/ViewsAdmin.html` (new — was a
+9-line stub). Confirmed with Phong before building: new users are assigned
+one of `PERMISSIONS.md` §3's four starting-profile presets (Admin/Sales/
+Warehouse/Accounting) wholesale on create/edit — the fine-grained
+per-checkbox permission matrix editor stays deferred to 5.3, matching the
+stub's own note that the matrix is a materially different UI.
+
+**Schema and permission model** — both already finalized before this task
+started (`DATA_MODEL.md` §1, `PERMISSIONS.md`): `email` (primary key,
+lowercase, unique), `displayName`, `role` (a convenience label only —
+permissions are what actually count), `active`, `permissions` (JSON
+string), `createdAt`, `createdBy`, `note`. Users are never hard-deleted —
+`SheetsRepo.gs`'s `deleteRecord_` is a real row delete and `Admin.gs` never
+calls it; deactivation is a normal `updateUser` write (`active: false`)
+through `updateRecord_`'s patch-only-given-keys semantics.
+
+**`Admin.gs`** — `actionListUsers_` (no pagination, no separate view
+permission — Auth.gs's own comment: "a few hundred milliseconds, for 5-6
+people" — everything gated on a single `manage_users` permission, sorted
+by `displayName`), `actionGetUser_`, `actionCreateUser_`/
+`actionUpdateUser_` (email is the natural primary key so there's no
+sequential-id scheme; duplicate email checked case-insensitively via
+`findBy_`, self-excluded on update), and `actionListPermissionPresets_`
+(returns `PERMISSION_PRESETS`' four entries for the dropdown). Every
+create/update assigns a preset's full 14-key `PERMISSION_KEYS` +
+`visible_fields` wholesale when a `presetKey` is given; omitting
+`presetKey` on update leaves the row's existing `permissions` untouched
+(so a hand-edited Sheet row survives an unrelated field edit). Two
+enforcement rules straight from `PERMISSIONS.md` §4 rule 6, both re-checked
+unconditionally server-side on every write regardless of what the client
+sends: `requireNotSelfRemovingAdmin_` (a user with `manage_users` cannot
+remove their own `manage_users`) and `requireNotStrippingLastAdmin_` (the
+last active user with `manage_users` cannot be deactivated or stripped of
+it — counts real rows via `readAll_(SHEETS.USERS)`, not the request
+payload). Every response carries server-computed `isSelf`/`isLastAdmin`
+flags (same never-client-derived-security-flag convention as Products.gs's
+`isLowStock`) plus a cosmetic (non-authoritative) `presetKey` match against
+the row's current permissions — `null` ("Tuỳ chỉnh"/Custom) when nothing
+matches exactly, e.g. a hand-edited row.
+
+**`ViewsAdmin.html`** — same two-screens-one-module shape as
+`ViewsInventory.html`, simpler in two ways because Admin's dataset and
+filter set are both much smaller: (1) no server-side pagination or
+filtering — `actionListUsers_` always returns everyone, and
+search/"hiện cả tài khoản đã khoá" are plain client-side filters over the
+already-loaded list, never a new network call (proven — toggling the
+filter does NOT trigger a second `apiListUsers` call); (2) no delete
+button at all, since deactivation IS the destructive-equivalent action and
+it goes through the normal Save button, not a separate `T.confirm()` flow.
+Reused wholesale: `field()`, collect-at-save-time DOM read (`collect()`),
+the `viewSeq`/`myGeneration`/`staleView_` cross-tab race guard, and
+open-from-already-loaded-list-cache-first (falls back to `apiGetUser` only
+when the row truly isn't loaded yet — proven genuine: breaking the cache
+lookup fails 6 assertions in exactly the expected places, restored and
+reconfirmed 34/34). The preset dropdown forces an explicit choice on
+create (no default-selected option) but defaults to "— Giữ nguyên —"
+(keep-current) on edit, so an admin can change just the name/note/active
+flag without accidentally reassigning permissions. A combined self+
+last-admin advisory banner disables both the preset dropdown and the
+active checkbox on the acting admin's own last-admin row — UX only, since
+the server enforces the same two rules unconditionally regardless of what
+a tampered client sends.
+
+**`Styles.html`** — new section: `.user-list`/`.user-card` (one card per
+user, same card-list shape as `.pc-card` — `PERMISSIONS.md`'s exit
+criteria calls for this to work one-card-per-user on a phone) and
+`.user-self-badge` (the same "never colour alone" labelled-badge
+treatment as `.pc-lowstock`, marking the acting admin's own card).
+
+**Verification**:
+- `admin.test.js` (new, 53 assertions) — permission enforcement on every
+  action, presets list, create validation, duplicate email (case-
+  insensitive), preset-applied-wholesale on create and on update-with-
+  `presetKey`, update-without-`presetKey` leaves permissions untouched,
+  self-protection and last-admin protection (both proven genuine —
+  removing both guard calls fails exactly 4 assertions, confirmed, then
+  restored to 53/53), list sort/flags/custom-`presetKey`, `getUser`-not-
+  found.
+- `admin-ui.test.js` (new, 34 assertions, same eval-the-real-`<script>`
+  -body technique as `products-ui.test.js`) — list renders the active
+  admin with the preset label and "Bạn" self-badge, escapes a hostile
+  display name, hides the deactivated user by default; toggling "hiện cả
+  tài khoản đã khoá" reveals it without a second `apiListUsers` call; the
+  blank create form forces an explicit preset choice and defaults active
+  to checked; opening the acting admin from the loaded list cache (no
+  `apiGetUser` call) shows the disabled email field, "keep-current"
+  preset default, and the combined self+last-admin banner with both
+  controls locked; opening a genuinely uncached user falls back to
+  `apiGetUser` with a skeleton first and shows no banner, both controls
+  enabled.
+- Full offline suite (16 files, `.gs` backend + all UI smoke tests):
+  926 assertions, 0 failed.
+
+`BUILD`: API `api-2026-09-06b-usersadmin`, web `web-2026-09-06b-adminscreen`.
+
+**Live-test checklist for Phong**: paste `Admin.gs` (new file), `Config.gs`,
+`Router.gs` into the API project, and `ViewsAdmin.html` (new file),
+`App.html`, `Index.html`, `Styles.html` into the web project, then
+redeploy both. Confirm: "Người dùng" tab now opens a real screen instead
+of the placeholder. Create a user (email, tên hiển thị, chọn một hồ sơ
+quyền có sẵn, ghi chú) and confirm it appears in the list with the right
+preset label. Try creating a second user with an email that already
+exists (case-insensitive) — confirm it's refused. Edit an existing user's
+name/note without touching the preset dropdown ("— Giữ nguyên —") and
+confirm their permissions are unchanged afterward. Edit a user and assign
+a different preset — confirm their access actually changes on their next
+action. Open your own account (the acting admin) and confirm the preset
+dropdown and "đang hoạt động" checkbox are both disabled with an
+explanatory note, and that trying to remove your own quyền quản trị or
+deactivate yourself is refused. If there are at least two active admins,
+confirm the second one CAN be deactivated (the lock is per the *last*
+active admin, not every admin). Deactivate a non-admin user and confirm
+they disappear from the default list but reappear when "hiện cả tài
+khoản đã khoá" is checked, with a "Đã khoá" badge. Search by name/email.
+
+
+---
+
+## Milestone 5, task 5.2 hotfix — "Thêm người dùng" always failed with "Không tìm thấy người dùng" (fixed 2026-09-06)
+
+Phong caught this on first live-test of a real create: typing an email
+into the "Thêm người dùng" form and saving always failed with
+`USER_NOT_FOUND`, no matter what email was used.
+
+**Root cause** — `ViewsAdmin.html`'s `doSave()` decided create-vs-update
+with `var isNew = !state.user.email;`, but by the time it ran, `collect()`
+had already copied the typed `#f-email` value INTO `state.user.email`
+(the only way a brand-new user's email ever reaches `state` at all, since
+`blankUser()` starts it as `''`). So the isNew check ran on state that had
+already stopped looking new: any create with a real email typed in always
+looked exactly like an edit, called `apiUpdateUser` instead of
+`apiCreateUser`, and `Admin.gs`'s `actionUpdateUser_` correctly refused it
+— the email doesn't exist yet, hence `findUserOrThrow_` throwing
+`USER_NOT_FOUND`. Editing an existing user was never affected, since
+`openForm()` always pre-fills `email` for those before `collect()` ever
+runs.
+
+**Fix** — `save()` now captures `isNew` from `state.user.email`
+BEFORE calling `collect()`, and passes it through to `doSave(isNew)`
+explicitly, instead of `doSave()` re-deriving it afterward from state
+`collect()` had already mutated.
+
+**Verification**: `admin-ui.test.js` gained a new regression section —
+the DOM stub now supports a small set of settable field values (just
+enough to simulate a typed `#f-email`, matching real collect() behaviour)
+where before every `querySelector` unconditionally returned null. Proved
+genuine the same way as every other regression check this project uses:
+reverted to the old buggy `save()`/`doSave()` shape in a scratch copy,
+confirmed the two new assertions (and only those two) failed, then
+restored the fix and reconfirmed all pass. Full offline suite: 16 files,
+928 assertions, 0 failed.
+
+`BUILD`: web `web-2026-09-06c-adminfix` (API unchanged — the bug and fix
+are both entirely client-side).
+
+**Live-test checklist for Phong**: paste the updated `ViewsAdmin.html`
+into the web project (no API-side change needed this time) and redeploy.
+Create a new user again with a real email and confirm it now succeeds
+and appears in the list — that's the one thing to re-check.
+
+
+---
+
+## First real-user onboarding hotfix — "scope_missing" (fixed 2026-09-06)
+
+A brand-new employee account created via the just-shipped Admin screen
+(`parkmar490@gmail.com`) could not open the app at all: a permission
+exception from `UrlFetchApp.fetch` (missing OAuth consent for
+`THIENTAN-WEB`'s `script.external_request` scope), which is unrelated to
+`Users` sheet membership — the failure happens before the app ever reaches
+`Auth.gs`. Retrying in a fresh top-level browser tab did not clear it,
+confirming this needed an explicit revoke-and-reconsent fix, not just a
+retry.
+
+Full root cause, the fix (`ApiClient.gs`/`Main.gs`/`Config.gs`'s new
+`reason: 'scope_missing'` classification, skip-the-retry detection, and
+the web UI's new dedicated `#scope-help` guidance card instead of the
+account-switch rows), and verification (`apiclient-scope.test.js`, 15
+assertions, proven genuine by revert-and-restore; full suite 17 files /
+943 assertions, 0 failed) are written up in full in `docs/IDENTITY.md`
+§9 — that file is the system of record for every identity/authorization
+failure mode on this project, not just this one.
+
+`BUILD`: web `web-2026-09-06d-scopehelp`.
+
+**Live-test checklist**: see `docs/IDENTITY.md` §9's checklist — have the
+stuck account revoke access at myaccount.google.com/permissions and
+re-consent, confirm the app loads; separately confirm an ordinary
+not-yet-registered account still sees the normal three account-switch
+rows unchanged.

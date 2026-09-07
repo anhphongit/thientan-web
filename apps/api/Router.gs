@@ -200,6 +200,16 @@ function getActions_() {
     updateProduct: actionUpdateProduct_,
     deleteProduct: actionDeleteProduct_,
 
+    /* Milestone 5 / 5.2 — user management, gated entirely on manage_users
+       (no separate view permission, same shape as Products.gs above). No
+       deleteUser — Users are never hard-deleted, only deactivated via
+       updateUser. See Admin.gs. */
+    listUsers: actionListUsers_,
+    getUser: actionGetUser_,
+    createUser: actionCreateUser_,
+    updateUser: actionUpdateUser_,
+    listPermissionPresets: actionListPermissionPresets_,
+
     logDev: actionLogDev_
   };
 }

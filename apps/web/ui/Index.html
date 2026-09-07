@@ -31,16 +31,39 @@
         <table id="diag-table" class="diag-table"></table>
       </div>
 
-      <div class="slots">
+      <div id="account-switch" class="slots">
         <p class="hint hint-lead" id="options-lead"></p>
         <div id="account-options" class="opt-list"></div>
         <div id="locked-help" class="hidden">
           <button type="button" class="btn-mini" data-action="rotate-guide">Cách đổi khoá bảo mật</button>
         </div>
-        <p class="hint" id="ask-access-wrap">
-          <a id="ask-access" class="link-sm" href="#">Xin cấp quyền cho tài khoản này</a>
-        </p>
       </div>
+
+      <!--
+        Milestone 5 hotfix (2026-09-06) — reason: 'scope_missing'. A visitor
+        whose OAuth consent for THIENTAN-WEB never completed (or is stale)
+        gets a UrlFetchApp permission exception that looks nothing like an
+        account problem — the three account-switch rows above do not fix
+        it, so this is a wholly separate card, shown instead of #account-
+        switch, not alongside it. See docs/IDENTITY.md §9 and
+        ApiClient.gs's isMissingAuthScopeError_.
+      -->
+      <div id="scope-help" class="scope-help hidden">
+        <p class="hint hint-lead">Tài khoản này chưa cấp đủ quyền cho ứng dụng. Làm theo các bước sau:</p>
+        <ol class="opt-steps">
+          <li>Mở <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a> ở một tab mới (đừng đóng tab này)</li>
+          <li>Tìm mục <strong>THIENTAN-WEB</strong>, bấm vào rồi chọn <strong>Xoá quyền truy cập</strong></li>
+          <li>Quay lại tab này, sao chép đường dẫn ứng dụng, mở lại và bấm hết các bước: <strong>Advanced → Go to THIENTAN-WEB (unsafe) → Allow</strong></li>
+        </ol>
+        <p class="opt-warn">Nếu chỉ đóng màn hình cảnh báo mà không bấm hết 3 bước trên, lỗi sẽ lặp lại y như cũ.</p>
+        <div class="opt-actions">
+          <button type="button" class="btn-mini" data-action="copy-app-url">Sao chép đường dẫn ứng dụng</button>
+        </div>
+      </div>
+
+      <p class="hint" id="ask-access-wrap">
+        <a id="ask-access" class="link-sm" href="#">Xin cấp quyền cho tài khoản này</a>
+      </p>
     </div>
   </div>
 
@@ -130,6 +153,7 @@
   <?!= include_('ui/ViewsOrders'); ?>
   <?!= include_('ui/ViewsStats'); ?>
   <?!= include_('ui/ViewsInventory'); ?>
+  <?!= include_('ui/ViewsAdmin'); ?>
   <?!= include_('ui/App'); ?>
 </body>
 </html>

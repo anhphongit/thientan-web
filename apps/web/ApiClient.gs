@@ -49,6 +49,21 @@ function apiCall_(action, payload) {
     } catch (err) {
       lastErr = err;
       console.error('apiCall_(' + action + '): fetch failed (attempt ' + attempt + '): ' + err);
+
+      // 2026-09-06 — a brand-new visitor whose OAuth consent for THIENTAN-WEB
+      // never completed (interrupted, cancelled, or a stale/narrower grant
+      // from before a scope was added) makes UrlFetchApp.fetch throw THIS
+      // specific permission exception — not a network problem, and retrying
+      // never helps, since the missing grant does not appear mid-request.
+      // Tag it with its own message so apiGetSession() can show a dedicated
+      // "cấp lại quyền" card instead of the generic connectivity message
+      // and the (wrong, for this case) account-switch options — see
+      // docs/IDENTITY.md §9.
+      if (isMissingAuthScopeError_(err)) {
+        devNote_('error', 'ApiClient', 'missing OAuth scope grant: ' + action, String(err));
+        throw new Error(MSG.SCOPE_NOT_GRANTED + devSuffix_('fetch threw: ' + err));
+      }
+
       if (attempt < 2) {
         Utilities.sleep(400);
         continue;
@@ -144,6 +159,20 @@ function snippet_(text) {
   return String(text || '')
     .replace(/\s+/g, ' ')
     .substring(0, 120);
+}
+
+/**
+ * True for Google's own "you have not granted this scope yet" exception —
+ * e.g. "Exception: You do not have permission to call UrlFetchApp.fetch.
+ * Required permissions: https://www.googleapis.com/auth/script.external_request."
+ * Matched on the stable substring Google uses across every restricted-service
+ * call (UrlFetchApp, MailApp, etc.), not just this project's specific
+ * wording, so a future call added here that hits the same class of error
+ * is caught too. Never matches a plain network/HTTP failure.
+ */
+function isMissingAuthScopeError_(err) {
+  var msg = String(err || '');
+  return /do not have permission to call/i.test(msg);
 }
 
 /**

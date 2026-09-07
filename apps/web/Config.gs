@@ -10,7 +10,7 @@
  */
 
 /** Bump on every meaningful web change. Shown in the footer when DEV_MODE is on. */
-var BUILD = 'web-2026-09-06a-inventoryscreen';
+var BUILD = 'web-2026-09-06d-scopehelp';
 
 var PROP = {
   API_URL: 'API_URL',
@@ -28,7 +28,11 @@ var MSG = {
   API_UNREACHABLE: 'Không kết nối được máy chủ dữ liệu. Vui lòng thử lại sau ít phút.',
   LOCKED: 'Hệ thống đang tạm khoá để bảo mật. Vui lòng liên hệ quản trị viên.',
   API_BAD_RESPONSE: 'Máy chủ dữ liệu trả về dữ liệu không hợp lệ.',
-  GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.'
+  GENERIC: 'Đã xảy ra lỗi. Vui lòng thử lại.',
+  /** 2026-09-06 — see isMissingAuthScopeError_ in ApiClient.gs / IDENTITY.md §9.
+   *  Kept short: the denied screen's dedicated card (App.html renderScopeHelp)
+   *  carries the actual steps, so this line only needs to name the problem. */
+  SCOPE_NOT_GRANTED: 'Tài khoản này chưa cấp đủ quyền cho ứng dụng.'
 };
 
 /** True when this deployment should show build stamps and diagnostics. */

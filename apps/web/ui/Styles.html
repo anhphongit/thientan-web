@@ -83,6 +83,12 @@
 
   .slots { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); }
   .slots-label { font-size: 12px; color: var(--c-muted); margin-bottom: 8px; }
+
+  /* 2026-09-06 — reason: 'scope_missing' card (docs/IDENTITY.md §9). Same
+     top-border/spacing rhythm as .slots (the account-switch block it
+     replaces for this one reason), reusing .opt-steps/.opt-warn/
+     .opt-actions/.hint-lead as-is rather than duplicating their rules. */
+  .scope-help { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); text-align: left; }
   .howto { margin: 0 0 14px; padding-left: 20px; font-size: 13px; color: var(--c-text); text-align: left; }
   .howto li { margin-bottom: 4px; }
 
@@ -1163,4 +1169,37 @@
     justify-content: flex-start;
   }
   .field-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  /* Milestone 5 / 5.2 — user management (ViewsAdmin.html). One card per
+     user, same card-list shape as .pc-card (ViewsInventory.html) rather
+     than a table — PERMISSIONS.md's exit criteria calls for this to be
+     usable on a phone, one card per user. */
+  .user-list {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .user-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .user-card-main {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .user-card-name {
+    font-weight: 600; color: var(--c-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-card-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12px; color: var(--c-text-dim);
+  }
+  /* Same "never colour alone" reasoning as .pc-lowstock above — a small
+     labelled badge, not just a coloured dot, next to the acting admin's
+     own card so it reads correctly even to someone colour-blind. */
+  .user-self-badge {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #e7f0ff; color: #29538a; border: 1px solid #c6dbfb;
+  }
 </style>

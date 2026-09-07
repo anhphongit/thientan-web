@@ -1,9 +1,658 @@
-<!--
-  ViewsAdmin.html — user management and the permission matrix editor.
+<script>
+/**
+ * ViewsAdmin.html — user management (Milestone 5 / 5.2).
+ *
+ * Same two-screens-one-module shape as ViewsOrders.html/ViewsInventory.html:
+ * a card list, and a form shared by create/edit. Two things make this
+ * screen simpler than either of those:
+ *
+ *   - No server-side pagination. Admin.gs's actionListUsers_ always returns
+ *     every user (Auth.gs's own comment: "a few hundred milliseconds, for
+ *     5-6 people") — Phong's "mirror the order list's pattern" choice was
+ *     specific to the Inventory task (5.1), not asked for here, and a flat
+ *     list is simpler to build and to read at this scale. Search/"show
+ *     deactivated too" are therefore plain CLIENT-SIDE filters over the
+ *     already-loaded list, never a new network call.
+ *   - No delete. Users are never hard-deleted (DATA_MODEL.md §1) — the
+ *     active checkbox in the edit form IS deactivation, saved through the
+ *     normal Save button, not a separate destructive action needing its
+ *     own T.confirm() the way Products'/Orders' delete does.
+ *
+ * Permissions are assigned via one of Admin.gs's PERMISSION_PRESETS,
+ * wholesale (role + every checkbox at once) — a per-checkbox matrix editor
+ * is Milestone 5 / 5.3, not built yet. See Admin.gs's file doc comment for
+ * the two self-protection/last-admin rules this form surfaces via the
+ * `isSelf`/`isLastAdmin` flags every user record carries (computed
+ * server-side, same "never let the client re-derive a security decision"
+ * reasoning as Products.gs's `isLowStock`).
+ */
+(function () {
+  'use strict';
 
-  STATUS: stub. No implementation yet. Built in Milestone 5.
+  var T = null;
+  var root = null;
 
-  Notes:
-    - The matrix is a users x permissions grid of checkboxes. On mobile it
-      should become one card per user.
--->
+  var state = {
+    users: [], usersLoadedAt: 0, refreshing: false,
+    // Presets fetched once, lazily (mirrors ViewsOrders.html's
+    // ensureCreatorsLoaded/state.creators pattern) — null = not fetched
+    // yet, [] would be a genuinely empty (but valid) answer.
+    presets: null, presetsLoading: false,
+    // Client-side-only filters — see file doc comment. includeInactive
+    // defaults to false: a deactivated account is out of the way by
+    // default, same "hide inactive by default" spirit as Products.gs's list.
+    filters: { q: '', includeInactive: false },
+    searchDraft: '',
+    user: null, editing: false, bound: false,
+    // One user-detail mutation in flight at a time — mirrors
+    // ViewsOrders.html's busyAction/isBusy() exactly.
+    busyAction: null
+  };
+
+  function isBusy() { return !!state.busyAction; }
+
+  /** Same L1-style TTL as ViewsInventory.html/ViewsOrders.html, even though
+   *  this list rarely changes — consistency with the rest of the app is
+   *  worth more than the tiny savings of skipping it here. */
+  var LIST_CACHE_TTL_MS = 60000;
+
+  var loadingPromise = null;
+  var viewSeq = 0;
+  var myGeneration = 0;
+
+  /** Same cross-tab race guard as every other view module — see
+   *  ViewsOrders.html's staleView_ doc comment for the bug this fixes. */
+  function staleView_(seq) {
+    return seq !== viewSeq || !T.isCurrentView('users', myGeneration);
+  }
+
+  /* ---------------- render entry point ---------------- */
+
+  function render(container) {
+    T = window.TT;
+    root = container;
+    myGeneration = T.viewGeneration();
+    viewSeq++;
+    if (!state.bound) {
+      root.addEventListener('click', onClick);
+      root.addEventListener('input', onInput);
+      root.addEventListener('keydown', onKeydown);
+      root.addEventListener('change', onChange);
+      state.bound = true;
+    }
+    ensurePresetsLoaded();
+    showList();
+  }
+
+  /**
+   * Presets rarely change (they're a code constant, not sheet data) and are
+   * needed by both the list (for a "which profile" badge — actually
+   * server-supplied per row, so presets are only needed by the FORM'S
+   * dropdown) — fetched once per session, same lazy-singleton shape as
+   * ViewsOrders.html's ensureCreatorsLoaded.
+   */
+  function ensurePresetsLoaded() {
+    if (state.presets !== null || state.presetsLoading) return;
+    state.presetsLoading = true;
+    var gen = T.viewGeneration();
+    T.call('apiListPermissionPresets', {}).then(function (data) {
+      state.presets = (data && data.presets) || [];
+      state.presetsLoading = false;
+      if (state.user && T.isCurrentView('users', gen)) paintForm();
+    }).catch(function (err) {
+      state.presets = [];
+      state.presetsLoading = false;
+      T.toast('Không tải được danh sách nhóm quyền: ' + err.message, true);
+      if (state.user && T.isCurrentView('users', gen)) paintForm();
+    });
+  }
+
+  function cacheIsFresh() {
+    return !!(state.users.length && state.usersLoadedAt &&
+      (Date.now() - state.usersLoadedAt) < LIST_CACHE_TTL_MS);
+  }
+
+  function showList() {
+    var seq = ++viewSeq;
+    state.user = null;
+
+    if (state.users.length) {
+      paintList();
+      if (!cacheIsFresh()) silentRefresh(seq);
+      return;
+    }
+
+    root.innerHTML = skeletonHtml();
+    (loadingPromise || fetchUsers())
+      .then(function () {
+        if (staleView_(seq)) return;
+        paintList();
+      })
+      .catch(function (err) {
+        if (staleView_(seq)) return;
+        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+          T.esc(err.message) + '</p></section>';
+      });
+  }
+
+  function fetchUsers() {
+    if (loadingPromise) return loadingPromise;
+    loadingPromise = T.call('apiListUsers', {}).then(
+      function (data) {
+        loadingPromise = null;
+        state.users = (data && data.users) || [];
+        state.usersLoadedAt = Date.now();
+        return data;
+      },
+      function (err) { loadingPromise = null; throw err; }
+    );
+    return loadingPromise;
+  }
+
+  function silentRefresh(seq) {
+    if (state.refreshing) return;
+    if (seq == null) seq = viewSeq;
+    state.refreshing = true;
+    fetchUsers()
+      .then(function () {
+        state.refreshing = false;
+        if (staleView_(seq)) return;
+        if (state.user) return; // user opened a detail while we were refreshing
+        paintList();
+      })
+      .catch(function () { state.refreshing = false; });
+  }
+
+  function manualRefresh() {
+    if (state.refreshing) return;
+    var seq = viewSeq;
+    state.refreshing = true;
+    paintList();
+    fetchUsers()
+      .then(function () {
+        state.refreshing = false;
+        if (staleView_(seq)) return;
+        paintList();
+      })
+      .catch(function (err) {
+        state.refreshing = false;
+        if (staleView_(seq)) return;
+        paintList();
+        T.toast(err.message, true);
+      });
+  }
+
+  /* ---------------- client-side filtering ---------------- */
+
+  function hasActiveFilters() {
+    var f = state.filters;
+    return !!(f.q || f.includeInactive);
+  }
+
+  function canSubmitSearch() {
+    var draft = (state.searchDraft || '').trim();
+    return !!draft && draft !== (state.filters.q || '');
+  }
+
+  function submitSearch() {
+    var input = root.querySelector('#f-filter-q');
+    var q = (input ? input.value : state.searchDraft || '').trim();
+    state.searchDraft = q;
+    state.filters.q = q;
+    paintList();
+  }
+
+  function clearFilters() {
+    state.searchDraft = '';
+    state.filters = { q: '', includeInactive: false };
+    paintList();
+  }
+
+  /** Every visible row, after the client-side search/includeInactive
+   *  filters — see file doc comment for why these never touch the
+   *  network. */
+  function visibleUsers() {
+    var q = (state.filters.q || '').trim().toLowerCase();
+    return state.users.filter(function (u) {
+      if (!state.filters.includeInactive && !u.active) return false;
+      if (!q) return true;
+      return (String(u.displayName || '').toLowerCase().indexOf(q) >= 0) ||
+             (String(u.email || '').toLowerCase().indexOf(q) >= 0);
+    });
+  }
+
+  var SEARCH_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.2" y2="16.2"></line></svg>';
+
+  /* ---------------- list rendering ---------------- */
+
+  function paintList() {
+    root.innerHTML = listHtml();
+  }
+
+  function updatedLabel() {
+    if (!state.usersLoadedAt) return '';
+    var d = new Date(state.usersLoadedAt);
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return 'cập nhật lúc ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function listHtml() {
+    var head = '' +
+      '<div class="view-head">' +
+        '<h2>Người dùng</h2>' +
+        '<div class="view-head-actions">' +
+          '<button type="button" class="btn btn-primary" data-act="new">+ Thêm người dùng</button>' +
+        '</div>' +
+      '</div>' +
+      filterBarHtml();
+
+    var rows = visibleUsers();
+
+    if (!state.users.length) {
+      return head + '<section class="card"><p class="empty">Chưa có người dùng nào.</p></section>';
+    }
+    if (!rows.length) {
+      return head + '<section class="card"><p class="empty">' +
+        'Không có người dùng nào khớp với bộ lọc đã chọn.</p></section>';
+    }
+
+    var count = '' +
+      '<p class="list-count">' +
+        'Hiển thị ' + rows.length + ' / ' + state.users.length + ' người dùng' +
+        (updatedLabel() ? ' · ' + updatedLabel() : '') + ' · ' +
+        '<button type="button" class="link-btn" data-act="refresh-list"' +
+          (state.refreshing ? ' disabled' : '') + '>' +
+          (state.refreshing ? 'Đang làm mới…' : 'Làm mới') +
+        '</button>' +
+      '</p>';
+
+    return head + count + '<div class="user-list">' +
+      rows.map(userCardHtml).join('') + '</div>';
+  }
+
+  function filterBarHtml() {
+    var active = hasActiveFilters();
+    return '' +
+      '<div class="list-filter">' +
+        '<div class="list-filter-row">' +
+          '<input type="search" id="f-filter-q" class="list-filter-q" placeholder="Tìm tên, email…" ' +
+            'value="' + T.esc(state.searchDraft || '') + '">' +
+          '<button type="button" class="btn-icon" data-act="submit-search" aria-label="Tìm kiếm"' +
+            (canSubmitSearch() ? '' : ' disabled') + '>' + SEARCH_ICON_SVG + '</button>' +
+        '</div>' +
+        '<div class="filter-checks">' +
+          '<label class="filter-check">' +
+            '<input type="checkbox" id="f-filter-includeInactive"' +
+              (state.filters.includeInactive ? ' checked' : '') + '>' +
+            'Hiện cả tài khoản đã khoá' +
+          '</label>' +
+          (active ? '<button type="button" class="link-btn" data-act="clear-filter">Xóa lọc</button>' : '') +
+        '</div>' +
+      '</div>';
+  }
+
+  function skeletonHtml() {
+    var card = '' +
+      '<div class="user-card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w50"></div>' +
+      '</div>';
+    return '' +
+      '<div class="view-head"><h2>Người dùng</h2></div>' +
+      '<div class="user-list">' + card + card + card + '</div>';
+  }
+
+  function detailSkeletonHtml() {
+    return '' +
+      '<div class="view-head"><h2>Đang mở người dùng...</h2></div>' +
+      '<section class="card skeleton" aria-hidden="true">' +
+        '<div class="sk-line sk-w40"></div>' +
+        '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line sk-w50"></div>' +
+      '</section>';
+  }
+
+  function upsertCachedUser(u) {
+    var i = -1;
+    for (var j = 0; j < state.users.length; j++) {
+      if (state.users[j].email === u.email) { i = j; break; }
+    }
+    if (i >= 0) state.users[i] = u;
+    else state.users.unshift(u);
+    if (state.usersLoadedAt) state.usersLoadedAt = Date.now();
+  }
+
+  function presetLabel(key) {
+    if (!key) return 'Tuỳ chỉnh';
+    var list = state.presets || [];
+    var found = list.filter(function (p) { return p.key === key; })[0];
+    return found ? found.label : key;
+  }
+
+  function userCardHtml(u) {
+    var badges = '' +
+      (!u.active ? '<span class="status-pill status-pill--cancelled">Đã khoá</span>' : '') +
+      (u.isSelf ? '<span class="user-self-badge">Bạn</span>' : '');
+
+    return '' +
+      '<button type="button" class="user-card" data-open="' + T.esc(u.email) + '">' +
+        '<div class="pc-top">' +
+          '<span class="pc-code">' + T.esc(u.displayName) + '</span>' +
+          badges +
+        '</div>' +
+        '<div class="pc-meta">' +
+          '<span>' + T.esc(u.email) + '</span>' +
+          '<span class="pc-price">' + T.esc(presetLabel(u.presetKey)) + '</span>' +
+        '</div>' +
+      '</button>';
+  }
+
+  /* ---------------- form ---------------- */
+
+  function field(label, control) {
+    return '<label class="field"><span class="field-label">' + label + '</span>' +
+           control + '</label>';
+  }
+
+  function blankUser() {
+    return { email: '', displayName: '', note: '', active: true, presetKey: '',
+             isSelf: false, isLastAdmin: false };
+  }
+
+  function openForm(email) {
+    var seq = ++viewSeq;
+
+    if (!email) {
+      state.user = blankUser();
+      state.editing = true;
+      paintForm();
+      return;
+    }
+
+    // Same "the list already has everything the form needs" shortcut as
+    // ViewsInventory.html's openForm — actionListUsers_/actionGetUser_
+    // return the exact same shape (buildUserResponse_ in both cases), so
+    // reopening from the loaded list is a plain object copy, never a
+    // network round trip.
+    var cached = state.users.filter(function (u) { return u.email === email; })[0];
+    if (cached) {
+      state.user = shallowCopy(cached);
+      state.editing = true;
+      paintForm();
+      return;
+    }
+
+    root.innerHTML = detailSkeletonHtml();
+    T.call('apiGetUser', email)
+      .then(function (data) {
+        if (staleView_(seq)) return;
+        state.user = data;
+        state.editing = true;
+        paintForm();
+      })
+      .catch(function (err) {
+        if (staleView_(seq)) return;
+        T.toast(err.message, true);
+        showList();
+      });
+  }
+
+  function shallowCopy(obj) {
+    var out = {};
+    if (obj) Object.keys(obj).forEach(function (k) { out[k] = obj[k]; });
+    return out;
+  }
+
+  function paintForm() {
+    var u = state.user;
+    var isNew = !u.email;
+    var busy = isBusy();
+
+    root.innerHTML = '' +
+      '<div class="view-head">' +
+        '<h2>' + (isNew ? 'Thêm người dùng' : T.esc(u.displayName)) + '</h2>' +
+        '<button type="button" class="link-btn" data-act="back"' +
+          (busy ? ' disabled' : '') + '>← Danh sách</button>' +
+      '</div>' +
+      guardNoteHtml(u) +
+      formCardHtml(u, isNew, busy) +
+      actionsHtml(busy);
+  }
+
+  /**
+   * Advisory banner explaining WHY the preset dropdown and/or active
+   * checkbox are locked below — "hiding a button is UX, not security"
+   * (PERMISSIONS.md §4 point 5): the server re-checks both rules on every
+   * save regardless of what this banner says, this is purely so a refusal
+   * never comes as a surprise.
+   */
+  function guardNoteHtml(u) {
+    if (u.isSelf && u.isLastAdmin) {
+      return '<p class="ro-note">Đây là tài khoản của bạn, và cũng là quản trị viên đang ' +
+        'hoạt động cuối cùng — không thể tự khoá tài khoản hoặc đổi nhóm quyền. ' +
+        'Hãy nhờ một quản trị viên khác, hoặc thêm một quản trị viên nữa trước.</p>';
+    }
+    if (u.isSelf) {
+      return '<p class="ro-note">Đây là tài khoản của bạn — bạn không thể tự đổi nhóm quyền ' +
+        'của chính mình. Hãy nhờ một quản trị viên khác thực hiện.</p>';
+    }
+    if (u.isLastAdmin) {
+      return '<p class="ro-note">Đây là quản trị viên đang hoạt động cuối cùng — không thể ' +
+        'khoá tài khoản này hoặc đổi nhóm quyền (hệ thống luôn cần ít nhất một quản trị viên).</p>';
+    }
+    return '';
+  }
+
+  function formCardHtml(u, isNew, busy) {
+    var d = busy ? ' disabled' : '';
+    // Self and last-admin both lock the same two controls — see
+    // guardNoteHtml's doc comment.
+    var lockPermissions = busy || u.isSelf || u.isLastAdmin;
+    var lockActive = busy || u.isLastAdmin; // self MAY still deactivate their
+    // own (non-last-admin) account per PERMISSIONS.md §4.6 — only manage_users
+    // removal is unconditionally self-blocked, not deactivation itself.
+
+    return '' +
+      '<section class="card">' +
+        '<h3>Thông tin người dùng</h3>' +
+        '<div class="form-grid">' +
+          (isNew
+            ? field('Email *', '<input id="f-email" type="email" value="' + T.esc(u.email) + '"' + d + '>')
+            : field('Email', '<input value="' + T.esc(u.email) + '" disabled>')) +
+          field('Tên hiển thị *',
+            '<input id="f-displayName" value="' + T.esc(u.displayName) + '"' + d + '>') +
+          field(isNew ? 'Nhóm quyền *' : 'Nhóm quyền',
+            presetSelectHtml(u, isNew, lockPermissions)) +
+          '<label class="field field-check">' +
+            '<input type="checkbox" id="f-active"' + (u.active ? ' checked' : '') +
+              (lockActive ? ' disabled' : '') + '> Đang hoạt động' +
+          '</label>' +
+          '<label class="field field-wide">' +
+            '<span class="field-label">Ghi chú</span>' +
+            '<textarea id="f-note" rows="2"' + d + '>' + T.esc(u.note) + '</textarea>' +
+          '</label>' +
+        '</div>' +
+      '</section>';
+  }
+
+  function presetSelectHtml(u, isNew, locked) {
+    if (state.presets === null) {
+      return '<select disabled><option>Đang tải nhóm quyền…</option></select>';
+    }
+    var options = state.presets.map(function (p) {
+      return '<option value="' + T.esc(p.key) + '">' + T.esc(p.label) + '</option>';
+    }).join('');
+
+    if (isNew) {
+      return '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
+        '<option value="" disabled selected>— Chọn nhóm quyền —</option>' + options +
+        '</select>';
+    }
+    // Editing: default to "keep current permissions" — a plain save of
+    // displayName/active/note must never silently re-apply (or worse,
+    // change) permissions just because the dropdown had some option
+    // selected. The current profile is shown as plain text alongside it,
+    // since presetKey is null (informational "Tuỳ chỉnh") whenever the
+    // sheet holds permissions that were hand-edited or don't otherwise
+    // match any preset exactly.
+    return '' +
+      '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
+        '<option value="">— Giữ nguyên (' + T.esc(presetLabel(u.presetKey)) + ') —</option>' +
+        options +
+      '</select>';
+  }
+
+  function actionsHtml(busy) {
+    var savingNow = state.busyAction === 'saving';
+    var save = '<button type="button" class="btn btn-primary" data-act="save"' +
+      (busy ? ' disabled' : '') + '>' +
+      (savingNow ? 'Đang lưu...' : 'Lưu') + '</button>';
+
+    return '<div class="form-actions">' + save +
+      '<button type="button" class="btn" data-act="back"' +
+      (busy ? ' disabled' : '') + '>Huỷ</button>' +
+      '</div>';
+  }
+
+  /** Read the DOM back into state, so a repaint never loses what was typed —
+   *  same collect()-at-save-time shape as ViewsInventory.html/
+   *  ViewsOrders.html. */
+  function collect() {
+    if (!state.user) return;
+    var u = state.user;
+    var get = function (sel) { var n = root.querySelector(sel); return n ? n.value : ''; };
+
+    if (!u.email) u.email = get('#f-email'); // only present on the create form
+    u.displayName = get('#f-displayName');
+    u.note = get('#f-note');
+    u.presetKeyToSave = get('#f-preset'); // '' means "keep current" on edit
+    var activeEl = root.querySelector('#f-active');
+    u.active = activeEl ? !!activeEl.checked : true;
+  }
+
+  /* ---------------- save ---------------- */
+
+  function save() {
+    if (isBusy()) return;
+    // isNew MUST be captured before collect() — collect() fills
+    // state.user.email in FROM the create form's #f-email input (the only
+    // way a brand-new user's email ever gets into state), which means
+    // `!state.user.email` is only a valid "is this new?" test right up
+    // until that line runs. Reading it after collect() (as doSave() used
+    // to) meant a create-with-a-real-email-typed always looked exactly
+    // like an edit — apiUpdateUser instead of apiCreateUser — and Admin.gs
+    // correctly rejected it with "Không tìm thấy người dùng" since the
+    // email doesn't exist yet. Existing-user opens never hit this because
+    // openForm() always pre-fills email for them, so `!u.email` was
+    // already false before collect() too — only the create path was
+    // affected.
+    var isNew = !state.user.email;
+    collect();
+    doSave(isNew);
+  }
+
+  function doSave(isNew) {
+    var seq = viewSeq;
+    var payload;
+    var actionName;
+
+    if (isNew) {
+      actionName = 'apiCreateUser';
+      payload = {
+        user: { email: state.user.email, displayName: state.user.displayName, note: state.user.note },
+        presetKey: state.user.presetKeyToSave, active: state.user.active
+      };
+    } else {
+      actionName = 'apiUpdateUser';
+      payload = {
+        email: state.user.email,
+        user: { displayName: state.user.displayName, note: state.user.note },
+        active: state.user.active
+      };
+      // presetKeyToSave is '' when the dropdown was left on "— Giữ nguyên —"
+      // — omit it entirely so Admin.gs's actionUpdateUser_ leaves
+      // role/permissions untouched, per its own doc comment.
+      if (state.user.presetKeyToSave) payload.presetKey = state.user.presetKeyToSave;
+    }
+
+    state.busyAction = 'saving';
+    paintForm();
+    T.call(actionName, payload)
+      .then(function (data) {
+        upsertCachedUser(data);
+        state.busyAction = null;
+        if (staleView_(seq)) return;
+        state.user = data;
+        T.toast(actionName === 'apiCreateUser' ? 'Đã thêm người dùng ' + data.displayName + '.' : 'Đã lưu thay đổi.');
+        paintForm();
+      })
+      .catch(function (err) {
+        state.busyAction = null;
+        if (staleView_(seq)) return;
+        paintForm();
+        T.toast(err.message, true);
+      });
+  }
+
+  /* =====================================================================
+     Behaviour — one delegated listener per event, bound once in render()
+     ===================================================================== */
+
+  function onClick(e) {
+    var target = e.target.closest ? e.target.closest('[data-act], [data-open]') : null;
+    if (!target) return;
+    if (isBusy()) return;
+
+    var open = target.getAttribute('data-open');
+    if (open) { openForm(open); return; }
+
+    switch (target.getAttribute('data-act')) {
+      case 'new':
+        openForm(null);
+        break;
+      case 'back':
+        showList();
+        break;
+      case 'save':
+        save();
+        break;
+      case 'refresh-list':
+        manualRefresh();
+        break;
+      case 'submit-search':
+        if (canSubmitSearch()) submitSearch();
+        break;
+      case 'clear-filter':
+        clearFilters();
+        break;
+    }
+  }
+
+  function onInput(e) {
+    if (e.target && e.target.id === 'f-filter-q') {
+      state.searchDraft = e.target.value;
+      var searchBtn = root.querySelector('[data-act="submit-search"]');
+      if (searchBtn) searchBtn.disabled = !canSubmitSearch();
+    }
+  }
+
+  function onKeydown(e) {
+    if (e.key === 'Enter' && e.target && e.target.id === 'f-filter-q') {
+      e.preventDefault();
+      if (canSubmitSearch()) submitSearch();
+    }
+  }
+
+  function onChange(e) {
+    if (e.target && e.target.id === 'f-filter-includeInactive') {
+      state.filters.includeInactive = e.target.checked;
+      paintList();
+    }
+  }
+
+  window.TTAdmin = { render: render };
+})();
+</script>

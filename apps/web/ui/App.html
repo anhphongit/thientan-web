@@ -175,7 +175,7 @@
   }
 
   /** viewId → the global a ui/Views*.html file registers itself under. */
-  var VIEW_MODULES = { orders: 'TTOrders', statistics: 'TTStats', inventory: 'TTInventory' };
+  var VIEW_MODULES = { orders: 'TTOrders', statistics: 'TTStats', inventory: 'TTInventory', users: 'TTAdmin' };
 
   /* ---------------- views ---------------- */
 
@@ -268,20 +268,29 @@
     appUrl = urls.app || '';
     if (urls.logout) logoutUrl = urls.logout;
     var locked = info.reason === 'locked';
+    var scopeMissing = info.reason === 'scope_missing';
     var sec = info.security || null;
     var isAdmin = !!(sec && sec.isAdmin);
 
-    // A locked system is not an account problem: hide the account options so the
-    // person is not sent chasing the wrong fix.
-    el('account-options').classList.toggle('hidden', locked);
-    el('options-lead').classList.toggle('hidden', locked);
+    // Three mutually exclusive "what to show below the message" states:
+    //  - locked: a system-wide problem, not an account one — hide both the
+    //    account-switch options and the ask-access mailto (the admin caused
+    //    this and already knows).
+    //  - scope_missing (2026-09-06, docs/IDENTITY.md §9): THIS visitor's
+    //    Google account never completed, or holds a stale, OAuth consent
+    //    for THIENTAN-WEB. None of the three account-switch rows fix that
+    //    — different account or not — so show the dedicated #scope-help
+    //    card instead, but keep ask-access (they may still want a human to
+    //    walk them through it).
+    //  - anything else ('denied' / 'no_identity'): the normal case — show
+    //    the account-switch options + ask-access, same as always.
+    el('account-switch').classList.toggle('hidden', locked || scopeMissing);
     el('locked-help').classList.toggle('hidden', !(locked && isAdmin));
+    el('scope-help').classList.toggle('hidden', !scopeMissing);
     el('ask-access-wrap').classList.toggle('hidden', locked);
 
-    if (!locked) {
-      renderAccountOptions();
-      renderAskAccess(urls.supportEmail, info.email);
-    }
+    if (!locked && !scopeMissing) renderAccountOptions();
+    if (!locked) renderAskAccess(urls.supportEmail, info.email);
 
     renderDiag(info.diag);
     el('denied').classList.remove('hidden');
@@ -675,7 +684,7 @@
       openOptionDetail(row.getAttribute('data-opt'), !el('denied').contains(row));
       return;
     }
-    if (e.target.closest('[data-action="copy"]')) {
+    if (e.target.closest('[data-action="copy"]') || e.target.closest('[data-action="copy-app-url"]')) {
       e.preventDefault();
       copyText(appUrl);
       return;
