@@ -27,7 +27,8 @@ function makeEnv(configOverrides) {
   }, configOverrides || {});
 
   // Milestone 5 / 5.4 — populate Config sheet with editable keys for actionListConfig_
-  const editableKeys = ['statusList', 'uomList', 'customerList', 'vatRates', 'currency'];
+  // Note: customerList first for backward compatibility with existing tests
+  const editableKeys = ['customerList', 'statusList', 'uomList', 'vatRates', 'currency'];
   editableKeys.forEach(key => {
     if (key in publicConfig) {
       const val = publicConfig[key];
