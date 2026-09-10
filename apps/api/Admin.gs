@@ -144,12 +144,25 @@ function actionUpdateUser_(user, payload) {
   });
 }
 
-/** @return {{presets:{key:string, label:string}[]}} */
+/**
+ * @return {{presets:{key:string, label:string, permissions:Object}[]}} —
+ *   `permissions` is a deep clone of the preset's full permissions object
+ *   (all PERMISSION_KEYS booleans + visible_fields) so the Milestone 5.3
+ *   matrix editor can seed itself from a base role and detect drift from it.
+ *   Deep-cloned the same way presetOrThrow_ does: PERMISSION_PRESETS is a
+ *   module-level constant shared by every request in this execution, so a
+ *   caller mutating the returned object must never poison it for the next.
+ */
 function actionListPermissionPresets_(user, payload) {
   requirePermission_(user, 'manage_users');
   return {
     presets: Object.keys(PERMISSION_PRESETS).map(function (key) {
-      return { key: key, label: PERMISSION_PRESETS[key].label };
+      var preset = PERMISSION_PRESETS[key];
+      return {
+        key: key,
+        label: preset.label,
+        permissions: JSON.parse(JSON.stringify(preset.permissions))
+      };
     })
   };
 }

@@ -35,6 +35,39 @@ console.log('\n2. actionListPermissionPresets_ returns all four, in display orde
   const out = env.actionListPermissionPresets_(admin, {});
   eq('four presets', out.presets.map(p => p.key), ['admin', 'sales', 'warehouse', 'accounting']);
   check('admin preset has a label', typeof out.presets[0].label === 'string' && out.presets[0].label.length > 0);
+
+  const PERMISSION_KEYS = [
+    'view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
+    'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
+    'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'
+  ];
+  const DEFAULT_VISIBLE_FIELDS = [
+    'orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
+    'supplierName', 'lineId', 'lineNo', 'productCode', 'description', 'qty', 'uom',
+    'invoiceId', 'invoiceNo', 'invoiceDate', 'note',
+  ];
+  out.presets.forEach(p => {
+    check(p.key + ' preset carries a permissions object',
+      !!p.permissions && typeof p.permissions === 'object');
+    check(p.key + ' preset has all PERMISSION_KEYS as booleans',
+      PERMISSION_KEYS.every(k => typeof p.permissions[k] === 'boolean'));
+    check(p.key + ' preset has visible_fields array', Array.isArray(p.permissions.visible_fields));
+  });
+
+  const sales = out.presets.find(p => p.key === 'sales');
+  eq('sales.permissions.visible_fields is [*]', sales.permissions.visible_fields, ['*']);
+
+  const warehouse = out.presets.find(p => p.key === 'warehouse');
+  eq('warehouse.permissions.visible_fields is DEFAULT_VISIBLE_FIELDS', warehouse.permissions.visible_fields, DEFAULT_VISIBLE_FIELDS);
+
+  // Clone proof: mutating the returned permissions must not leak into the next call.
+  const out1 = env.actionListPermissionPresets_(admin, {});
+  out1.presets[0].permissions.manage_users = 'tampered';
+  out1.presets[0].permissions.visible_fields.push('tampered');
+  const out2 = env.actionListPermissionPresets_(admin, {});
+  check('mutating a returned permissions object does not affect subsequent calls',
+    out2.presets[0].permissions.manage_users !== 'tampered' &&
+    out2.presets[0].permissions.visible_fields.indexOf('tampered') === -1);
 }
 
 /* ---------- 3. create: validation ---------- */

@@ -1255,4 +1255,33 @@
   @media (min-width: 640px) {
     .perm-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+
+  /* M5.3b — permission disclosure (Option B: badge style). */
+  .perm-disclosure {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    width: 100%; padding: 12px; min-height: 44px;
+    font: inherit; font-size: 13px; font-weight: 500; text-align: left; color: var(--c-text);
+    background: transparent; border: 1px solid var(--c-border);
+    border-radius: 6px; cursor: pointer; transition: all 0.2s;
+  }
+  .perm-disclosure:hover { background: var(--c-surface); border-color: var(--c-border-dark, #ccc); }
+  .perm-disclosure:focus-visible {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .perm-disclosure-content { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .perm-disclosure-label { display: flex; align-items: center; gap: 6px; }
+  .perm-disclosure-label strong { font-weight: 600; }
+  .perm-disclosure-badge {
+    display: inline-block; padding: 2px 8px;
+    background: #fef3c7; color: #92400e;
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .perm-disclosure-badge.hidden { display: none; }
+  .perm-disclosure-toggle { color: var(--c-muted); font-size: 12px; transition: transform 0.2s; }
+  .perm-disclosure[aria-expanded="true"] .perm-disclosure-toggle { transform: rotate(180deg); color: var(--c-brand); }
+  .perm-disclosure[disabled] { background: var(--c-bg); color: var(--c-muted); cursor: default; }
+  .perm-body { margin-top: 12px; }
+  .perm-body--collapsed { display: none; }
 </style>

@@ -67,7 +67,7 @@
 
   /**
    * Grouped permission matrix structure: group label + key/label pairs.
-   * Single source of truth for collect() and permissionMatrixHtml().
+   * Single source of truth for collect() and permissionDisclosureHtml().
    * Keep group order (largest first) and keys in logical order per group.
    */
   var PERMISSION_GROUPS = [
@@ -131,12 +131,70 @@
 
   /**
    * Return the effective permissions object for rendering checkboxes:
-   * permissionsToSave (in-flight edit) if set, otherwise server-side
-   * permissions, or empty if both absent. Prevents painted checkboxes from
-   * reverting when doSave() repaints mid-flight.
+   * permissionsToSave (in-flight edit) if set, otherwise the resolved base
+   * (see basePermissions_), or empty if both absent. Prevents painted
+   * checkboxes from reverting when doSave() repaints mid-flight.
    */
-  function effectivePermissions_(u) {
-    return u.permissionsToSave || u.permissions || {};
+  function effectivePermissions_(u, basePerms) {
+    return u.permissionsToSave || basePerms || u.permissions || {};
+  }
+
+  /**
+   * Mirrors Admin.gs:327-333 (permissionsEqualPreset_) — keep the two in
+   * sync when Admin.gs changes. Compares the 14 booleans with `!!` coercion
+   * and visible_fields as a SET (order-independent), exactly like the
+   * server does when it re-derives presetKey after every save
+   * (matchPresetKey_, Admin.gs:319-325). Any divergence here would make the
+   * "customised" label flip right after a save that the server considered
+   * an exact preset match.
+   */
+  function permissionsEqual_(a, b) {
+    for (var i = 0; i < permissionKeys_().length; i++) {
+      var k = permissionKeys_()[i];
+      if (!!a[k] !== !!b[k]) return false;
+    }
+    return arraysEqualAsSets_(a.visible_fields || ['*'], b.visible_fields || ['*']);
+  }
+
+  function arraysEqualAsSets_(a, b) {
+    var av = a || [], bv = b || [];
+    if (av.length !== bv.length) return false;
+    return av.every(function (x) { return bv.indexOf(x) >= 0; });
+  }
+
+  /**
+   * Look up a preset's full permissions object by key, or null when the key
+   * is empty/unknown/presets haven't loaded. Thin wrapper kept separate from
+   * basePermissions_ so the resolution-order policy lives in one place.
+   */
+  function presetPermissions_(key) {
+    if (!key) return null;
+    var list = state.presets || [];
+    var found = list.filter(function (p) { return p.key === key; })[0];
+    return (found && found.permissions) || null;
+  }
+
+  /**
+   * Resolves the "base" permissions to seed the matrix from and diff
+   * against, in priority order (see phase-04 plan, Requirements):
+   *   1. state.user.basePresetKey — chosen THIS session via #f-preset
+   *   2. u.presetKey — server-derived exact match (edit, unmodified)
+   *   3. u.permissions — edit, presetKey === null (unknown/hand-edited base)
+   *   4. null — create with no base picked yet; no disclosure is rendered
+   */
+  function basePermissions_(u) {
+    return presetPermissions_(u.basePresetKey) ||
+      presetPermissions_(u.presetKey) ||
+      u.permissions ||
+      null;
+  }
+
+  /** True when the collected/in-flight permissions differ from the
+   *  resolved base — drives the "+ tuỳ chỉnh" label and the preset-switch
+   *  confirm. `base` is falsy (no base yet) → never customised. */
+  function isCustomised_(u, collected) {
+    var base = basePermissions_(u);
+    return !!(base && !permissionsEqual_(collected, base));
   }
 
   var loadingPromise = null;
@@ -479,6 +537,18 @@
              isSelf: false, isLastAdmin: false, showPermissionMatrix: false };
   }
 
+  /**
+   * Auto-expand rule (spec 2c): an existing user whose stored permissions
+   * don't exactly match any preset (presetKey === null, server-computed by
+   * matchPresetKey_) opens with the matrix already visible — there's no
+   * preset label to hide behind, so showing "Tuỳ chỉnh" collapsed would just
+   * make the admin click to find out what it actually grants. Called from
+   * every openForm() path that sets state.user, never duplicated inline.
+   */
+  function autoExpandPermissionDisclosure_(u) {
+    u.showPermissionMatrix = (u.presetKey === null && !!u.permissions);
+  }
+
   function openForm(email) {
     var seq = ++viewSeq;
 
@@ -497,6 +567,7 @@
     var cached = state.users.filter(function (u) { return u.email === email; })[0];
     if (cached) {
       state.user = shallowCopy(cached);
+      autoExpandPermissionDisclosure_(state.user);
       state.editing = true;
       paintForm();
       return;
@@ -507,6 +578,7 @@
       .then(function (data) {
         if (staleView_(seq)) return;
         state.user = data;
+        autoExpandPermissionDisclosure_(state.user);
         state.editing = true;
         paintForm();
       })
@@ -573,10 +645,6 @@
     // own (non-last-admin) account per PERMISSIONS.md §4.6 — only manage_users
     // removal is unconditionally self-blocked, not deactivation itself.
 
-    // Detect if custom permissions mode is active (matrix checkbox is on).
-    // When customOn, preset select is disabled and a note explains why.
-    var customOn = !!u.showPermissionMatrix && !lockPermissions;
-
     return '' +
       '<section class="card">' +
         '<div class="form-linear">' +
@@ -588,88 +656,102 @@
             field('Tên hiển thị *',
               '<input id="f-displayName" value="' + T.esc(u.displayName) + '"' + d + '>') +
             field(isNew ? 'Nhóm quyền *' : 'Nhóm quyền',
-              presetSelectHtml(u, isNew, lockPermissions, customOn)) +
+              presetSelectHtml(u, isNew, lockPermissions)) +
             field('Trạng thái', statusSelectHtml(u, lockActive)) +
           '</div>' +
-          permissionMatrixHtml(u, lockPermissions) +
+          permissionDisclosureHtml(u, lockPermissions) +
           '<div class="form-section">' +
             '<span class="form-section-label">Ghi chú</span>' +
-            '<textarea id="f-note"' + d + '>' + T.esc(u.note) + '</textarea>' +
+            '<label class="field"><textarea id="f-note" rows="3"' + d + '>' +
+              T.esc(u.note) + '</textarea></label>' +
           '</div>' +
         '</div>' +
       '</section>';
   }
 
-  function presetSelectHtml(u, isNew, locked, customOn) {
+  /**
+   * The base-role picker. With base-extension (phase 04) the select is
+   * NEVER disabled by "custom permissions mode" — it now doubles as the
+   * base the matrix seeds from and diffs against, so it must stay usable
+   * even once the admin has toggled a box away from that base. Only the
+   * self/last-admin lock (`locked`) still disables it.
+   *
+   * `u.basePresetKey` — set only while this form session is open (never on
+   * the cached row, see risk register) — is rendered as the selected
+   * option so a re-paint after `#f-preset` changes reflects the chosen
+   * base, not always the original server value.
+   */
+  function presetSelectHtml(u, isNew, locked) {
     if (state.presets === null) {
       return '<select disabled><option>Đang tải nhóm quyền…</option></select>';
     }
     var options = state.presets.map(function (p) {
-      return '<option value="' + T.esc(p.key) + '">' + T.esc(p.label) + '</option>';
+      var selected = u.basePresetKey === p.key ? ' selected' : '';
+      return '<option value="' + T.esc(p.key) + '"' + selected + '>' + T.esc(p.label) + '</option>';
     }).join('');
 
-    var html = '';
     if (isNew) {
-      html = '<select id="f-preset"' + (locked || customOn ? ' disabled' : '') + '>' +
-        '<option value="" disabled selected>— Chọn nhóm quyền —</option>' + options +
-        '</select>';
-    } else {
-      // Editing: default to "keep current permissions" — a plain save of
-      // displayName/active/note must never silently re-apply (or worse,
-      // change) permissions just because the dropdown had some option
-      // selected. The current profile is shown as plain text alongside it,
-      // since presetKey is null (informational "Tuỳ chỉnh") whenever the
-      // sheet holds permissions that were hand-edited or don't otherwise
-      // match any preset exactly.
-      html = '' +
-        '<select id="f-preset"' + (locked || customOn ? ' disabled' : '') + '>' +
-          '<option value="">— Giữ nguyên (' + T.esc(presetLabel(u.presetKey)) + ') —</option>' +
-          options +
+      var placeholderSelected = u.basePresetKey ? '' : ' selected';
+      return '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
+        '<option value="" disabled' + placeholderSelected + '>— Chọn nhóm quyền —</option>' + options +
         '</select>';
     }
 
-    // When custom permissions mode is on, add a note explaining the preset is disabled
-    if (customOn) {
-      html += '<p class="perm-note">Đang dùng quyền tuỳ chỉnh — nhóm quyền không áp dụng.</p>';
-    }
-
-    return html;
+    // Editing: default to "keep current permissions" — a plain save of
+    // displayName/active/note must never silently re-apply (or worse,
+    // change) permissions just because the dropdown had some option
+    // selected. The current profile is shown as plain text alongside it,
+    // since presetKey is null (informational "Tuỳ chỉnh") whenever the
+    // sheet holds permissions that were hand-edited or don't otherwise
+    // match any preset exactly.
+    //
+    // No explicit `selected` on THIS option: it is always the first in
+    // document order, so the browser selects it by default whenever no
+    // later option carries `selected` — i.e. whenever basePresetKey is
+    // unset. Marking it explicitly too would conflict with the option
+    // below the moment a base IS chosen (two `selected` options).
+    return '' +
+      '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
+        '<option value="">— Giữ nguyên (' + T.esc(presetLabel(u.presetKey)) + ') —</option>' +
+        options +
+      '</select>';
   }
 
   /**
-   * Permission matrix UI for M5.3 — shows 14 checkboxes organized into 5
-   * labelled groups, allowing an admin to grant/deny individual permission
-   * keys without preset constraints. Collapsed to a single toggle by default.
+   * Permission disclosure UI for M5.3b (Option B: button + badge). Renders
+   * the 14 checkboxes unconditionally, grouped, and collapses/expands the
+   * wrapping `#perm-body` with a CSS class only — the collapsed DOM stays
+   * reachable via `querySelector`, so `collect()` keeps one source of truth
+   * and there's no separate "which is authoritative, state or DOM" shadow
+   * state (see phase-03-permission-disclosure-ui.md, key insight #2).
+   *
+   * Phase 04: seeds from `basePermissions_` (session base-picker >
+   * server-derived presetKey > raw permissions, see its doc comment) and
+   * computes the diff against that same base for the "+ tuỳ chỉnh" badge —
+   * `isCustomised_` mirrors the server's `permissionsEqualPreset_` exactly
+   * so the label never disagrees with what the save is about to do.
    */
-  function permissionMatrixHtml(u, locked) {
-    if (!u.permissions) return '';
-    // Matrix only shown when not locked (self/last-admin) per PERMISSIONS.md §4
+  function permissionDisclosureHtml(u, locked) {
+    // Only shown when not locked (self/last-admin) per PERMISSIONS.md §4
     if (locked) return '';
+    var base = basePermissions_(u);
+    // No base to seed from: create form with no preset chosen yet, or
+    // presets failed to load (state.presets === []) and this is a brand-new
+    // user with no server-assigned permissions either. Degrade to no
+    // disclosure at all, same as the old `!u.permissions` guard did (R5).
+    if (!base) return '';
 
-    var showMatrix = !!u.showPermissionMatrix; // toggled by checkbox
-    var perms = effectivePermissions_(u);
+    var expanded = !!u.showPermissionMatrix;
+    var perms = effectivePermissions_(u, base);
+    // The resolved base's label: the session's chosen base preset first,
+    // then the server-derived exact match, then "Tuỳ chỉnh" (null) when
+    // the base is only known via raw permissions (hand-edited/unmatched).
+    var baseLabel = presetLabel(u.basePresetKey || u.presetKey || null);
+    var customised = isCustomised_(u, perms);
 
-    if (!showMatrix) {
-      return '' +
-        '<label class="field field-check">' +
-          '<input type="checkbox" id="f-show-matrix"> ' +
-          '<strong>Tuỳ chỉnh: Chỉnh sửa từng quyền riêng lẻ</strong>' +
-        '</label>';
-    }
-
-    // Matrix is shown — render grouped checkboxes with PERMISSION_GROUPS structure
-    var matrix = '' +
-      '<div class="form-section">' +
-        '<span class="form-section-label">Tuỳ chỉnh quyền</span>' +
-        '<label class="field field-check">' +
-          '<input type="checkbox" id="f-show-matrix" checked> ' +
-          '<strong>Chỉnh sửa từng quyền riêng lẻ</strong>' +
-        '</label>' +
-        '<div class="perm-groups">';
-
-    // Render each group with its keys
+    var groups = '<div class="perm-groups">';
     PERMISSION_GROUPS.forEach(function (group) {
-      matrix += '' +
+      groups += '' +
         '<div class="perm-group">' +
           '<h4 class="perm-group-title">' + T.esc(group.label) + '</h4>' +
           '<div class="perm-group-items">';
@@ -679,22 +761,38 @@
         var label = pair[1];
         var checked = !!perms[key];
         var checkboxId = 'f-perm-' + key;
-        matrix += '' +
+        groups += '' +
           '<label class="field field-check">' +
             '<input type="checkbox" id="' + checkboxId + '"' + (checked ? ' checked' : '') + '> ' +
             T.esc(label) +
           '</label>';
       });
 
-      matrix += '' +
+      groups += '' +
         '</div>' +
         '</div>';
     });
+    groups += '</div>';
 
-    matrix += '' +
-      '</div>' +
+    return '' +
+      '<div class="form-section">' +
+        '<span class="form-section-label">Nhóm quyền chi tiết</span>' +
+        '<button type="button" class="perm-disclosure" data-act="toggle-perms" ' +
+          'aria-expanded="' + (expanded ? 'true' : 'false') + '" aria-controls="perm-body">' +
+          '<div class="perm-disclosure-content">' +
+            '<div class="perm-disclosure-label">' +
+              '<strong>' + T.esc(baseLabel) + '</strong>' +
+              '<span class="perm-disclosure-badge' + (customised ? '' : ' hidden') + '" id="perm-badge">' +
+                (customised ? '+ tuỳ chỉnh' : '') +
+              '</span>' +
+            '</div>' +
+          '</div>' +
+          '<span class="perm-disclosure-toggle">▼</span>' +
+        '</button>' +
+        '<div id="perm-body" class="perm-body' + (expanded ? '' : ' perm-body--collapsed') + '">' +
+          groups +
+        '</div>' +
       '</div>';
-    return matrix;
   }
 
   function actionsHtml(busy) {
@@ -726,20 +824,46 @@
     // (new users default active:true via blankUser()).
     u.active = activeEl ? (activeEl.value !== 'inactive') : (u.active !== false);
 
-    // Read matrix checkboxes if the matrix is shown
-    var showMatrixEl = root.querySelector('#f-show-matrix');
-    u.showPermissionMatrix = showMatrixEl ? !!showMatrixEl.checked : false;
+    // showPermissionMatrix (open/collapsed) is owned by the `toggle-perms`
+    // click handler alone (M5.3b) — collect() must never derive it from the
+    // DOM. The old matrix-toggle checkbox is gone; reading a removed node
+    // here would return null and silently reset showPermissionMatrix to
+    // false, dropping any in-progress custom-permission edit (phase-03 risk R6).
+    //
+    // Permission block (phase 04): mirrors self/last-admin lock at
+    // formCardHtml:643 exactly.
+    var lockPermissions = isBusy() || u.isSelf || u.isLastAdmin;
+    u.permissionsToSave = null;
+    if (lockPermissions) return; // R2 — locked users: never read the matrix,
+    // not even to confirm it's unchanged. There IS no matrix in the DOM for
+    // them (permissionDisclosureHtml returns '' when locked), so querying it
+    // would read null nodes and silently synthesise an all-false permission
+    // set — exactly the "plain save strips the last admin" bug this guards.
 
-    if (u.showPermissionMatrix) {
-      // Build permissions object from checked matrix, using canonical key list
-      var perms = {};
-      var keys = permissionKeys_();
-      keys.forEach(function (key) {
-        var el = root.querySelector('#f-perm-' + key);
-        perms[key] = el ? !!el.checked : false;
-      });
-      // visible_fields defaults to ['*'] for now (or empty array — Permissions.gs handles default)
-      perms.visible_fields = ['*'];
+    var base = basePermissions_(u);
+    if (!base) return; // R5 — no base resolved, no matrix was rendered either
+    // (create form with no preset chosen yet) — nothing to collect.
+
+    var perms = {};
+    permissionKeys_().forEach(function (key) {
+      var el = root.querySelector('#f-perm-' + key);
+      // Absent node (matrix collapsed in a real DOM, or the offline test
+      // harness's stub) falls back to the BASE value, never to false — a
+      // partially-stubbed DOM must never be able to invent a revocation.
+      perms[key] = el ? !!el.checked : !!base[key];
+    });
+    // R3 — carry visible_fields from the resolved base instead of
+    // hardcoding ['*']: a warehouse user's base restricts money columns
+    // (DEFAULT_VISIBLE_FIELDS, Config.gs:183-187); hardcoding ['*'] here
+    // would silently grant every money column on the very first save.
+    perms.visible_fields = (base.visible_fields || ['*']).slice();
+
+    // R1 — gate on an actual diff against the base. Ungated, every save
+    // (even a plain displayName edit) would set permissionsToSave and force
+    // role:'custom' server-side, which the header chip reads literally
+    // (App.html: role === 'admin' ? 'Quản trị' : 'Nhân viên') — a full admin
+    // saved this way would display as "Nhân viên".
+    if (!permissionsEqual_(perms, base)) {
       u.permissionsToSave = perms;
     }
   }
@@ -1102,6 +1226,15 @@
       case 'clear-filter':
         clearFilters();
         break;
+      case 'toggle-perms':
+        // M5.3b — collect() BEFORE flipping state so anything already typed
+        // (displayName, note, preset, status, checked permission boxes)
+        // survives the paintForm() repaint below; same discipline the old
+        // matrix-toggle onChange handler used.
+        collect();
+        state.user.showPermissionMatrix = !state.user.showPermissionMatrix;
+        paintForm();
+        break;
     }
   }
 
@@ -1164,15 +1297,77 @@
     if (e.target && e.target.id === 'f-filter-includeInactive') {
       state.filters.includeInactive = e.target.checked;
       paintList();
+      return;
     }
-    // Handle matrix toggle: when user clicks the "Tuỳ chỉnh" checkbox,
-    // preserve any typed form fields (displayName, note, preset, status) by
-    // collect()ing BEFORE the repaint. paintForm() re-renders from state.user,
-    // so skipping collect() loses everything typed since the last save.
-    if (e.target && e.target.id === 'f-show-matrix') {
-      collect();
-      state.user.showPermissionMatrix = !!e.target.checked;
-      paintForm();
+
+    if (e.target && e.target.id === 'f-preset') {
+      onPresetChange_(e.target);
+      return;
+    }
+
+    if (e.target && e.target.id && e.target.id.indexOf('f-perm-') === 0) {
+      refreshCustomisedBadge_();
+      return;
+    }
+  }
+
+  /**
+   * Reseeding the base picker (phase 04): collect() first, using the OLD
+   * base, to find out whether the in-progress edit is currently customised
+   * — that's the only thing that decides whether switching bases needs a
+   * confirm. `T.confirm` is async (returns a Promise, same as every other
+   * view's confirm dialog); the select's DOM value has ALREADY moved to the
+   * newly-picked option by the time `change` fires, so a cancel must
+   * explicitly restore it inside the `.then`, not just skip the reseed.
+   */
+  function onPresetChange_(selectEl) {
+    var u = state.user;
+    var newKey = selectEl.value;
+    collect();
+    if (!u.permissionsToSave) {
+      applyBaseSwitch_(u, newKey);
+      return;
+    }
+    T.confirm('Đổi nhóm quyền sẽ đặt lại các quyền đã tuỳ chỉnh. Tiếp tục?').then(function (confirmed) {
+      if (!confirmed) {
+        selectEl.value = u.basePresetKey || '';
+        return;
+      }
+      applyBaseSwitch_(u, newKey);
+    });
+  }
+
+  function applyBaseSwitch_(u, newKey) {
+    u.basePresetKey = newKey;
+    u.permissionsToSave = null;
+    paintForm();
+  }
+
+  /**
+   * Targeted label refresh for a single `#f-perm-*` checkbox flip — same
+   * "write the DOM directly, skip paintForm()" discipline as
+   * updateSaveButtonState(). A full repaint here would also blow away focus
+   * on whichever checkbox the admin just clicked.
+   */
+  function refreshCustomisedBadge_() {
+    var u = state.user;
+    var base = basePermissions_(u);
+    if (!base) return; // no base rendered means no matrix, no badge either
+    var collected = {};
+    permissionKeys_().forEach(function (key) {
+      var el = root.querySelector('#f-perm-' + key);
+      collected[key] = el ? !!el.checked : false;
+    });
+    collected.visible_fields = (base.visible_fields || ['*']).slice();
+
+    var badgeEl = root.querySelector('#perm-badge');
+    if (!badgeEl) return;
+    if (isCustomised_(u, collected)) {
+      badgeEl.textContent = '+ tuỳ chỉnh';
+      badgeEl.classList.remove('hidden');
+    } else {
+      badgeEl.textContent = '';
+      badgeEl.classList.add('hidden');
     }
   }
 
