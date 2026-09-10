@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 03 Mockup Option C: Compact Inline State</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding: 20px; color: #333; }
+    .container { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h2 { font-size: 18px; margin-bottom: 24px; color: #1a1a1a; }
+    .form-section { margin-bottom: 24px; }
+    .form-section-label { display: block; font-size: 11.5px; font-weight: 600; text-transform: uppercase; color: #888; margin-bottom: 12px; letter-spacing: 0.5px; }
+
+    /* Disclosure button - compact inline */
+    .perm-disclosure {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 10px 12px; min-height: 44px;
+      font: inherit; font-size: 13px; text-align: left; color: #333;
+      background: #f9f9f9; border: 1px solid #ddd;
+      border-radius: 6px; cursor: pointer; transition: all 0.2s;
+    }
+    .perm-disclosure:hover { background: #ffffff; border-color: #bbb; }
+    .perm-disclosure:focus-visible { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+    .perm-disclosure-content { flex: 1; }
+    .perm-disclosure-line1 { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+    .perm-disclosure-line1 strong { font-weight: 600; }
+    .perm-disclosure-line2 { font-size: 12px; color: #888; margin-top: 2px; }
+    .perm-disclosure-line2.hidden { display: none; }
+    .perm-disclosure-state { display: inline; color: #d97706; font-weight: 500; }
+
+    .perm-disclosure-toggle { color: #888; font-size: 14px; transition: transform 0.2s; flex-shrink: 0; }
+    .perm-disclosure[aria-expanded="true"] .perm-disclosure-toggle { transform: rotate(180deg); color: #3b82f6; }
+
+    /* Body */
+    .perm-body { margin-top: 12px; }
+    .perm-body--collapsed { display: none; }
+
+    /* Permission groups */
+    .perm-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .perm-groups { grid-template-columns: 1fr; } }
+    .perm-group { border: 1px solid #eee; background: #fafafa; padding: 12px; border-radius: 6px; }
+    .perm-group-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #666; margin-bottom: 8px; letter-spacing: 0.5px; }
+    .perm-group-items { display: flex; flex-direction: column; gap: 8px; }
+    .field-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .field-check input { cursor: pointer; }
+    .field-check label { cursor: pointer; font-size: 13px; }
+
+    .mock-state { background: #fffacd; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 3px solid #ffc107; font-size: 12px; }
+    .demo { margin-top: 32px; }
+    .demo-label { font-size: 12px; color: #666; font-weight: 600; margin-bottom: 8px; }
+    hr { margin: 32px 0; border: none; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📋 Option C: Compact Two-Line (Minimal)</h2>
+
+    <div class="demo">
+      <div class="demo-label">Scenario 1: Collapsed (Base Only)</div>
+      <div class="form-section">
+        <span class="form-section-label">Nhóm quyền chi tiết</span>
+        <button class="perm-disclosure" aria-expanded="false" aria-controls="perm-body-1">
+          <div class="perm-disclosure-content">
+            <div class="perm-disclosure-line1">
+              <strong>Nhân viên kinh doanh</strong>
+            </div>
+            <div class="perm-disclosure-line2 hidden">
+              <span class="perm-disclosure-state">+ tuỳ chỉnh</span>
+            </div>
+          </div>
+          <span class="perm-disclosure-toggle">∨</span>
+        </button>
+        <div id="perm-body-1" class="perm-body perm-body--collapsed"></div>
+      </div>
+      <div class="mock-state">✓ Collapsed. Single line, shows base role. Chevron points down.</div>
+    </div>
+
+    <hr>
+
+    <div class="demo">
+      <div class="demo-label">Scenario 2: Expanded (Base Only)</div>
+      <div class="form-section">
+        <span class="form-section-label">Nhóm quyền chi tiết</span>
+        <button class="perm-disclosure" aria-expanded="true" aria-controls="perm-body-2" style="background: white; border-color: #3b82f6;">
+          <div class="perm-disclosure-content">
+            <div class="perm-disclosure-line1">
+              <strong>Nhân viên kinh doanh</strong>
+            </div>
+            <div class="perm-disclosure-line2 hidden">
+              <span class="perm-disclosure-state">+ tuỳ chỉnh</span>
+            </div>
+          </div>
+          <span class="perm-disclosure-toggle">∧</span>
+        </button>
+        <div id="perm-body-2" class="perm-body">
+          <div class="perm-groups">
+            <div class="perm-group">
+              <div class="perm-group-title">Quản lý đơn hàng</div>
+              <div class="perm-group-items">
+                <label class="field-check"><input type="checkbox" checked> <span>Xem đơn hàng của tôi</span></label>
+                <label class="field-check"><input type="checkbox"> <span>Xem tất cả đơn hàng</span></label>
+                <label class="field-check"><input type="checkbox" checked> <span>Tạo đơn hàng</span></label>
+              </div>
+            </div>
+            <div class="perm-group">
+              <div class="perm-group-title">Duyệt đơn & Xuất dữ liệu</div>
+              <div class="perm-group-items">
+                <label class="field-check"><input type="checkbox"> <span>Duyệt đơn hàng</span></label>
+                <label class="field-check"><input type="checkbox"> <span>Xuất file</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mock-state">✓ Expanded. Chevron points up. Second line still hidden (no customization yet).</div>
+    </div>
+
+    <hr>
+
+    <div class="demo">
+      <div class="demo-label">Scenario 3: Customized (Two Lines)</div>
+      <div class="form-section">
+        <span class="form-section-label">Nhóm quyền chi tiết</span>
+        <button class="perm-disclosure" aria-expanded="true" aria-controls="perm-body-3" style="background: white; border-color: #3b82f6;">
+          <div class="perm-disclosure-content">
+            <div class="perm-disclosure-line1">
+              <strong>Nhân viên kinh doanh</strong>
+            </div>
+            <div class="perm-disclosure-line2">
+              <span class="perm-disclosure-state">+ tuỳ chỉnh</span>
+            </div>
+          </div>
+          <span class="perm-disclosure-toggle">∧</span>
+        </button>
+        <div id="perm-body-3" class="perm-body">
+          <div class="perm-groups">
+            <div class="perm-group">
+              <div class="perm-group-title">Quản lý đơn hàng</div>
+              <div class="perm-group-items">
+                <label class="field-check"><input type="checkbox" checked> <span>Xem đơn hàng của tôi</span></label>
+                <label class="field-check"><input type="checkbox" checked> <span>Xem tất cả đơn hàng</span></label>
+                <label class="field-check"><input type="checkbox" checked> <span>Tạo đơn hàng</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mock-state">✓ Customized. Second line shows "tuỳ chỉnh" in orange. Auto-appears when permissions differ from base.</div>
+    </div>
+
+    <hr>
+
+    <div class="demo">
+      <div class="demo-label">Scenario 4: Unknown Custom</div>
+      <div class="form-section">
+        <span class="form-section-label">Nhóm quyền chi tiết</span>
+        <button class="perm-disclosure" aria-expanded="false" aria-controls="perm-body-4" style="background: #fef3c7; border-color: #fbbf24;">
+          <div class="perm-disclosure-content">
+            <div class="perm-disclosure-line1">
+              <strong>Tuỳ chỉnh</strong>
+            </div>
+          </div>
+          <span class="perm-disclosure-toggle">∨</span>
+        </button>
+        <div id="perm-body-4" class="perm-body perm-body--collapsed"></div>
+      </div>
+      <div class="mock-state">✓ Unknown custom. Collapsed state shows warning background. Button is amber to signal "customize or pick a base".</div>
+    </div>
+
+    <hr>
+
+    <h3 style="margin-top: 32px; margin-bottom: 12px;">Design Rationale</h3>
+    <ul style="margin-left: 20px; font-size: 13px; line-height: 1.6; color: #555;">
+      <li><strong>Two-line label:</strong> Base on line 1, customization state on line 2 (only when present)</li>
+      <li><strong>Compact:</strong> 44px height (tight), no visible badges</li>
+      <li><strong>Color coding:</strong> Orange "tuỳ chỉnh" text; amber background for unknown custom</li>
+      <li><strong>Unicode chevron:</strong> ∨/∧ symbols instead of ▼ (slightly more elegant)</li>
+      <li><strong>Space efficient:</strong> Minimal vertical space, dense information density</li>
+      <li><strong>Accessible:</strong> aria-expanded, aria-controls, full 44px tap target</li>
+    </ul>
+  </div>
+</body>
+</html>
