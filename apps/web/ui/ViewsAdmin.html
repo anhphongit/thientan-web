@@ -31,6 +31,7 @@
 
   var T = null;
   var root = null;
+  var wrapper = null;  // Fresh container per render — replaces the old state.bound approach
 
   var state = {
     // Milestone 5 / 5.4 — tab switcher for users vs. config
@@ -47,7 +48,7 @@
     // default, same "hide inactive by default" spirit as Products.gs's list.
     filters: { q: '', includeInactive: false },
     searchDraft: '',
-    user: null, editing: false, bound: false,
+    user: null, editing: false,
     // One user-detail mutation in flight at a time — mirrors
     // ViewsOrders.html's busyAction/isBusy() exactly.
     busyAction: null,
@@ -81,12 +82,23 @@
     root = container;
     myGeneration = T.viewGeneration();
     viewSeq++;
-    if (!state.bound) {
+    // Issue 1 fix: each render() creates a fresh wrapper div and attaches
+    // listeners to it, replacing the old state.bound approach.
+    // In test environments where document doesn't exist, fall back to root.
+    root.innerHTML = '';
+    if (typeof document !== 'undefined') {
+      wrapper = document.createElement('div');
+      wrapper.addEventListener('click', onClick);
+      wrapper.addEventListener('input', onInput);
+      wrapper.addEventListener('keydown', onKeydown);
+      wrapper.addEventListener('change', onChange);
+      root.appendChild(wrapper);
+    } else {
+      wrapper = root;
       root.addEventListener('click', onClick);
       root.addEventListener('input', onInput);
       root.addEventListener('keydown', onKeydown);
       root.addEventListener('change', onChange);
-      state.bound = true;
     }
     ensurePresetsLoaded();
     // Milestone 5 / 5.4 — default to users tab; later tab navigation will switch
@@ -135,7 +147,7 @@
       return;
     }
 
-    root.innerHTML = skeletonHtml();
+    wrapper.innerHTML = skeletonHtml();
     (loadingPromise || fetchUsers())
       .then(function () {
         if (staleView_(seq)) return;
@@ -143,7 +155,7 @@
       })
       .catch(function (err) {
         if (staleView_(seq)) return;
-        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+        wrapper.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
   }
@@ -241,7 +253,7 @@
   /* ---------------- list rendering ---------------- */
 
   function paintList() {
-    root.innerHTML = listHtml();
+    wrapper.innerHTML = listHtml();
   }
 
   function updatedLabel() {
@@ -399,7 +411,7 @@
       return;
     }
 
-    root.innerHTML = detailSkeletonHtml();
+    wrapper.innerHTML = detailSkeletonHtml();
     T.call('apiGetUser', email)
       .then(function (data) {
         if (staleView_(seq)) return;
@@ -425,7 +437,7 @@
     var isNew = !u.email;
     var busy = isBusy();
 
-    root.innerHTML = '' +
+    wrapper.innerHTML = '' +
       '<div class="view-head">' +
         '<h2>' + (isNew ? 'Thêm người dùng' : T.esc(u.displayName)) + '</h2>' +
         '<button type="button" class="link-btn" data-act="back"' +
@@ -727,7 +739,7 @@
       return;
     }
 
-    root.innerHTML = configSkeletonHtml();
+    wrapper.innerHTML = configSkeletonHtml();
     fetchConfig()
       .then(function () {
         if (staleView_(seq)) return;
@@ -769,7 +781,7 @@
   }
 
   function paintConfigTab() {
-    root.innerHTML = configTabHtml();
+    wrapper.innerHTML = configTabHtml();
   }
 
   function configTabHtml() {

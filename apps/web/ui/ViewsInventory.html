@@ -26,6 +26,7 @@
    */
   var T = null;
   var root = null;
+  var wrapper = null;  // Fresh container per render — replaces the old state.bound approach
 
   var state = {
     products: [], productsMeta: null, productsLoadedAt: 0, refreshing: false,
@@ -45,7 +46,7 @@
     // q/lowStockOnly, still respects includeInactive) — see
     // actionListProducts_'s doc comment. Refreshed from every list response.
     lowStockTotal: 0,
-    product: null, editing: false, bound: false,
+    product: null, editing: false,
     // One product-detail mutation in flight at a time: null | 'saving' |
     // 'deleting'. Mirrors ViewsOrders.html's busyAction/isBusy() exactly.
     busyAction: null
@@ -124,13 +125,25 @@
     root = container;
     myGeneration = T.viewGeneration();
     viewSeq++;
-    if (!state.bound) {
+    // Issue 1 fix: each render() creates a fresh wrapper div and attaches
+    // listeners to it, replacing the old state.bound approach.
+    // In test environments where document doesn't exist, fall back to root.
+    root.innerHTML = '';
+    if (typeof document !== 'undefined') {
+      wrapper = document.createElement('div');
+      wrapper.addEventListener('click', onClick);
+      wrapper.addEventListener('input', onInput);
+      wrapper.addEventListener('blur', onBlur, true);
+      wrapper.addEventListener('keydown', onKeydown);
+      wrapper.addEventListener('change', onChange);
+      root.appendChild(wrapper);
+    } else {
+      wrapper = root;
       root.addEventListener('click', onClick);
       root.addEventListener('input', onInput);
       root.addEventListener('blur', onBlur, true);
       root.addEventListener('keydown', onKeydown);
       root.addEventListener('change', onChange);
-      state.bound = true;
     }
     showList();
   }
@@ -152,7 +165,7 @@
       return;
     }
 
-    root.innerHTML = skeletonHtml();
+    wrapper.innerHTML = skeletonHtml();
     (loadingPromise || fetchProducts())
       .then(function () {
         if (staleView_(seq)) return;
@@ -160,7 +173,7 @@
       })
       .catch(function (err) {
         if (staleView_(seq)) return;
-        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+        wrapper.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
   }
@@ -308,7 +321,7 @@
   /* ---------------- list rendering ---------------- */
 
   function paintList() {
-    root.innerHTML = listHtml();
+    wrapper.innerHTML = listHtml();
   }
 
   function updatedLabel() {
@@ -510,7 +523,7 @@
       return;
     }
 
-    root.innerHTML = detailSkeletonHtml();
+    wrapper.innerHTML = detailSkeletonHtml();
     T.call('apiGetProduct', productId)
       .then(function (data) {
         if (staleView_(seq)) return;
@@ -536,7 +549,7 @@
     var isNew = !p.productId;
     var busy = isBusy();
 
-    root.innerHTML = '' +
+    wrapper.innerHTML = '' +
       '<div class="view-head">' +
         '<h2>' + (isNew ? 'Thêm sản phẩm' : 'Mã ' + T.esc(p.code)) + '</h2>' +
         '<button type="button" class="link-btn" data-act="back"' +

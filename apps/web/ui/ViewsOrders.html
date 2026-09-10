@@ -27,6 +27,7 @@
    */
   var T = null;
   var root = null;
+  var wrapper = null;  // Fresh container per render — replaces the old state.bound approach
   var state = {
     orders: [], ordersMeta: null, ordersLoadedAt: 0, refreshing: false,
     // Milestone 4 / 4.5.2 — set while a large export job is being polled;
@@ -86,7 +87,7 @@ exporting: false,
     // for the panel of dropdowns; never read by fetchOrders()/listPayload().
     filterPanelOpen: false,
     order: null, lines: [],
-    editing: false, hiddenMoney: false, bound: false,
+    editing: false, hiddenMoney: false,
     // Milestone 2.5c follow-up — one order-detail mutation in flight at a
     // time: null | 'saving' | 'deleting' | 'reloading'. Everything that can
     // change this order (save, delete, force-reload) checks isBusy() first,
@@ -497,17 +498,29 @@ exporting: false,
     T = window.TT;
     root = container;
     myGeneration = T.viewGeneration();
-    // Still bumped on every (re-)entry too — keeps rejecting a stale
-    // callback from an EARLIER visit to this same tab, same as before;
-    // staleView_() combines this with the cross-tab check above.
     viewSeq++;
-    if (!state.bound) {
+    // Issue 1 fix: each render() creates a fresh wrapper div and attaches
+    // listeners to it, replacing the old state.bound approach. When App.html's
+    // show() calls root.innerHTML = '' on the next view switch, the wrapper
+    // and its listeners are naturally garbage-collected, so stale handlers
+    // from previous visits never fire on the current view's content.
+    // In test environments where document doesn't exist, fall back to root.
+    root.innerHTML = '';
+    if (typeof document !== 'undefined') {
+      wrapper = document.createElement('div');
+      wrapper.addEventListener('click', onClick);
+      wrapper.addEventListener('input', onInput);
+      wrapper.addEventListener('blur', onBlur, true);
+      wrapper.addEventListener('keydown', onKeydown);
+      wrapper.addEventListener('change', onChange);
+      root.appendChild(wrapper);
+    } else {
+      wrapper = root;
       root.addEventListener('click', onClick);
       root.addEventListener('input', onInput);
       root.addEventListener('blur', onBlur, true);
       root.addEventListener('keydown', onKeydown);
       root.addEventListener('change', onChange);
-      state.bound = true;
     }
     showList();
   }
@@ -527,7 +540,7 @@ exporting: false,
     // L3: never stack a prefetch on top of an in-flight list fetch, a warm
     // cache, or a user who already opened the tab (render sets bound).
     if (state.orders.length || loadingPromise || state.refreshing) return;
-    if (state.bound && root && state.order === null && root.innerHTML) return;
+    if (wrapper && root && state.order === null && wrapper.innerHTML) return;
     fetchOrders().catch(function () {});
   }
 
@@ -563,7 +576,7 @@ exporting: false,
       return;
     }
 
-    root.innerHTML = skeletonHtml();
+    wrapper.innerHTML = skeletonHtml();
     (loadingPromise || fetchOrders())
       .then(function () {
         if (staleView_(seq)) return;
@@ -571,7 +584,7 @@ exporting: false,
       })
       .catch(function (err) {
         if (staleView_(seq)) return;
-        root.innerHTML = '<section class="card"><p class="empty err-text">' +
+        wrapper.innerHTML = '<section class="card"><p class="empty err-text">' +
           T.esc(err.message) + '</p></section>';
       });
   }
@@ -1217,7 +1230,7 @@ exporting: false,
   }
 
   function paintList() {
-    root.innerHTML = listHtml();
+    wrapper.innerHTML = listHtml();
   }
 
   /**
@@ -1750,7 +1763,7 @@ exporting: false,
       return;
     }
 
-    root.innerHTML = detailSkeletonHtml();
+    wrapper.innerHTML = detailSkeletonHtml();
     fetchOrder(orderId)
       .then(function (data) {
         if (staleView_(seq)) return; // user went back or opened another order
@@ -1865,7 +1878,7 @@ exporting: false,
                                        APPROVE_BUSY_LABELS.indexOf(state.busyAction) >= 0)
         : 'Mã đơn ' + T.esc(o.orderId);
 
-    root.innerHTML = '' +
+    wrapper.innerHTML = '' +
       '<div class="view-head">' +
         '<h2>' + titleHtml + '</h2>' +
         '<button type="button" class="link-btn" data-act="back"' +

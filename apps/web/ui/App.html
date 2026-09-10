@@ -148,8 +148,12 @@
   }
 
   function show(viewId) {
+    // Issue 2 fix: only bump viewGeneration when actually switching views.
+    // A round-trip return to the same tab shouldn't invalidate its in-flight requests.
+    if (activeView !== viewId) {
+      viewGeneration++;
+    }
     activeView = viewId;
-    viewGeneration++;
     renderNav();
 
     var main = el('main');
