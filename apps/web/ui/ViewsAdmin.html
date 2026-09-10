@@ -65,6 +65,80 @@
    *  worth more than the tiny savings of skipping it here. */
   var LIST_CACHE_TTL_MS = 60000;
 
+  /**
+   * Grouped permission matrix structure: group label + key/label pairs.
+   * Single source of truth for collect() and permissionMatrixHtml().
+   * Keep group order (largest first) and keys in logical order per group.
+   */
+  var PERMISSION_GROUPS = [
+    {
+      label: 'Quản lý đơn hàng',
+      keys: [
+        ['view_orders', 'Xem đơn hàng của tôi'],
+        ['view_all_orders', 'Xem tất cả đơn hàng'],
+        ['create_order', 'Tạo đơn hàng'],
+        ['edit_order', 'Sửa đơn hàng'],
+        ['delete_order', 'Xoá đơn hàng'],
+        ['change_status', 'Đổi trạng thái']
+      ]
+    },
+    {
+      label: 'Duyệt đơn & Xuất dữ liệu',
+      keys: [
+        ['approve_order', 'Duyệt đơn hàng'],
+        ['can_edit_approved_order', 'Sửa đơn đã duyệt'],
+        ['search_filter', 'Tìm kiếm & Lọc'],
+        ['export', 'Xuất dữ liệu']
+      ]
+    },
+    {
+      label: 'Thống kê',
+      keys: [
+        ['view_statistics', 'Xem thống kê'],
+        ['export_statistics', 'Xuất thống kê']
+      ]
+    },
+    {
+      label: 'Kho hàng',
+      keys: [
+        ['manage_inventory', 'Quản lý kho hàng']
+      ]
+    },
+    {
+      label: 'Quản trị',
+      keys: [
+        ['manage_users', 'Quản lý người dùng']
+      ]
+    }
+  ];
+
+  /**
+   * Flatten PERMISSION_GROUPS into a single array of permission keys.
+   * Memoised — called from collect() every save, so compute once.
+   */
+  var _permissionKeysCache = null;
+  function permissionKeys_() {
+    if (_permissionKeysCache) return _permissionKeysCache;
+    var keys = [];
+    PERMISSION_GROUPS.forEach(function (group) {
+      group.keys.forEach(function (pair) {
+        keys.push(pair[0]);
+      });
+    });
+    _permissionKeysCache = keys;
+    return keys;
+  }
+
+  /**
+   * Return the effective permissions object for rendering checkboxes:
+   * permissionsToSave (in-flight edit) if set, otherwise server-side
+   * permissions, or empty if both absent. Prevents painted checkboxes from
+   * reverting when doSave() repaints mid-flight.
+   */
+  function effectivePermissions_(u) {
+    return u.permissionsToSave || u.permissions || {};
+  }
+
   var loadingPromise = null;
   var viewSeq = 0;
   var myGeneration = 0;
@@ -383,6 +457,23 @@
            control + '</label>';
   }
 
+  function headMetaHtml(u, isNew) {
+    if (isNew) return '';
+    var meta = '<span>' + T.esc(u.email) + '</span>';
+    if (u.createdAt) {
+      meta += '<span>· Tạo lúc ' + T.esc(T.formatDate(u.createdAt)) + '</span>';
+    }
+    return '<div class="user-head-meta">' + meta + '</div>';
+  }
+
+  function statusSelectHtml(u, locked) {
+    var d = locked ? ' disabled' : '';
+    return '<select id="f-active"' + d + '>' +
+      '<option value="active"' + (u.active ? ' selected' : '') + '>Đang hoạt động</option>' +
+      '<option value="inactive"' + (!u.active ? ' selected' : '') + '>Đã khoá</option>' +
+      '</select>';
+  }
+
   function blankUser() {
     return { email: '', displayName: '', note: '', active: true, presetKey: '',
              isSelf: false, isLastAdmin: false, showPermissionMatrix: false };
@@ -440,6 +531,7 @@
     wrapper.innerHTML = '' +
       '<div class="view-head">' +
         '<h2>' + (isNew ? 'Thêm người dùng' : T.esc(u.displayName)) + '</h2>' +
+        headMetaHtml(u, isNew) +
         '<button type="button" class="link-btn" data-act="back"' +
           (busy ? ' disabled' : '') + '>← Danh sách</button>' +
       '</div>' +
@@ -481,31 +573,34 @@
     // own (non-last-admin) account per PERMISSIONS.md §4.6 — only manage_users
     // removal is unconditionally self-blocked, not deactivation itself.
 
+    // Detect if custom permissions mode is active (matrix checkbox is on).
+    // When customOn, preset select is disabled and a note explains why.
+    var customOn = !!u.showPermissionMatrix && !lockPermissions;
+
     return '' +
       '<section class="card">' +
-        '<h3>Thông tin người dùng</h3>' +
-        '<div class="form-grid">' +
-          (isNew
-            ? field('Email *', '<input id="f-email" type="email" value="' + T.esc(u.email) + '"' + d + '>')
-            : field('Email', '<input value="' + T.esc(u.email) + '" disabled>')) +
-          field('Tên hiển thị *',
-            '<input id="f-displayName" value="' + T.esc(u.displayName) + '"' + d + '>') +
-          field(isNew ? 'Nhóm quyền *' : 'Nhóm quyền',
-            presetSelectHtml(u, isNew, lockPermissions)) +
+        '<div class="form-linear">' +
+          '<div class="form-section">' +
+            '<span class="form-section-label">Thông tin người dùng</span>' +
+            (isNew
+              ? field('Email *', '<input id="f-email" type="email" value="' + T.esc(u.email) + '"' + d + '>')
+              : field('Email', '<input value="' + T.esc(u.email) + '" disabled>')) +
+            field('Tên hiển thị *',
+              '<input id="f-displayName" value="' + T.esc(u.displayName) + '"' + d + '>') +
+            field(isNew ? 'Nhóm quyền *' : 'Nhóm quyền',
+              presetSelectHtml(u, isNew, lockPermissions, customOn)) +
+            field('Trạng thái', statusSelectHtml(u, lockActive)) +
+          '</div>' +
           permissionMatrixHtml(u, lockPermissions) +
-          '<label class="field field-check">' +
-            '<input type="checkbox" id="f-active"' + (u.active ? ' checked' : '') +
-              (lockActive ? ' disabled' : '') + '> Đang hoạt động' +
-          '</label>' +
-          '<label class="field field-wide">' +
-            '<span class="field-label">Ghi chú</span>' +
-            '<textarea id="f-note" rows="2"' + d + '>' + T.esc(u.note) + '</textarea>' +
-          '</label>' +
+          '<div class="form-section">' +
+            '<span class="form-section-label">Ghi chú</span>' +
+            '<textarea id="f-note"' + d + '>' + T.esc(u.note) + '</textarea>' +
+          '</div>' +
         '</div>' +
       '</section>';
   }
 
-  function presetSelectHtml(u, isNew, locked) {
+  function presetSelectHtml(u, isNew, locked, customOn) {
     if (state.presets === null) {
       return '<select disabled><option>Đang tải nhóm quyền…</option></select>';
     }
@@ -513,88 +608,92 @@
       return '<option value="' + T.esc(p.key) + '">' + T.esc(p.label) + '</option>';
     }).join('');
 
+    var html = '';
     if (isNew) {
-      return '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
+      html = '<select id="f-preset"' + (locked || customOn ? ' disabled' : '') + '>' +
         '<option value="" disabled selected>— Chọn nhóm quyền —</option>' + options +
         '</select>';
+    } else {
+      // Editing: default to "keep current permissions" — a plain save of
+      // displayName/active/note must never silently re-apply (or worse,
+      // change) permissions just because the dropdown had some option
+      // selected. The current profile is shown as plain text alongside it,
+      // since presetKey is null (informational "Tuỳ chỉnh") whenever the
+      // sheet holds permissions that were hand-edited or don't otherwise
+      // match any preset exactly.
+      html = '' +
+        '<select id="f-preset"' + (locked || customOn ? ' disabled' : '') + '>' +
+          '<option value="">— Giữ nguyên (' + T.esc(presetLabel(u.presetKey)) + ') —</option>' +
+          options +
+        '</select>';
     }
-    // Editing: default to "keep current permissions" — a plain save of
-    // displayName/active/note must never silently re-apply (or worse,
-    // change) permissions just because the dropdown had some option
-    // selected. The current profile is shown as plain text alongside it,
-    // since presetKey is null (informational "Tuỳ chỉnh") whenever the
-    // sheet holds permissions that were hand-edited or don't otherwise
-    // match any preset exactly.
-    return '' +
-      '<select id="f-preset"' + (locked ? ' disabled' : '') + '>' +
-        '<option value="">— Giữ nguyên (' + T.esc(presetLabel(u.presetKey)) + ') —</option>' +
-        options +
-      '</select>';
+
+    // When custom permissions mode is on, add a note explaining the preset is disabled
+    if (customOn) {
+      html += '<p class="perm-note">Đang dùng quyền tuỳ chỉnh — nhóm quyền không áp dụng.</p>';
+    }
+
+    return html;
   }
 
   /**
-   * Permission matrix UI for M5.3 — shows 14 checkboxes allowing an admin
-   * to grant/deny individual permission keys without preset constraints.
-   * Uses state.permissionDescriptions (fetched on demand) for labels.
+   * Permission matrix UI for M5.3 — shows 14 checkboxes organized into 5
+   * labelled groups, allowing an admin to grant/deny individual permission
+   * keys without preset constraints. Collapsed to a single toggle by default.
    */
   function permissionMatrixHtml(u, locked) {
     if (!u.permissions) return '';
-    // Matrix only shown when not locked (self/last-admin) per PERMISSIONS.md
+    // Matrix only shown when not locked (self/last-admin) per PERMISSIONS.md §4
     if (locked) return '';
 
-    var perms = u.permissions;
     var showMatrix = !!u.showPermissionMatrix; // toggled by checkbox
+    var perms = effectivePermissions_(u);
 
     if (!showMatrix) {
       return '' +
-        '<label class="field field-check" style="margin-top: 1rem;">' +
+        '<label class="field field-check">' +
           '<input type="checkbox" id="f-show-matrix"> ' +
           '<strong>Tuỳ chỉnh: Chỉnh sửa từng quyền riêng lẻ</strong>' +
         '</label>';
     }
 
-    // Matrix is shown — render all 14 permission checkboxes in a grid
+    // Matrix is shown — render grouped checkboxes with PERMISSION_GROUPS structure
     var matrix = '' +
-      '<div style="margin-top: 1rem; padding: 1rem; background: #f5f5f5; border-radius: 4px;">' +
+      '<div class="form-section">' +
+        '<span class="form-section-label">Tuỳ chỉnh quyền</span>' +
         '<label class="field field-check">' +
           '<input type="checkbox" id="f-show-matrix" checked> ' +
-          '<strong>Tuỳ chỉnh: Chỉnh sửa từng quyền riêng lẻ</strong>' +
+          '<strong>Chỉnh sửa từng quyền riêng lẻ</strong>' +
         '</label>' +
-        '<div class="perm-matrix" style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">';
+        '<div class="perm-groups">';
 
-    // Permission key → Vietnamese label mapping
-    var labels = {
-      'view_orders': 'Xem đơn hàng của tôi',
-      'view_all_orders': 'Xem tất cả đơn hàng',
-      'create_order': 'Tạo đơn hàng',
-      'edit_order': 'Sửa đơn hàng',
-      'delete_order': 'Xoá đơn hàng',
-      'change_status': 'Đổi trạng thái',
-      'approve_order': 'Duyệt đơn hàng',
-      'can_edit_approved_order': 'Sửa đơn đã duyệt',
-      'search_filter': 'Tìm kiếm & Lọc',
-      'export': 'Xuất dữ liệu',
-      'view_statistics': 'Xem thống kê',
-      'export_statistics': 'Xuất thống kê',
-      'manage_inventory': 'Quản lý kho hàng',
-      'manage_users': 'Quản lý người dùng'
-    };
-
-    var keys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
-                'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
-                'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'];
-
-    keys.forEach(function (key) {
-      var checked = !!perms[key];
-      var checkboxId = 'f-perm-' + key;
+    // Render each group with its keys
+    PERMISSION_GROUPS.forEach(function (group) {
       matrix += '' +
-        '<label class="field field-check">' +
-          '<input type="checkbox" id="' + checkboxId + '"' + (checked ? ' checked' : '') + '> ' +
-          T.esc(labels[key] || key) +
-        '</label>';
+        '<div class="perm-group">' +
+          '<h4 class="perm-group-title">' + T.esc(group.label) + '</h4>' +
+          '<div class="perm-group-items">';
+
+      group.keys.forEach(function (pair) {
+        var key = pair[0];
+        var label = pair[1];
+        var checked = !!perms[key];
+        var checkboxId = 'f-perm-' + key;
+        matrix += '' +
+          '<label class="field field-check">' +
+            '<input type="checkbox" id="' + checkboxId + '"' + (checked ? ' checked' : '') + '> ' +
+            T.esc(label) +
+          '</label>';
+      });
+
+      matrix += '' +
+        '</div>' +
+        '</div>';
     });
 
-    matrix += '</div></div>';
+    matrix += '' +
+      '</div>' +
+      '</div>';
     return matrix;
   }
 
@@ -623,18 +722,18 @@
     u.note = get('#f-note');
     u.presetKeyToSave = get('#f-preset'); // '' means "keep current" on edit
     var activeEl = root.querySelector('#f-active');
-    u.active = activeEl ? !!activeEl.checked : true;
+    // Missing node must NOT mean "deactivate": keep whatever the record already says
+    // (new users default active:true via blankUser()).
+    u.active = activeEl ? (activeEl.value !== 'inactive') : (u.active !== false);
 
     // Read matrix checkboxes if the matrix is shown
     var showMatrixEl = root.querySelector('#f-show-matrix');
     u.showPermissionMatrix = showMatrixEl ? !!showMatrixEl.checked : false;
 
     if (u.showPermissionMatrix) {
-      // Build permissions object from checked matrix
+      // Build permissions object from checked matrix, using canonical key list
       var perms = {};
-      var keys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
-                  'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
-                  'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'];
+      var keys = permissionKeys_();
       keys.forEach(function (key) {
         var el = root.querySelector('#f-perm-' + key);
         perms[key] = el ? !!el.checked : false;
@@ -1067,8 +1166,11 @@
       paintList();
     }
     // Handle matrix toggle: when user clicks the "Tuỳ chỉnh" checkbox,
-    // repaint the form to show/hide the matrix grid
+    // preserve any typed form fields (displayName, note, preset, status) by
+    // collect()ing BEFORE the repaint. paintForm() re-renders from state.user,
+    // so skipping collect() loses everything typed since the last save.
     if (e.target && e.target.id === 'f-show-matrix') {
+      collect();
       state.user.showPermissionMatrix = !!e.target.checked;
       paintForm();
     }

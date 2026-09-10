@@ -162,8 +162,9 @@ setTimeout(() => {
     ok('has an editable email field', /id="f-email"/.test(form) && !/id="f-email"[^>]*disabled/.test(form));
     ok('preset dropdown forces an explicit choice (no default selected option value)',
        /<option value="" disabled selected>/.test(form));
-    ok('active defaults to checked on a brand-new user', /id="f-active" checked/.test(form));
+    ok('active defaults to "Đang hoạt động" selected on a brand-new user', /id="f-active"[\s\S]*?<option value="active" selected>/.test(form));
     ok('no inline onclick attributes', !/onclick=/i.test(form));
+    ok('form uses linear layout, not grid', /class="form-linear"/.test(form) && !/class="form-grid"/.test(form));
 
     console.log('\nUI smoke — regression: saving a brand-new user with a typed email');
     // 2026-09-06 bug: collect() copies the typed #f-email value into
@@ -175,7 +176,7 @@ setTimeout(() => {
     fieldValues['#f-displayName'] = 'Người mới';
     fieldValues['#f-note'] = '';
     fieldValues['#f-preset'] = 'sales';
-    fieldValues['#f-active'] = true;
+    fieldValues['#f-active'] = 'active';
     const createCallsBefore = callCounts.apiCreateUser || 0;
     const updateCallsBefore = callCounts.apiUpdateUser || 0;
     clickDataAct('save');
@@ -200,12 +201,14 @@ setTimeout(() => {
          /value="admin@x.com" disabled/.test(detail));
       ok('preset dropdown defaults to "keep current", not a specific preset',
          /<option value="">— Giữ nguyên/.test(detail));
+      ok('existing user header contains email in .user-head-meta', /class="user-head-meta"[\s\S]*?admin@x\.com/.test(detail));
 
       console.log('\nUI smoke — self + last-admin guard banner and locked controls');
       ok('shows the combined self+last-admin banner', /ro-note/.test(detail) &&
          /quản trị viên đang.*hoạt động cuối cùng/.test(detail));
       ok('preset dropdown is disabled for self/last-admin', /id="f-preset" disabled/.test(detail));
-      ok('active checkbox is disabled (last-admin lock)', /id="f-active" checked disabled/.test(detail));
+      ok('active select is disabled (last-admin lock)', /id="f-active"[^>]* disabled/.test(detail));
+      ok('locked user (self/last-admin) has NO permission matrix', !/id="f-show-matrix"/.test(detail));
 
       console.log('\nUI smoke — a non-self, non-last-admin user has no locks');
       const before2 = callCounts.apiGetUser || 0;
@@ -221,11 +224,70 @@ setTimeout(() => {
         const otherDetail = painted;
         ok('no self/last-admin banner for an ordinary user', !/ro-note/.test(otherDetail));
         ok('preset dropdown is enabled', !/id="f-preset" disabled/.test(otherDetail));
-        ok('active checkbox is enabled', !/id="f-active"[^>]*checked disabled/.test(otherDetail) &&
+        ok('active select is enabled', !/id="f-active"[^>]*disabled/.test(otherDetail) &&
            /id="f-active"[^>]*>/.test(otherDetail));
 
-        console.log('\n' + pass + ' passed, ' + fail + ' failed');
-        process.exit(fail ? 1 : 0);
+        console.log('\nUI smoke — missing status node fails safe');
+        // Simulate the null-node case: #f-active is absent from fieldValues (stub's default)
+        // Verify that collecting still produces active: true for this active user
+        delete fieldValues['#f-active'];
+        const beforeSave = callCounts.apiUpdateUser || 0;
+        clickDataAct('save');
+        ok('missing status node produces active: true (not undefined)', lastCall.fn === 'apiUpdateUser' &&
+           lastCall.arg && lastCall.arg.active === true);
+
+        console.log('\nUI smoke — permission matrix with all 14 keys');
+        // Open the ordinary user again, enable the matrix, populate all 14 permission checkboxes
+        sandbox.window.TTAdmin.render(root);
+        setTimeout(() => {
+          clickOpen('other@x.com');
+          setTimeout(() => {
+            // IMPORTANT: Populate form field values BEFORE toggling the matrix,
+            // so that collect() can read them when the toggle fires.
+            fieldValues['#f-displayName'] = 'Người khác';
+            fieldValues['#f-note'] = '';
+            fieldValues['#f-show-matrix'] = true;  // Must be in fieldValues for stub's querySelector
+
+            // Populate the permission checkbox field values (all 14 keys)
+            var permKeys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
+                            'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
+                            'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users'];
+            permKeys.forEach(function (key) {
+              fieldValues['#f-perm-' + key] = true;  // All checked
+            });
+
+            // Toggle the matrix open
+            captured.change({ target: { id: 'f-show-matrix', checked: true } });
+            const matrixForm = painted;
+
+            // Verify grouped matrix renders 5 group titles
+            ok('grouped matrix renders 5 perm-group-title labels', (matrixForm.match(/class="perm-group-title"/g) || []).length === 5);
+            ok('matrix markup stays balanced', balanced(matrixForm) === null, balanced(matrixForm));
+
+            // Verify toggle preserved the typed input (displayName should still be there)
+            ok('toggle preserves form state (displayName preserved)', matrixForm.indexOf('Người khác') >= 0);
+
+            // Now save with all 14 permissions checked to verify they all reach the payload
+            clickDataAct('save');
+            const permPayload = lastCall.arg.permissions || {};
+            const expectedKeys = ['view_orders', 'view_all_orders', 'create_order', 'edit_order', 'delete_order',
+                                  'change_status', 'approve_order', 'can_edit_approved_order', 'search_filter', 'export',
+                                  'view_statistics', 'export_statistics', 'manage_inventory', 'manage_users', 'visible_fields'];
+            ok('all 14 permission keys + visible_fields reach the payload (15 total)',
+               Object.keys(permPayload).length === 15 &&
+               expectedKeys.every(function (k) { return k in permPayload; }));
+
+            // Clean up the permission checkbox field values
+            permKeys.forEach(function (key) {
+              delete fieldValues['#f-perm-' + key];
+            });
+            delete fieldValues['#f-displayName'];
+            delete fieldValues['#f-note'];
+
+            console.log('\n' + pass + ' passed, ' + fail + ' failed');
+            process.exit(fail ? 1 : 0);
+          }, 0);
+        }, 0);
       }, 0);
     }, 0);
   }, 0);

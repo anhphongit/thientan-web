@@ -1202,4 +1202,57 @@
     border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
     background: #e7f0ff; color: #29538a; border: 1px solid #c6dbfb;
   }
+
+  /* Milestone 5 / 5.3 — user detail linear form + grouped permission matrix (2026-09-10).
+     Separate from .form-grid (which is 1→2→3 cols at responsive breakpoints) because
+     the user detail screen reads as a short linear sequence, not a scattered
+     multi-column form. A 4-field row at ≥960px (inherited from .form-grid's 3-col
+     rule) would break readability here. These classes are new; zero changes to
+     existing selectors → zero impact on Orders/Inventory/Stats screens. */
+
+  .form-linear {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .form-section {
+    display: flex; flex-direction: column; gap: 12px;
+    padding-top: 14px;
+  }
+  .form-section:first-child { padding-top: 0; }
+
+  .form-section-label {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0;
+  }
+
+  .user-head-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--c-muted);
+  }
+
+  .perm-groups {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .perm-group {
+    border: 1px solid var(--c-border); border-radius: 10px;
+    padding: 10px 12px; background: var(--c-bg);
+  }
+
+  .perm-group-title {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px;
+  }
+
+  .perm-group-items {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .perm-note {
+    font-size: 12.5px; color: var(--c-muted); margin: 8px 0 0;
+  }
+
+  @media (min-width: 640px) {
+    .perm-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 </style>
