@@ -1,0 +1,6 @@
+{
+  "name": "claudekit-engineer",
+  "description": "AI engineering framework with 70+ skills and 14 agents",
+  "version": "2.14.0",
+  "contextFileName": "GEMINI.md"
+}
