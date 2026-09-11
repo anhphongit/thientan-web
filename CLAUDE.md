@@ -2,6 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 🚨 CRITICAL RULE — READ FIRST 🚨
+
+### **NO AUTO-COMMIT** (MANDATORY - NO EXCEPTIONS)
+
+**NEVER commit code without explicit user approval.** This applies to ALL commits, regardless of:
+- Task simplicity
+- Whether it's "just fixing tests"
+- Whether "the user said ship it"
+- Whether the user is waiting for results
+
+**Required workflow:**
+1. Make code changes
+2. Show user what changed (via `git diff` or summary)
+3. Ask: "Ready to commit?" or "Approve these changes?"
+4. Wait for user YES before running `git commit`
+5. Show the commit hash after it's done
+
+**Violation consequences:** Lost work, overwritten changes, unintended deployments, broken trust.
+
+**If you already committed without asking:** Apologize and explain what was committed. Do not do it again.
+
+---
+
 ## Role & Responsibilities
 
 Your role is to analyze user requirements, delegate tasks to appropriate sub-agents, and ensure cohesive delivery of features that meet specifications and architectural standards.
