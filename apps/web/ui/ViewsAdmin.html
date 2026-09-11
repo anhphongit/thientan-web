@@ -1089,11 +1089,13 @@
     var listHtml = items.length > 0
       ? '<div class="config-list">' +
           items.map(function (item, i) {
+            var isNew = item && item.__new;
+            var isDisabled = !isNew ? ' disabled' : '';
             return '<div class="config-row">' +
               '<div class="config-row-fields">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-key" ' +
                   'class="config-status-key" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
-                  'value="' + T.esc((item && item.key) || '') + '" disabled ' +
+                  'value="' + T.esc((item && item.key) || '') + '"' + isDisabled + ' ' +
                   'placeholder="Mã" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-label" ' +
                   'class="config-status-label" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
@@ -1110,7 +1112,7 @@
 
     return '' + listHtml +
       '<button type="button" class="btn-mini" data-act="add-status" data-key="' +
-        T.esc(key) + '">+ Thêm</button>';
+        T.esc(key) + '" style="margin-top: 12px;">+ Thêm</button>';
   }
 
   function configArrayEditorHtml(key, items, isNumeric) {
