@@ -32,6 +32,7 @@
   var T = null;
   var root = null;
   var wrapper = null;  // Fresh container per render — replaces the old state.bound approach
+  var keyGenDebounceTimers = {};  // Track debounce timers for each label field
 
   var state = {
     // Milestone 5 / 5.4 — tab switcher for users vs. config
@@ -1032,13 +1033,15 @@
   }
 
   function configTabHtml() {
+    var isSaving = state.busyAction === 'saving-config';
     return '' +
       '<div class="view-head">' +
         '<h2>Cài đặt hệ thống</h2>' +
-        '<button type="button" class="btn btn-secondary" data-act="back-to-users">← Quay lại</button>' +
+        '<button type="button" class="btn btn-secondary" data-act="back-to-users"' +
+          (isSaving ? ' disabled' : '') + '>← Quay lại</button>' +
       '</div>' +
       '<div style="max-width: 700px; margin: 0 auto; padding: 0 16px;">' +
-        state.config.map(configSectionHtml).join('') +
+        state.config.map(function (item) { return configSectionHtml(item, isSaving); }).join('') +
       '</div>' +
       configSaveBarHtml();
   }
@@ -1055,7 +1058,7 @@
       '</div>';
   }
 
-  function configSectionHtml(item) {
+  function configSectionHtml(item, busy) {
     var key = item.key;
     var value = state.configEdits[key] !== undefined ? state.configEdits[key] : item.value;
     var label = CONFIG_LABELS[key] || key;
@@ -1069,29 +1072,35 @@
           '<span style="font-size: 12px; color: var(--c-muted); background: var(--c-bg); padding: 2px 8px; border-radius: 12px; white-space: nowrap;">' + itemCount + '</span>' +
         '</div>' +
         (item.description ? '<p class="config-desc">' + T.esc(item.description) + '</p>' : '') +
-        configEditorHtml(key, value, editorType) +
+        configEditorHtml(key, value, editorType, busy) +
       '</section>';
   }
 
-  function configEditorHtml(key, value, editorType) {
+  function configEditorHtml(key, value, editorType, busy) {
     if (editorType === 'statusList') {
-      return configStatusListEditorHtml(key, value || []);
+      return configStatusListEditorHtml(key, value || [], busy);
     } else if (editorType === 'strings') {
-      return configArrayEditorHtml(key, value || [], false);
+      return configArrayEditorHtml(key, value || [], false, busy);
     } else if (editorType === 'numbers') {
-      return configArrayEditorHtml(key, value || [], true);
+      return configArrayEditorHtml(key, value || [], true, busy);
     } else {
-      return configScalarEditorHtml(key, value || '');
+      return configScalarEditorHtml(key, value || '', busy);
     }
   }
 
-  function configStatusListEditorHtml(key, items) {
+  function configStatusListEditorHtml(key, items, busy) {
+    var busyAttr = busy ? ' disabled' : '';
     var listHtml = items.length > 0
       ? '<div class="config-list">' +
           items.map(function (item, i) {
             var isNew = item && item.__new;
-            var isDisabled = !isNew ? ' disabled' : '';
-            var isReadOnly = isNew ? ' readonly' : '';
+            var isDisabled = !isNew ? ' disabled' : busyAttr;
+            var isReadOnly = isNew && !busy ? ' readonly' : '';
+            var deleteBtn = isNew
+              ? '<button type="button" class="btn-icon" data-act="delete-config-item" ' +
+                  'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá"' + busyAttr + ' ' +
+                  'style="padding: 4px 8px; border: 1px solid #dc2626; border-radius: 4px; background: transparent; color: #dc2626; cursor: pointer; font-size: 12px; flex-shrink: 0;">&times;</button>'
+              : '';
             return '<div class="config-row">' +
               '<div class="config-row-fields">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-key" ' +
@@ -1100,12 +1109,9 @@
                   'placeholder="Mã" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-label" ' +
                   'class="config-status-label" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
-                  'value="' + T.esc((item && item.label) || '') + '" ' +
+                  'value="' + T.esc((item && item.label) || '') + '"' + busyAttr + ' ' +
                   'placeholder="Tên" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
-              '</div>' +
-              '<button type="button" class="btn-icon" data-act="delete-config-item" ' +
-                'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá" ' +
-                'style="padding: 4px 8px; border: 1px solid #dc2626; border-radius: 4px; background: transparent; color: #dc2626; cursor: pointer; font-size: 12px; flex-shrink: 0;">&times;</button>' +
+              '</div>' + deleteBtn +
             '</div>';
           }).join('') +
         '</div>'
@@ -1113,10 +1119,11 @@
 
     return '' + listHtml +
       '<button type="button" class="btn-mini" data-act="add-status" data-key="' +
-        T.esc(key) + '" style="margin-top: 12px;">+ Thêm</button>';
+        T.esc(key) + '"' + busyAttr + ' style="margin-top: 12px;">+ Thêm</button>';
   }
 
-  function configArrayEditorHtml(key, items, isNumeric) {
+  function configArrayEditorHtml(key, items, isNumeric, busy) {
+    var busyAttr = busy ? ' disabled' : '';
     var listHtml = items.length > 0
       ? '<div class="config-list">' +
           items.map(function (item, i) {
@@ -1126,11 +1133,11 @@
               '<div class="config-row-fields config-row-fields--single">' +
                 '<input type="' + inputType + '" ' +
                   'class="config-array-item" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
-                  'value="' + T.esc(item || '') + '"' + inputAttrs + ' ' +
+                  'value="' + T.esc(item || '') + '"' + inputAttrs + busyAttr + ' ' +
                   'style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px; width: 100%;">' +
               '</div>' +
               '<button type="button" class="btn-icon" data-act="delete-config-item" ' +
-                'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá" ' +
+                'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá"' + busyAttr + ' ' +
                 'style="padding: 4px 8px; border: 1px solid #dc2626; border-radius: 4px; background: transparent; color: #dc2626; cursor: pointer; font-size: 12px; flex-shrink: 0;">&times;</button>' +
             '</div>';
           }).join('') +
@@ -1139,16 +1146,17 @@
 
     return '' + listHtml +
       '<button type="button" class="btn-mini" data-act="add-array-item" data-key="' +
-        T.esc(key) + '" style="margin-top: 12px;">+ Thêm</button>';
+        T.esc(key) + '"' + busyAttr + ' style="margin-top: 12px;">+ Thêm</button>';
   }
 
-  function configScalarEditorHtml(key, value) {
+  function configScalarEditorHtml(key, value, busy) {
     var maxlen = key === 'currency' ? ' maxlength="10"' : '';
+    var busyAttr = busy ? ' disabled' : '';
     return '<div class="field">' +
       '<label class="field-label" for="f-cfg-' + T.esc(key) + '">Giá trị</label>' +
       '<input type="text" id="f-cfg-' + T.esc(key) + '" ' +
         'class="field config-input" data-key="' + T.esc(key) + '" ' +
-        'value="' + T.esc(value || '') + '"' + maxlen + '>' +
+        'value="' + T.esc(value || '') + '"' + maxlen + busyAttr + '>' +
     '</div>';
   }
 
@@ -1170,6 +1178,13 @@
     return label
       .toLowerCase()
       .trim()
+      /* Replace Vietnamese characters with ASCII equivalents */
+      .replace(/đ/g, 'd')
+      .replace(/ă/g, 'a').replace(/â/g, 'a').replace(/ê/g, 'e').replace(/ô/g, 'o')
+      .replace(/ơ/g, 'o').replace(/ư/g, 'u').replace(/ư/g, 'u').replace(/ơ/g, 'o')
+      /* Remove remaining diacritics: ̀ ́ ̉ ̃ ̣ -> removed */
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
       .replace(/\s+/g, '_')
       .replace(/[^a-z0-9_]/g, '')
       .substring(0, 50);
@@ -1183,7 +1198,9 @@
   function configDeepCopy_(value) {
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
       return value.map(function (item) {
-        return { key: item.key || '', label: item.label || '' };
+        var copy = { key: item.key || '', label: item.label || '' };
+        if (item.__new) copy.__new = true;  // Preserve __new flag for new rows
+        return copy;
       });
     }
     return Array.isArray(value) ? value.slice() : value;
@@ -1196,6 +1213,29 @@
     var item = configItem_(key);
     if (!item) return [];
     return configDeepCopy_(item.value || []);
+  }
+
+  function ensureUniqueStatusKeys(statusList, existingKeys) {
+    /* Make keys unique by adding suffix (_2, _3, etc.) if duplicate found */
+    var usedKeys = {};
+    existingKeys.forEach(function (k) { usedKeys[k] = true; });
+
+    return statusList.map(function (row) {
+      if (!row.key || !usedKeys[row.key]) {
+        /* Key is empty or unique — keep as is */
+        usedKeys[row.key] = true;
+        return row;
+      }
+      /* Duplicate key found — make unique by adding suffix */
+      var originalKey = row.key;
+      var suffix = 2;
+      while (usedKeys[originalKey + '_' + suffix]) {
+        suffix++;
+      }
+      var uniqueKey = originalKey + '_' + suffix;
+      usedKeys[uniqueKey] = true;
+      return { key: uniqueKey, label: row.label || '' };
+    });
   }
 
   function markEdit_(key, value) {
@@ -1225,10 +1265,23 @@
       var newValue = state.configEdits[key];
       /* Strip __new flag from statusList items before sending to server */
       if (key === 'statusList' && Array.isArray(newValue)) {
-        newValue = newValue.map(function (row) {
-          var copy = { key: row.key || '', label: row.label || '' };
-          return copy;
+        /* Separate existing rows from new rows — only NEW rows get key deduplication */
+        var existingRows = [];
+        var newRows = [];
+        newValue.forEach(function (row) {
+          if (row.__new) {
+            newRows.push({ key: row.key || '', label: row.label || '' });
+          } else {
+            existingRows.push({ key: row.key || '', label: row.label || '' });
+          }
         });
+
+        /* Deduplicate keys ONLY for new rows, existing row keys are immutable */
+        var existingStatusKeys = item.value.map(function (s) { return s.key; });
+        var dedupedNewRows = ensureUniqueStatusKeys(newRows, existingStatusKeys);
+
+        /* Combine: existing rows (unchanged) + deduplicated new rows */
+        newValue = existingRows.concat(dedupedNewRows);
       }
       changes.push({ key: key, value: newValue, type: item.type });
     }
@@ -1381,12 +1434,33 @@
         list[idx].key = e.target.value;
       } else {
         list[idx].label = e.target.value;
-        // Auto-generate key from label for new rows
-        if (list[idx].__new) {
-          list[idx].key = generateStatusKeyFromLabel(e.target.value);
-          // Update the key input field to show generated key
-          var keyField = root.querySelector('[data-key="' + key + '"][data-index="' + idx + '"].config-status-key');
-          if (keyField) keyField.value = list[idx].key;
+        /* Debounced key generation ONLY for new rows (existing rows: label-only edit) */
+        if (list[idx].__new === true) {
+          var timerKey = key + '-' + idx;
+          clearTimeout(keyGenDebounceTimers[timerKey]);
+          keyGenDebounceTimers[timerKey] = setTimeout(function () {
+            var updatedList = configValue_(key);
+            updatedList = configDeepCopy_(updatedList);
+            if (updatedList[idx] && updatedList[idx].__new === true) {
+              updatedList[idx].key = generateStatusKeyFromLabel(updatedList[idx].label);
+              /* Get existing keys (pristine values) + keys from OTHER new rows in this list */
+              var configItem = configItem_(key);
+              var existingKeys = configItem ? configItem.value.map(function (s) { return s.key; }) : [];
+              /* Also include keys from other new rows (but not this one) */
+              updatedList.forEach(function (row, i) {
+                if (i !== idx && row.__new && row.key) {
+                  existingKeys.push(row.key);
+                }
+              });
+              var dedupedList = ensureUniqueStatusKeys([updatedList[idx]], existingKeys);
+              updatedList[idx].key = dedupedList[0].key;
+              var keyFieldId = 'f-cfg-' + T.esc(key) + '-' + idx + '-key';
+              var keyField = document.getElementById(keyFieldId);
+              if (keyField) keyField.value = updatedList[idx].key;
+              markEdit_(key, updatedList);
+            }
+            delete keyGenDebounceTimers[timerKey];
+          }, 300);  /* 300ms debounce */
         }
       }
       markEdit_(key, list);
