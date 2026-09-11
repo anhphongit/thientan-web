@@ -438,6 +438,9 @@ function actionCreateOrder_(user, payload) {
 
   bumpOrdersVersion_();
   rememberCustomer_(clean.customer);
+  // Remember any new UOMs from order lines
+  var lineUoms = clean.lines.map(function (line) { return line.uom; }).filter(function (u) { return u; });
+  rememberUoms_(lineUoms);
   return buildOrderResponse_(user, findOrderRow_(result));
 }
 
@@ -732,6 +735,9 @@ function actionUpdateOrder_(user, payload) {
 
   bumpOrdersVersion_();
   rememberCustomer_(clean.customer);
+  // Remember any new UOMs from order lines
+  var lineUoms = clean.lines.map(function (line) { return line.uom; }).filter(function (u) { return u; });
+  rememberUoms_(lineUoms);
   return buildOrderResponse_(user, findOrderRow_(row.orderId));
 }
 

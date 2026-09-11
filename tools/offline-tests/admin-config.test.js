@@ -470,4 +470,110 @@ console.log('\n25. Verify Config sheet row is updated');
   eq('parsed value has 2 items', parsed.length, 2);
 }
 
-console.log('\n=== 25+ assertions passed ===');
+/* ---------- 26. rememberUom_: single UOM, new ---- */
+console.log('\n26. rememberUom_: add new UOM');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái', 'Cuộn']
+  });
+
+  env.rememberUom_('Kg');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('uomList has 3 items', saved.length, 3);
+  eq('Kg appended last', saved[2], 'Kg');
+  eq('original order preserved', saved[0], 'Cái');
+}
+
+/* ---------- 27. rememberUom_: idempotent (already exists) ---- */
+console.log('\n27. rememberUom_: idempotent if UOM exists');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái', 'Cuộn', 'Kg']
+  });
+
+  env.rememberUom_('Kg');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('still 3 items', saved.length, 3);
+  eq('no duplicate', saved.filter(u => u === 'Kg').length, 1);
+}
+
+/* ---------- 28. rememberUom_: case-insensitive dedupe ---- */
+console.log('\n28. rememberUom_: case-insensitive dedupe');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái', 'Kg']
+  });
+
+  env.rememberUom_('kg');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('still 2 items (kg deduped against Kg)', saved.length, 2);
+}
+
+/* ---------- 29. rememberUom_: trim whitespace ---- */
+console.log('\n29. rememberUom_: trim whitespace');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái']
+  });
+
+  env.rememberUom_('  Kg  ');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('Kg appended (trimmed)', saved[1], 'Kg');
+}
+
+/* ---------- 30. rememberUom_: drop empty string ---- */
+console.log('\n30. rememberUom_: drop empty string');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái']
+  });
+
+  env.rememberUom_('');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('still 1 item', saved.length, 1);
+}
+
+/* ---------- 31. rememberUom_: reject >20 chars ---- */
+console.log('\n31. rememberUom_: reject too-long UOM');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái']
+  });
+
+  env.rememberUom_('VeryLongUnitNameOver20Characters');
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('still 1 item', saved.length, 1);
+}
+
+/* ---------- 32. rememberUoms_: batch multiple, one write ---- */
+console.log('\n32. rememberUoms_: batch multiple new UOMs');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái']
+  });
+
+  env.rememberUoms_(['Kg', 'Lít', 'Bộ']);
+  const saved = JSON.parse(env.store.Config.find(c => c.key === 'uomList').value);
+  eq('4 items total', saved.length, 4);
+  eq('Kg added', saved.indexOf('Kg') >= 0, true);
+  eq('Lít added', saved.indexOf('Lít') >= 0, true);
+  eq('Bộ already existed', saved.filter(u => u === 'Bộ').length, 1);
+}
+
+/* ---------- 33. rememberUoms_: no write if all known ---- */
+console.log('\n33. rememberUoms_: fast path when all known');
+{
+  const env = H.makeEnv({
+    uomList: ['Cái', 'Kg', 'Lít']
+  });
+
+  const configBefore = env.store.Config.find(c => c.key === 'uomList');
+  const rowCountBefore = Object.keys(env.store).reduce((sum, sheet) => sum + env.store[sheet].length, 0);
+
+  env.rememberUoms_(['Kg', 'Lít', 'Cái']);
+  const configAfter = env.store.Config.find(c => c.key === 'uomList');
+
+  eq('config unchanged (no write)', configBefore.value, configAfter.value);
+}
+
+console.log('\n=== 33+ assertions passed ===');

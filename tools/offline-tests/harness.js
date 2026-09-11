@@ -257,7 +257,8 @@ function makeEnv(configOverrides) {
       });
       return result;
     },
-    invalidateConfigCache_() {}
+    invalidateConfigCache_() {},
+    invalidateReadCache_() {}
   };
   sandbox.global = sandbox;
   vm.createContext(sandbox);

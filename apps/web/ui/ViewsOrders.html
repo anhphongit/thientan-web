@@ -1891,7 +1891,8 @@ exporting: false,
       linesCardHtml(fieldsLocked) +
       totalsHtml() +
       actionsHtml(isNew, permRo, busy) +
-      customerDatalistHtml();
+      customerDatalistHtml() +
+      uomDatalistHtml();
 
     recalc();
   }
@@ -2037,7 +2038,7 @@ exporting: false,
    */
   var productLookupTimers_ = {};
 
-  function ensureProductsByCode_(q, onDone) {
+  function ensureProductsByCode_(q, onDone, onLoading) {
     var norm = (q || '').trim().toLowerCase();
 
     // Clear any pending lookup for this input's ID if called again
@@ -2051,7 +2052,7 @@ exporting: false,
       return;
     }
 
-    // Debounce 250ms before hitting the API
+    // Debounce 800ms before hitting the API (reduced API calls for better performance)
     productLookupTimers_[inputId] = setTimeout(function () {
       delete productLookupTimers_[inputId];
 
@@ -2060,8 +2061,12 @@ exporting: false,
         return;
       }
 
+      // Show loading state before API call
+      if (onLoading) onLoading(true);
+
       google.script.run
         .withSuccessHandler(function (result) {
+          if (onLoading) onLoading(false);
           if (result.ok) {
             var prods = result.data || [];
             state.productsByCode[norm] = { products: prods, cachedAt: Date.now() };
@@ -2069,10 +2074,11 @@ exporting: false,
           }
         })
         .withFailureHandler(function () {
+          if (onLoading) onLoading(false);
           onDone([]);
         })
         .apiLookupProducts({ q: norm });
-    }, 250);
+    }, 800);
   }
 
   /**
@@ -2084,12 +2090,16 @@ exporting: false,
   function productCodeHtml(value, disabled, lineIndex) {
     var inputId = 'product-picker-' + lineIndex;
     var dropdownId = 'product-dropdown-' + lineIndex;
+    var loaderId = 'product-loader-' + lineIndex;
+    var resultsId = 'product-results-' + lineIndex;
 
     return '' +
       '<div class="product-picker-wrapper" style="position: relative;">' +
         '<input class="l-productCode" id="' + inputId + '" ' +
           'value="' + T.esc(value) + '" ' +
           'data-dropdown-id="' + dropdownId + '" ' +
+          'data-loader-id="' + loaderId + '" ' +
+          'data-results-id="' + resultsId + '" ' +
           'data-line-index="' + lineIndex + '" ' +
           'placeholder="Gõ để tìm sản phẩm" ' +
           disabled + '>' +
@@ -2098,6 +2108,10 @@ exporting: false,
                  'background: white; border: 1px solid #ccc; ' +
                  'border-radius: 4px; max-height: 200px; overflow-y: auto; ' +
                  'width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">' +
+          '<div id="' + loaderId + '" style="display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;">' +
+            'Đang tìm sản phẩm...' +
+          '</div>' +
+          '<div id="' + resultsId + '"></div>' +
         '</div>' +
       '</div>';
   }
@@ -2179,12 +2193,9 @@ exporting: false,
           field('Số lượng *', '<input class="l-qty" inputmode="decimal" value="' + T.esc(line.qty) + '"' + d + '>') +
           (has(line, 'uom')
             ? field('ĐVT',
-                '<select class="l-uom"' + d + '>' +
-                  ['<option value=""></option>'].concat(uomList().map(function (u) {
-                    return '<option value="' + T.esc(u) + '"' +
-                      (u === line.uom ? ' selected' : '') + '>' + T.esc(u) + '</option>';
-                  })).join('') +
-                '</select>')
+                '<input class="l-uom" id="uom-input-' + index + '" ' +
+                  'value="' + T.esc(line.uom) + '" ' +
+                  'list="uom-options"' + d + '>')
             : '') +
           money +
           invoiceFields +
@@ -2255,6 +2266,13 @@ exporting: false,
       }).join('') + '</datalist>';
   }
 
+  function uomDatalistHtml() {
+    return '<datalist id="uom-options">' +
+      uomList().map(function (u) {
+        return '<option value="' + T.esc(u) + '"></option>';
+      }).join('') + '</datalist>';
+  }
+
   /* =====================================================================
      Behaviour — one delegated listener per event, bound once in render()
      ===================================================================== */
@@ -2291,13 +2309,15 @@ exporting: false,
         if (dropdown) dropdown.style.display = 'none';
       }
 
-      // Auto-fill name and uom (editable defaults, not locked)
+      // Auto-fill all available product properties (editable defaults, not locked)
       collect();
       if (lineIndex >= 0 && lineIndex < state.lines.length) {
         var line = state.lines[lineIndex];
         line.productCode = code;
-        if (has(line, 'uom') && uom) line.uom = uom;
-        if (!state.hiddenMoney && has(line, 'unitPrice') && price && !line.unitPrice) {
+        // Always auto-fill uom from product
+        if (uom) line.uom = uom;
+        // Always auto-fill unitPrice with lastPrice from product (not just when empty)
+        if (!state.hiddenMoney && has(line, 'unitPrice') && price) {
           line.unitPrice = price;
         }
       }
@@ -2597,26 +2617,40 @@ exporting: false,
     if (cls.contains('l-productCode')) {
       var query = e.target.value.trim();
       var dropdownId = e.target.getAttribute('data-dropdown-id');
+      var loaderId = e.target.getAttribute('data-loader-id');
+      var resultsId = e.target.getAttribute('data-results-id');
       var dropdown = root.querySelector('#' + dropdownId);
-      if (!dropdown) return;
+      var loader = loaderId ? root.querySelector('#' + loaderId) : null;
+      var results = resultsId ? root.querySelector('#' + resultsId) : null;
+      if (!dropdown || !results) return;
 
       if (!query || query.length < 2) {
         dropdown.style.display = 'none';
         return;
       }
 
+      // Show loading state (dropdown + loader, clear results)
+      dropdown.style.display = 'block';
+      if (loader) loader.style.display = 'block';
+      if (results) results.innerHTML = '';
+
       ensureProductsByCode_(query, function (products) {
-        if (!dropdown) return;
+        if (!dropdown || !results) return;
+        // Hide loader
+        if (loader) loader.style.display = 'none';
         if (!products || products.length === 0) {
-          dropdown.innerHTML = '<div style="padding: 8px 12px; color: #999;">Không tìm thấy sản phẩm</div>';
+          results.innerHTML = '<div style="padding: 8px 12px; color: #999;">Không tìm thấy sản phẩm</div>';
           dropdown.style.display = 'block';
           return;
         }
         var lineIndex = e.target.getAttribute('data-line-index');
-        dropdown.innerHTML = products.map(function (p) {
+        results.innerHTML = products.map(function (p) {
           return productItemHtml(p, lineIndex);
         }).join('');
         dropdown.style.display = 'block';
+      }, function (isLoading) {
+        // Loading callback: show/hide the loader
+        if (loader) loader.style.display = isLoading ? 'block' : 'none';
       });
       return;
     }

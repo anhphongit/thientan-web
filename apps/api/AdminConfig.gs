@@ -215,6 +215,96 @@ function actionUpdateConfig_(user, payload) {
 }
 
 /* =======================================================================
+   Auto-remember UOM (Milestone 5 / 5.5)
+   ======================================================================= */
+
+/**
+ * Remember one new UOM. Normalizes, dedupes case-insensitively, appends (no sort).
+ * Never throws; a failure to remember is logged silently (same contract as rememberCustomer_).
+ * Safe to call outside any lock.
+ *
+ * @param {string} uom — unit of measurement to add to Config.uomList if not present
+ */
+function rememberUom_(uom) {
+  rememberUoms_([uom]);
+}
+
+/**
+ * Remember multiple new UOMs in one shot. Batches: dedupes against the
+ * current config (fast path, no lock if all known), then one write if anything
+ * is new. Cap at 200 items in the list.
+ *
+ * Normalization: trim + drop empty + reject >20 chars + drop duplicates
+ * (case-insensitive). Never throws.
+ *
+ * @param {Array<string>} uoms — units to potentially add
+ */
+function rememberUoms_(uoms) {
+  try {
+    if (!uoms || !Array.isArray(uoms)) return;
+
+    // Normalize: trim, drop empty, cap length, dedupe
+    var UOM_LIMITS = { MAX_LENGTH: 20, MAX_LIST: 200 };
+    var normalized = [];
+    var seen = {};
+    uoms.forEach(function (item) {
+      var s = String(item || '').trim();
+      if (!s || s.length > UOM_LIMITS.MAX_LENGTH) return;
+      var key = s.toLowerCase();
+      if (!seen[key]) {
+        normalized.push(s);
+        seen[key] = true;
+      }
+    });
+
+    if (!normalized.length) return;
+
+    // Fast path: all known?
+    var current = readPublicConfig_().uomList || [];
+    var currentLower = current.map(function (u) { return String(u).toLowerCase(); });
+    var toAdd = normalized.filter(function (u) {
+      return currentLower.indexOf(u.toLowerCase()) < 0;
+    });
+
+    if (!toAdd.length) return;
+
+    // Slow path: acquire lock, re-read, append, write
+    return withConfigLock_(function () {
+      invalidateReadCache_(SHEETS.CONFIG);
+      var rows = readAll_(SHEETS.CONFIG);
+      var row = null;
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].key).trim() === 'uomList') { row = rows[i]; break; }
+      }
+      if (!row) return;
+
+      var list = [];
+      try { list = JSON.parse(row.value) || []; } catch (err) { list = []; }
+      if (!Array.isArray(list)) list = [];
+
+      // Dedupe again (in case config changed between fast-path check and lock)
+      var listLower = list.map(function (u) { return String(u).toLowerCase(); });
+      toAdd.forEach(function (u) {
+        if (listLower.indexOf(u.toLowerCase()) < 0) {
+          list.push(u);
+          listLower.push(u.toLowerCase());
+        }
+      });
+
+      // Cap at MAX_LIST
+      if (list.length > UOM_LIMITS.MAX_LIST) {
+        list = list.slice(0, UOM_LIMITS.MAX_LIST);
+      }
+
+      updateRecord_(SHEETS.CONFIG, row._row, { value: JSON.stringify(list) });
+      invalidateConfigCache_();
+    });
+  } catch (err) {
+    console.error('rememberUoms_: ' + err);
+  }
+}
+
+/* =======================================================================
    Guards & Helpers
    ======================================================================= */
 

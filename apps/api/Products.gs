@@ -106,7 +106,7 @@ function actionCreateProduct_(user, payload) {
   requirePermission_(user, 'manage_inventory');
   var clean = cleanProductInput_(payload && payload.product);
 
-  return withProductLock_(function () {
+  var result = withProductLock_(function () {
     if (findBy_(SHEETS.PRODUCTS, 'code', clean.code)) throw new Error(MSG.PRODUCT_CODE_DUPLICATE);
 
     var productId = nextProductId_();
@@ -122,8 +122,11 @@ function actionCreateProduct_(user, payload) {
       note: clean.note
     });
 
-    return buildProductResponse_(findBy_(SHEETS.PRODUCTS, 'productId', productId));
+    return productId;
   });
+
+  rememberUom_(clean.uom);
+  return buildProductResponse_(findBy_(SHEETS.PRODUCTS, 'productId', result));
 }
 
 /** @param {Object} payload {productId, product: {...same shape as create}} */
@@ -132,7 +135,7 @@ function actionUpdateProduct_(user, payload) {
   var current = findProductOrThrow_(payload && payload.productId);
   var clean = cleanProductInput_(payload && payload.product);
 
-  return withProductLock_(function () {
+  var result = withProductLock_(function () {
     var codeOwner = findBy_(SHEETS.PRODUCTS, 'code', clean.code);
     if (codeOwner && String(codeOwner.productId) !== String(current.productId)) {
       throw new Error(MSG.PRODUCT_CODE_DUPLICATE);
@@ -149,8 +152,11 @@ function actionUpdateProduct_(user, payload) {
       note: clean.note
     });
 
-    return buildProductResponse_(findBy_(SHEETS.PRODUCTS, 'productId', current.productId));
+    return current.productId;
   });
+
+  rememberUom_(clean.uom);
+  return buildProductResponse_(findBy_(SHEETS.PRODUCTS, 'productId', result));
 }
 
 /**
