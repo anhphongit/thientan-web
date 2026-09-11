@@ -1,12 +1,14 @@
 ---
 title: "Auto-add new UOM to Config.uomList"
 description: "A UOM typed on a product or order line that is not yet in Config.uomList is remembered automatically, the same way rememberCustomer_ already grows customerList."
-status: pending
+status: complete
 priority: P2
 effort: 3h20
 branch: main
 tags: [backend, config, products, orders, uom, apps-script]
 created: 2026-09-11
+completed: 2026-09-11
+commit: 925bd94
 ---
 
 # Auto-add new UOM to Config.uomList
