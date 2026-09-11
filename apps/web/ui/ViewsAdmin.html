@@ -113,6 +113,30 @@
   ];
 
   /**
+   * Config display labels (Vietnamese). Server allowlist in AdminConfig.gs:38 is
+   * the source of truth; these are display-only with raw-key fallback.
+   */
+  var CONFIG_LABELS = {
+    statusList: 'Danh sách trạng thái',
+    uomList: 'Đơn vị tính',
+    customerList: 'Danh sách khách hàng',
+    vatRates: 'Thuế suất VAT',
+    currency: 'Đơn vị tiền tệ'
+  };
+
+  /**
+   * Config editor type dispatch. Maps config key to editor template ('statusList',
+   * 'strings', 'numbers', 'scalar'). Falls back to item.type for unknown keys.
+   */
+  var CONFIG_EDITORS = {
+    statusList: 'statusList',
+    uomList: 'strings',
+    customerList: 'strings',
+    vatRates: 'numbers',
+    currency: 'scalar'
+  };
+
+  /**
    * Flatten PERMISSION_GROUPS into a single array of permission keys.
    * Memoised — called from collect() every save, so compute once.
    */
@@ -1011,94 +1035,167 @@
     return '' +
       '<div class="view-head">' +
         '<h2>Cài đặt hệ thống</h2>' +
-        '<div class="view-head-actions">' +
-          '<button type="button" class="btn btn-secondary" data-act="back-to-users">← Quay lại</button>' +
-        '</div>' +
+        '<button type="button" class="btn btn-secondary" data-act="back-to-users">← Quay lại</button>' +
       '</div>' +
-      '<div class="config-sections">' +
+      '<div style="max-width: 700px; margin: 0 auto; padding: 0 16px;">' +
         state.config.map(configSectionHtml).join('') +
       '</div>' +
-      '<div class="config-actions">' +
+      configSaveBarHtml();
+  }
+
+  function configSaveBarHtml() {
+    var isSaving = state.busyAction === 'saving-config';
+    var isClean = !Object.keys(state.configEdits).length;
+    return '' +
+      '<div class="form-actions">' +
         '<button type="button" class="btn btn-primary" data-act="save-config"' +
-          (Object.keys(state.configEdits).length ? '' : ' disabled') +
-          '>Lưu cài đặt</button>' +
+          (isClean || isSaving ? ' disabled' : '') +
+          '>' + (isSaving ? 'Đang lưu...' : 'Lưu cài đặt') + '</button>' +
+        '<button type="button" class="btn" data-act="back-to-users">Huỷ</button>' +
       '</div>';
   }
 
   function configSectionHtml(item) {
     var key = item.key;
     var value = state.configEdits[key] !== undefined ? state.configEdits[key] : item.value;
-
-    var editorHtml = '';
-    if (item.type === 'array') {
-      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
-        // statusList/approveStatusList-like format (array of objects with key/label)
-        editorHtml = configStatusListEditorHtml(key, value);
-      } else {
-        // uomList/customerList format (array of strings)
-        editorHtml = configArrayEditorHtml(key, value || []);
-      }
-    } else if (item.type === 'string') {
-      editorHtml = '<input type="text" class="config-input" data-key="' + T.esc(key) +
-        '" value="' + T.esc(value || '') + '" />';
-    } else if (item.type === 'number') {
-      editorHtml = '<input type="number" class="config-input" data-key="' + T.esc(key) +
-        '" value="' + T.esc(value || '') + '" />';
-    }
+    var label = CONFIG_LABELS[key] || key;
+    var editorType = CONFIG_EDITORS[key] || (item.type === 'array' ? 'strings' : 'scalar');
+    var itemCount = Array.isArray(value) ? value.length : 1;
 
     return '' +
-      '<section class="config-section card">' +
-        '<h3>' + T.esc(key) + '</h3>' +
-        '<p class="config-description">' + T.esc(item.description || '') + '</p>' +
-        '<div class="config-editor">' + editorHtml + '</div>' +
+      '<section class="card" style="margin-bottom: 16px; padding: 16px;">' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border);">' +
+          '<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--c-text);">' + T.esc(label) + '</h3>' +
+          '<span style="font-size: 12px; color: var(--c-muted); background: var(--c-bg); padding: 2px 8px; border-radius: 12px; white-space: nowrap;">' + itemCount + '</span>' +
+        '</div>' +
+        (item.description ? '<p class="config-desc">' + T.esc(item.description) + '</p>' : '') +
+        configEditorHtml(key, value, editorType) +
       '</section>';
   }
 
-  function configStatusListEditorHtml(key, items) {
-    return '<div class="config-list-editor">' +
-      '<div class="config-list-items">' +
-        (items || []).map(function (item, i) {
-          return '<div class="config-list-item">' +
-            '<input type="text" class="config-status-key" data-key="' + T.esc(key) +
-              '" data-index="' + i + '" value="' + T.esc((item && item.key) || '') +
-              '" placeholder="Mã" />' +
-            '<input type="text" class="config-status-label" data-key="' + T.esc(key) +
-              '" data-index="' + i + '" value="' + T.esc((item && item.label) || '') +
-              '" placeholder="Tên hiển thị" />' +
-            '<button type="button" class="btn-icon config-delete-item" data-key="' +
-              T.esc(key) + '" data-index="' + i + '" aria-label="Xoá">&times;</button>' +
-            '</div>';
-        }).join('') +
-      '</div>' +
-      '<button type="button" class="btn btn-sm" data-act="add-status" data-key="' +
-        T.esc(key) + '">+ Thêm</button>' +
-      '</div>';
+  function configEditorHtml(key, value, editorType) {
+    if (editorType === 'statusList') {
+      return configStatusListEditorHtml(key, value || []);
+    } else if (editorType === 'strings') {
+      return configArrayEditorHtml(key, value || [], false);
+    } else if (editorType === 'numbers') {
+      return configArrayEditorHtml(key, value || [], true);
+    } else {
+      return configScalarEditorHtml(key, value || '');
+    }
   }
 
-  function configArrayEditorHtml(key, items) {
-    return '<div class="config-list-editor">' +
-      '<div class="config-list-items">' +
-        (items || []).map(function (item, i) {
-          return '<div class="config-list-item">' +
-            '<input type="text" class="config-array-item" data-key="' + T.esc(key) +
-              '" data-index="' + i + '" value="' + T.esc(item || '') + '" />' +
-            '<button type="button" class="btn-icon config-delete-item" data-key="' +
-              T.esc(key) + '" data-index="' + i + '" aria-label="Xoá">&times;</button>' +
+  function configStatusListEditorHtml(key, items) {
+    var listHtml = items.length > 0
+      ? '<div class="config-list">' +
+          items.map(function (item, i) {
+            return '<div class="config-row">' +
+              '<div class="config-row-fields">' +
+                '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-key" ' +
+                  'class="config-status-key" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
+                  'value="' + T.esc((item && item.key) || '') + '" disabled ' +
+                  'placeholder="Mã" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
+                '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-label" ' +
+                  'class="config-status-label" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
+                  'value="' + T.esc((item && item.label) || '') + '" ' +
+                  'placeholder="Tên" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
+              '</div>' +
+              '<button type="button" class="btn-icon" data-act="delete-config-item" ' +
+                'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá" ' +
+                'style="padding: 4px 8px; border: 1px solid #dc2626; border-radius: 4px; background: transparent; color: #dc2626; cursor: pointer; font-size: 12px; flex-shrink: 0;">&times;</button>' +
             '</div>';
-        }).join('') +
-      '</div>' +
-      '<button type="button" class="btn btn-sm" data-act="add-array-item" data-key="' +
-        T.esc(key) + '">+ Thêm</button>' +
-      '</div>';
+          }).join('') +
+        '</div>'
+      : '<p class="config-empty">Chưa có mục nào.</p>';
+
+    return '' + listHtml +
+      '<button type="button" class="btn-mini" data-act="add-status" data-key="' +
+        T.esc(key) + '">+ Thêm</button>';
+  }
+
+  function configArrayEditorHtml(key, items, isNumeric) {
+    var listHtml = items.length > 0
+      ? '<div class="config-list">' +
+          items.map(function (item, i) {
+            var inputType = isNumeric ? 'number' : 'text';
+            var inputAttrs = isNumeric ? ' step="0.01" min="0" max="1" inputmode="decimal"' : '';
+            return '<div class="config-row">' +
+              '<div class="config-row-fields config-row-fields--single">' +
+                '<input type="' + inputType + '" ' +
+                  'class="config-array-item" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
+                  'value="' + T.esc(item || '') + '"' + inputAttrs + ' ' +
+                  'style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px; width: 100%;">' +
+              '</div>' +
+              '<button type="button" class="btn-icon" data-act="delete-config-item" ' +
+                'data-key="' + T.esc(key) + '" data-index="' + i + '" aria-label="Xoá" ' +
+                'style="padding: 4px 8px; border: 1px solid #dc2626; border-radius: 4px; background: transparent; color: #dc2626; cursor: pointer; font-size: 12px; flex-shrink: 0;">&times;</button>' +
+            '</div>';
+          }).join('') +
+        '</div>'
+      : '<p class="config-empty">Chưa có mục nào.</p>';
+
+    return '' + listHtml +
+      '<button type="button" class="btn-mini" data-act="add-array-item" data-key="' +
+        T.esc(key) + '">+ Thêm</button>';
+  }
+
+  function configScalarEditorHtml(key, value) {
+    var maxlen = key === 'currency' ? ' maxlength="10"' : '';
+    return '<div class="field">' +
+      '<label class="field-label" for="f-cfg-' + T.esc(key) + '">Giá trị</label>' +
+      '<input type="text" id="f-cfg-' + T.esc(key) + '" ' +
+        'class="field config-input" data-key="' + T.esc(key) + '" ' +
+        'value="' + T.esc(value || '') + '"' + maxlen + '>' +
+    '</div>';
   }
 
   function configSkeletonHtml() {
     return '' +
       '<div class="view-head"><h2>Cài đặt hệ thống</h2></div>' +
-      '<section class="card skeleton" aria-hidden="true">' +
+      '<section class="card" aria-hidden="true">' +
         '<div class="sk-line sk-w40"></div>' +
         '<div class="sk-line sk-w70"></div>' +
+        '<div class="sk-line"></div>' +
       '</section>';
+  }
+
+  /* =====================================================================
+     Config state helpers — manage deep copies and dirty tracking
+     ===================================================================== */
+
+  function configItem_(key) {
+    var item = state.config.find(function (c) { return c.key === key; });
+    return item || null;
+  }
+
+  function configDeepCopy_(value) {
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+      return value.map(function (item) {
+        return { key: item.key || '', label: item.label || '' };
+      });
+    }
+    return Array.isArray(value) ? value.slice() : value;
+  }
+
+  function configValue_(key) {
+    if (state.configEdits[key] !== undefined) {
+      return state.configEdits[key];
+    }
+    var item = configItem_(key);
+    if (!item) return [];
+    return configDeepCopy_(item.value || []);
+  }
+
+  function markEdit_(key, value) {
+    var item = configItem_(key);
+    var pristineJson = item ? JSON.stringify(configDeepCopy_(item.value)) : '[]';
+    var newJson = JSON.stringify(value);
+    if (pristineJson === newJson) {
+      delete state.configEdits[key];
+    } else {
+      state.configEdits[key] = value;
+    }
+    updateSaveButtonState();
   }
 
   function saveConfig() {
@@ -1114,6 +1211,13 @@
       if (!item) continue;
 
       var newValue = state.configEdits[key];
+      /* Strip __new flag from statusList items before sending to server */
+      if (key === 'statusList' && Array.isArray(newValue)) {
+        newValue = newValue.map(function (row) {
+          var copy = { key: row.key || '', label: row.label || '' };
+          return copy;
+        });
+      }
       changes.push({ key: key, value: newValue, type: item.type });
     }
 
@@ -1125,6 +1229,7 @@
       if (idx >= changes.length) {
         state.busyAction = null;
         if (staleView_(seq)) return;
+        paintConfigTab();
         T.toast('Lưu cài đặt thành công.');
         silentRefreshConfig(seq);
         return;
@@ -1175,32 +1280,35 @@
     }
     if (act === 'add-status') {
       var key = target.getAttribute('data-key');
-      var statusList = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
-      if (!Array.isArray(statusList)) statusList = [];
-      statusList = (statusList || []).slice();
-      statusList.push({ key: 'new_status', label: 'Trạng thái mới' });
-      state.configEdits[key] = statusList;
+      var statusList = configValue_(key);
+      statusList.push({ key: '', label: '', __new: true });
+      markEdit_(key, statusList);
       paintConfigTab();
       return;
     }
     if (act === 'add-array-item') {
       var key = target.getAttribute('data-key');
-      var arrValue = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
-      if (!Array.isArray(arrValue)) arrValue = [];
-      arrValue = (arrValue || []).slice();
+      var arrValue = configValue_(key);
       arrValue.push('');
-      state.configEdits[key] = arrValue;
+      markEdit_(key, arrValue);
       paintConfigTab();
       return;
     }
     if (act === 'delete-config-item') {
       var key = target.getAttribute('data-key');
       var idx = parseInt(target.getAttribute('data-index'), 10);
-      var val = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value;
+      var val = configValue_(key);
+
+      /* Prevent deletion of saved statusList rows (only __new rows can be deleted) */
+      if (key === 'statusList' && Array.isArray(val) && val[idx] && !val[idx].__new) {
+        T.toast('Không thể xoá trạng thái đã lưu.', true);
+        return;
+      }
+
       if (Array.isArray(val)) {
-        val = val.slice();
+        val = configDeepCopy_(val);
         val.splice(idx, 1);
-        state.configEdits[key] = val;
+        markEdit_(key, val);
         paintConfigTab();
       }
       return;
@@ -1248,34 +1356,35 @@
     // Milestone 5 / 5.4 — track config input changes
     if (e.target && e.target.classList.contains('config-input')) {
       var key = e.target.getAttribute('data-key');
-      state.configEdits[key] = e.target.value;
-      updateSaveButtonState();
+      markEdit_(key, e.target.value);
     }
     if (e.target && (e.target.classList.contains('config-status-key') ||
                      e.target.classList.contains('config-status-label'))) {
       var key = e.target.getAttribute('data-key');
       var idx = parseInt(e.target.getAttribute('data-index'), 10);
-      var list = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
-      if (!Array.isArray(list)) list = [];
-      list = list.slice();
+      var list = configValue_(key);
+      list = configDeepCopy_(list);
       if (!list[idx]) list[idx] = {};
       if (e.target.classList.contains('config-status-key')) {
         list[idx].key = e.target.value;
       } else {
         list[idx].label = e.target.value;
       }
-      state.configEdits[key] = list;
-      updateSaveButtonState();
+      markEdit_(key, list);
     }
     if (e.target && e.target.classList.contains('config-array-item')) {
       var key = e.target.getAttribute('data-key');
       var idx = parseInt(e.target.getAttribute('data-index'), 10);
-      var list = state.configEdits[key] || state.config.find(function (c) { return c.key === key; }).value || [];
-      if (!Array.isArray(list)) list = [];
-      list = list.slice();
-      list[idx] = e.target.value;
-      state.configEdits[key] = list;
-      updateSaveButtonState();
+      var list = configValue_(key);
+      list = configDeepCopy_(list);
+      /* For vatRates, store as number; for mid-typing unparseable values, store raw string */
+      if (key === 'vatRates') {
+        var numVal = parseFloat(e.target.value);
+        list[idx] = (isNaN(numVal) || e.target.value === '') ? e.target.value : numVal;
+      } else {
+        list[idx] = e.target.value;
+      }
+      markEdit_(key, list);
     }
   }
 
