@@ -1091,11 +1091,12 @@
           items.map(function (item, i) {
             var isNew = item && item.__new;
             var isDisabled = !isNew ? ' disabled' : '';
+            var isReadOnly = isNew ? ' readonly' : '';
             return '<div class="config-row">' +
               '<div class="config-row-fields">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-key" ' +
                   'class="config-status-key" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
-                  'value="' + T.esc((item && item.key) || '') + '"' + isDisabled + ' ' +
+                  'value="' + T.esc((item && item.key) || '') + '"' + isDisabled + isReadOnly + ' ' +
                   'placeholder="Mã" style="padding: 8px; border: 1px solid var(--c-border); border-radius: 4px; font-size: 13px;">' +
                 '<input type="text" id="f-cfg-' + T.esc(key) + '-' + i + '-label" ' +
                   'class="config-status-label" data-key="' + T.esc(key) + '" data-index="' + i + '" ' +
@@ -1138,7 +1139,7 @@
 
     return '' + listHtml +
       '<button type="button" class="btn-mini" data-act="add-array-item" data-key="' +
-        T.esc(key) + '">+ Thêm</button>';
+        T.esc(key) + '" style="margin-top: 12px;">+ Thêm</button>';
   }
 
   function configScalarEditorHtml(key, value) {
@@ -1164,6 +1165,15 @@
   /* =====================================================================
      Config state helpers — manage deep copies and dirty tracking
      ===================================================================== */
+
+  function generateStatusKeyFromLabel(label) {
+    return label
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+      .substring(0, 50);
+  }
 
   function configItem_(key) {
     var item = state.config.find(function (c) { return c.key === key; });
@@ -1371,6 +1381,13 @@
         list[idx].key = e.target.value;
       } else {
         list[idx].label = e.target.value;
+        // Auto-generate key from label for new rows
+        if (list[idx].__new) {
+          list[idx].key = generateStatusKeyFromLabel(e.target.value);
+          // Update the key input field to show generated key
+          var keyField = root.querySelector('[data-key="' + key + '"][data-index="' + idx + '"].config-status-key');
+          if (keyField) keyField.value = list[idx].key;
+        }
       }
       markEdit_(key, list);
     }
