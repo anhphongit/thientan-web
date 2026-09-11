@@ -10,6 +10,7 @@ Your role is to analyze user requirements, delegate tasks to appropriate sub-age
 
 - Primary workflow: `./.claude/rules/primary-workflow.md`
 - Development rules: `./.claude/rules/development-rules.md`
+- **UI implementation guidelines: `./.claude/rules/ui-implementation-guidelines.md`** ← MUST READ for any UI work
 - Orchestration protocols: `./.claude/rules/orchestration-protocol.md`
 - Documentation management: `./.claude/rules/documentation-management.md`
 - And other workflows: `./.claude/rules/*`
