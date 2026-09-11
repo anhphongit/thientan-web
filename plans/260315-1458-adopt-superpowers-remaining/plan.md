@@ -1,9 +1,9 @@
 ---
 name: Adopt Remaining Superpowers Features into CKE
-status: pending
+status: completed
 priority: medium
 branch: feat/adopt-superpowers-learnings
-date: 2026-03-15
+date: 2026-09-11
 blockedBy: []
 blocks: []
 ---
@@ -26,9 +26,9 @@ blocks: []
 
 | # | Phase | Status | Effort | Priority |
 |---|-------|--------|--------|----------|
-| 1 | TDD Iron Law (optional mode) | pending | M | High |
-| 2 | Skill Test Infrastructure | pending | L | Medium |
-| 3 | Multi-Platform Manifests | pending | S | Low |
+| 1 | TDD Iron Law (optional mode) | completed | M | High |
+| 2 | Skill Test Infrastructure | completed (local `claude -p` execution not run; scripts verified syntactically) | L | Medium |
+| 3 | Multi-Platform Manifests | completed (package.json step N/A — no package.json in repo) | S | Low |
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 phase: 1
 name: TDD Iron Law (Optional Mode)
-status: pending
+status: completed
 priority: high
 ---
 
@@ -121,9 +121,9 @@ Before marking task complete:
 
 ## Todo
 
-- [ ] Create `references/tdd-enforcement.md` with TDD protocol + Mermaid flow
-- [ ] Add `--tdd` flag to cook SKILL.md (intent detection, modes table, flags list, references)
-- [ ] Verify --tdd doesn't conflict with --auto or --fast
+- [x] Create `references/tdd-enforcement.md` with TDD protocol + Mermaid flow
+- [x] Add `--tdd` flag to cook SKILL.md (intent detection, modes table, flags list, references)
+- [x] Verify --tdd doesn't conflict with --auto or --fast (documented combination matrix in tdd-enforcement.md and mode table note)
 
 ## Success Criteria
 

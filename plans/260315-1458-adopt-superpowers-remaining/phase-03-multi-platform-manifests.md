@@ -1,7 +1,7 @@
 ---
 phase: 3
 name: Multi-Platform Manifests
-status: pending
+status: completed
 priority: low
 ---
 
@@ -102,11 +102,11 @@ Minimal context file that loads core skill references and maps Gemini CLI tools 
 
 ## Todo
 
-- [ ] Create `.claude-plugin/plugin.json`
-- [ ] Create `.cursor-plugin/plugin.json`
-- [ ] Create `gemini-extension.json`
-- [ ] Create `GEMINI.md`
-- [ ] Add `.cursor-plugin/` and `gemini-extension.json` to published files in `package.json`
+- [x] Create `.claude-plugin/plugin.json`
+- [x] Create `.cursor-plugin/plugin.json`
+- [x] Create `gemini-extension.json`
+- [x] Create `GEMINI.md`
+- [x] Add `.cursor-plugin/` and `gemini-extension.json` to published files in `package.json` (N/A — no `package.json` exists in this repo; project embeds CKE as `.claude/` assets, not npm package)
 
 ## Success Criteria
 
