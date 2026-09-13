@@ -7,10 +7,9 @@
 - Audit finding B5 (valid): `plans/reports/audit-260907-1744-codebase-analysis.md:375`
 
 ## Overview
-- **Priority:** P3 · **Status:** 🔄 IN-PROGRESS · **Effort:** 1.5h (actual: ~0.5h done, ~1h remaining)
-- **Partially done:** Code-doc sync completed this session (DATA_MODEL.md §2, TASKS.md M4/M5 rows, MILESTONES.md status updates). Code-reviewer verified these edits.
-- **Pending:** PERMISSIONS.md sync for `export_statistics` decision (Phase 1), codebase-summary.md creation, phase-7 final docs pass.
-- **Blocked by:** Phases 2 and 6 sign-off dates (will block the final log entries, but sync can proceed with "pending live sign-off" placeholders).
+- **Priority:** P3 · **Status:** ✅ COMPLETE · **Effort:** 1.5h (actual: ~1.5h)
+- **Done:** Full doc sync completed 2026-09-13 — DATA_MODEL.md §2 (all 23 columns, deprecated-column notes, migrations-run subsection), MILESTONES.md (M4+M5 headers/criteria/progress log), TASKS.md M4/M5 rows, PERMISSIONS.md (`export_statistics` decision), OPEN_QUESTIONS.md (Q5 resolved), new `docs/codebase-summary.md`, stale assertion-count cleanup repo-wide.
+- **Blocked by:** none — Phases 2 and 6 both signed off (2026-09-12, 2026-09-13) before this phase closed.
 - Docs-only. Zero runtime risk, zero rollback concern.
 
 ## Key insights (verified)
@@ -61,16 +60,16 @@
 9. Re-run all suites to capture the final number for the summary.
 
 ## Todo
-- [ ] `DATA_MODEL.md` §2 has all 23 columns in code order
-- [ ] `approvedBy`/`approvedAt` marked deprecated
-- [ ] Migrations-run-live subsection added
-- [ ] `MILESTONES.md` M4 + M5 headers ☑, criteria ticked, real dates
-- [ ] Progress-log rows for M4 and M5
-- [ ] `PERMISSIONS.md` `export_statistics` matches Phase 1's decision
-- [ ] Q5 flipped to ✅
-- [ ] `docs/codebase-summary.md` created, states `Products.gs` ≠ `Inventory.gs`
-- [ ] Stale assertion counts corrected; single source of truth
-- [ ] Final suite run recorded
+- [x] `DATA_MODEL.md` §2 has all 23 columns in code order
+- [x] `approvedBy`/`approvedAt` marked deprecated
+- [x] Migrations-run-live subsection added
+- [x] `MILESTONES.md` M4 + M5 headers ☑, criteria ticked, real dates
+- [x] Progress-log rows for M4 and M5
+- [x] `PERMISSIONS.md` `export_statistics` matches Phase 1's decision
+- [x] Q5 flipped to ✅
+- [x] `docs/codebase-summary.md` created, states `Products.gs` ≠ `Inventory.gs`
+- [x] Stale assertion counts corrected; single source of truth
+- [x] Final suite run recorded (18/18 suites, 0 failures)
 
 ## Success criteria
 - A column-by-column diff of `DATA_MODEL.md` §2 against `Config.gs:90-94` shows zero differences.
