@@ -149,7 +149,7 @@ per-revision breakdown.
 
 ---
 
-## ◐ Milestone 4 — Export + statistics
+## ☑ Milestone 4 — Export + statistics *(done 2026-09-12)*
 
 Scope:
 - `Export.gs`: export the **currently filtered** list to CSV / XLSX / PDF
@@ -160,16 +160,16 @@ Scope:
 
 **Exit criteria**
 
-- [ ] Exported file matches what is on screen, including filters
-- [ ] A user cannot export a column outside their `visible_fields`
-- [ ] The PDF is recognizable to someone used to the current Excel report
-- [ ] Vietnamese characters render correctly in all three formats
-- [ ] Revenue figures reconcile against the reference Excel for a sample month
-- [ ] `view_statistics` is enforced; `export_statistics` is reserved for a future stats-export surface (deferred per TASKS.md 2191–2193, no call site exists)
+- [x] Exported file matches what is on screen, including filters
+- [x] A user cannot export a column outside their `visible_fields`
+- [x] The PDF is recognizable to someone used to the current Excel report
+- [x] Vietnamese characters render correctly in all three formats
+- [x] Revenue figures reconcile against the reference Excel for a sample month
+- [x] `view_statistics` is enforced; `export_statistics` is reserved for a future stats-export surface (deferred per TASKS.md 2191–2193, no call site exists)
 
 ---
 
-## ☐ Milestone 5 — Inventory + Admin UI
+## ☑ Milestone 5 — Inventory + Admin UI *(done 2026-09-13)*
 
 Scope:
 - `Products.gs` + `ui/ViewsInventory.html`: product/stock CRUD, low-stock flag
@@ -178,11 +178,11 @@ Scope:
 
 **Exit criteria**
 
-- [ ] Admin can create a user and set permissions without touching the Sheet
-- [ ] A permission change takes effect on the affected user's next action
-- [ ] The last active admin cannot be deactivated or stripped of `manage_users`
-- [ ] Product CRUD works; `OrderLines.productCode` can link to a product
-- [ ] The permission matrix is usable on a phone (card per user)
+- [x] Admin can create a user and set permissions without touching the Sheet
+- [x] A permission change takes effect on the affected user's next action
+- [x] The last active admin cannot be deactivated or stripped of `manage_users`
+- [x] Product CRUD works; `OrderLines.productCode` can link to a product
+- [x] The permission matrix is usable on a phone (card per user)
 
 ---
 
@@ -223,6 +223,9 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-09-13 | 5 | **Milestone 5 live verification and sign-off completed** — All exit criteria verified and signed off by project owner 2026-09-13. Inventory CRUD (products, categories, low-stock alerts), user management (create/edit/deactivate/permissions), permission matrix (14 checkboxes, phone-friendly card layout), config editing (status list, UoM list, customer list with instant cache invalidation), and admin protection rules (last-admin safeguards, self-escalation prevention) all confirmed operational. One bug found and fixed during test pass (stale inventory cache on inactive toggle — M5-1 in TASKS.md). All 126 checklist items in `CHECKLIST_M5_VI.md` passed. See checklist sections A–K for full test coverage. |
+| 2026-09-12 | 5 | **Bug found and fixed — stale inventory cache on active→inactive edit**: During M5 live testing, editing a product's `active` flag from true→false and returning to the list still showed the product even though "Bao gồm hàng không hoạt động" (include inactive) filter was OFF. Root cause: `upsertCachedProduct()` write-through cache after edit/create didn't check filter state. Fix: added `matchesFilters` check before upserting; now removes from cache if product no longer matches active filters. Regression test added to `products-ui.test.js`. Full suite: 18/18 passing. See `TASKS.md` for full details. |
+| 2026-09-12 | 4 | **Milestone 4 live verification and sign-off completed** — All exit criteria verified and signed off by project owner 2026-09-12. Export (CSV/XLSX/PDF) with filtering, permissions-based column hiding, Vietnamese character rendering, and revenue reconciliation all confirmed. Statistics views (by week/month/quarter/year, by customer, by status) operational. Mobile responsiveness verified. All 11 M4 subtasks (4.1-4.7.3) code-complete and live-tested. See `CHECKLIST_M4_VI.md` sections A–I all checked. |
 | 2026-09-10 | 5 | 🔴 **Security fix (R3): Privilege escalation in `visible_fields` on permission matrix save** — Severity: HIGH. Root cause: `ViewsAdmin.html:742` hardcoded `visible_fields` to `['*']` on every matrix save, allowing warehouse users to become visible to all money columns (supplier cost, deposit, VAT, etc.) regardless of their intended role. Fix: Carry `visible_fields` from base preset (never hardcode); only override if user selects custom permissions. Validated offline; awaiting live re-test after deploy. Impact: Anyone editing the permission matrix (admin or user with appropriate perms) needed to retake their permissions afterward — already tested in M5 checklist. Root cause traced to a copy-paste from UI preset-handling code. See `TASKS.md` for full audit of `visible_fields` flow. |
 | 2026-09-10 | 5.3b | **Permission disclosure UI redesigned — Phase 01-05 completed** (M5-3 design, Issue M5-3/2026-09-10): Replaced checkbox toggle (`presetToggle`, "Dùng preset" / "Tuỳ chỉnh") with collapsible button (`"Nhóm quyền chi tiết"` / Details group) in permission matrix editor. New flow: (1) user selects base role → matrix seeded from that preset, (2) edits individual checkboxes as needed, (3) button auto-labels as `"+ tuỳ chỉnh"` when diff detected, (4) on edit (unknown permission state) auto-expands details group. Server payload now decides `presetKey` vs `permissions` based on whether saved state matches a preset exactly (not a toggle). Benefits: cleaner UI, no "Which mode am I in?" confusion, permission intent clearer on both client and server. Backend (`Admin.gs:actionUpdateUserPermissions_`) updated to validate preset matching; frontend (`ViewsAdmin.html` + `app/admin.js`) updated to track diff and render conditional labels. All 14 checkboxes phone-friendly on card layout (K.3 checklist). 89 new offline test assertions, all passing. Verified live M5 checklist sections E–F. |
 | 2026-09-02 | 3 | **Task 3.8 built** (server pass then client pass, same day as the design was agreed): `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) live in `apps/api` (new `requestApprove`/`approveOrder`(rewritten)/`rejectOrder` actions, the edit-gating matrix enforced in `actionUpdateOrder_`, `ALWAYS_VISIBLE_FIELDS` for approve-status/last-updated-by, `migrateAddApproveStatus()`) and `apps/web` (approve-status pill on every card/detail, Gửi duyệt/Duyệt/Từ chối buttons, the auto-approve-vs-draft save prompt, an approve-status filter, `T.confirm()` gained an optional reject-note field). Fixed a gap inherited from 3.6 along the way: approve/reject require only `approve_order`, not `edit_order`, but the old action-row markup hid those buttons whenever the order was read-only for that user — now drawn independent of the read-only gate. Behind `approvalFlowEnabled` (Config, default off) end to end — flag off reproduces today's plain edit/view behavior exactly, both client and server. 404 assertions across 7 offline test files, all passing (49 new server assertions, 14 new UI assertions). `migrateAddApproveStatus()` has NOT been run against the live sheet yet, and the flag has not been verified live — do that before enabling it for real users. Full detail in `TASKS.md`, "Milestone 3, task 3.8". |

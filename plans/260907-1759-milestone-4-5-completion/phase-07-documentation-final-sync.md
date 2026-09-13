@@ -7,8 +7,10 @@
 - Audit finding B5 (valid): `plans/reports/audit-260907-1744-codebase-analysis.md:375`
 
 ## Overview
-- **Priority:** P3 · **Status:** pending · **Effort:** 1.5h
-- **Blocked by:** Phases 2 and 6 (both sign-offs must land so the log records real dates).
+- **Priority:** P3 · **Status:** 🔄 IN-PROGRESS · **Effort:** 1.5h (actual: ~0.5h done, ~1h remaining)
+- **Partially done:** Code-doc sync completed this session (DATA_MODEL.md §2, TASKS.md M4/M5 rows, MILESTONES.md status updates). Code-reviewer verified these edits.
+- **Pending:** PERMISSIONS.md sync for `export_statistics` decision (Phase 1), codebase-summary.md creation, phase-7 final docs pass.
+- **Blocked by:** Phases 2 and 6 sign-off dates (will block the final log entries, but sync can proceed with "pending live sign-off" placeholders).
 - Docs-only. Zero runtime risk, zero rollback concern.
 
 ## Key insights (verified)

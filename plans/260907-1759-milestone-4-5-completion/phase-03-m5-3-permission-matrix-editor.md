@@ -8,7 +8,7 @@
 - M5.2 that this extends: `docs/TASKS.md:3180+`
 
 ## Overview
-- **Priority:** P2 · **Status:** pending · **Effort:** 6–8h
+- **Priority:** P2 · **Status:** ✅ COMPLETE · **Effort:** 6–8h (actual: ~6h)
 - **Blocked by:** Phase 1 (decision recorded only — no code dependency).
 - **Blocks:** Phase 4 (same files), Phase 6 (live verification).
 - Today an admin can only assign one of 4 wholesale presets. Anything finer means hand-editing the `Users` sheet's `permissions` JSON. This phase adds per-key editing.

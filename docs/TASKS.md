@@ -3013,8 +3013,8 @@ before.
 |---|------|--------|
 | 5.1 | `Products.gs` + `ui/ViewsInventory.html` — product/stock CRUD, low-stock flag | ☑ |
 | 5.2 | `Admin.gs` + `ui/ViewsAdmin.html` — user list, add/edit/deactivate | ☑ |
-| 5.3 | Permission matrix editor | ☐ |
-| 5.4 | Config sheet editing from the Admin UI | ☐ |
+| 5.3 | Permission matrix editor | ☑ |
+| 5.4 | Config sheet editing from the Admin UI | ☑ |
 
 Same reasoning as the 4.5 and 4.6/4.7 splits: Milestone 5 (`MILESTONES.md`)
 covers two largely independent subsystems — Inventory (product/stock CRUD)
@@ -3373,3 +3373,15 @@ stuck account revoke access at myaccount.google.com/permissions and
 re-consent, confirm the app loads; separately confirm an ordinary
 not-yet-registered account still sees the normal three account-switch
 rows unchanged.
+
+---
+
+## Bugfixes found while testing Milestone 5 (2026-09-12)
+
+One issue found during Phong's live testing of Milestone 5 inventory features
+2026-09-12. In `apps/web/ui/ViewsInventory.html`; regression test added to
+`tools/offline-tests/products-ui.test.js`. Full suite: 18/18 passing, 0 failures.
+
+| # | Issue | Root cause | Fix |
+|---|-------|-----------|-----|
+| M5-1 | Inventory list still showed a product after editing it from active→inactive, when "Bao gồm hàng không hoạt động" (include inactive) filter was OFF | `upsertCachedProduct()` unconditionally wrote the saved product back into the client-side list cache on create/edit, even when the product's new state (now inactive, or newly below low-stock threshold) meant it should no longer be visible under the currently-active filter criteria | Added `matchesFilters()` check `(includeInactive || product.active) && (!lowStockOnly || product.isLowStock)` before upserting; if check fails, calls `removeCachedProduct(id)` instead to keep cache consistent with visible filter state. Reuses existing delete-from-cache logic, no new pattern |

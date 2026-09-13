@@ -1,12 +1,13 @@
 ---
 title: "Milestone 4 + 5 Completion — verified plan"
 description: "Ship M4 (export/stats) then finish M5 (5.3 matrix editor, 5.4 Config editing, productCode link); audit's two biggest blockers were false positives."
-status: pending
+status: completed
 priority: P1
 effort: 29h
 branch: main
 tags: [milestone-4, milestone-5, apps-script, verification, docs-sync]
 created: 2026-09-07
+completed: 2026-09-13
 ---
 
 # Milestone 4 + 5 Completion
@@ -46,13 +47,16 @@ Audit estimated **45–55h**. Verified: **26–34h** (~29h planned). The 20h del
 
 | # | Phase | Effort | Status | Blocked by |
 |---|-------|--------|--------|-----------|
-| 1 | [Truth baseline + `export_statistics` resolution](phase-01-truth-baseline-and-export-statistics.md) | 2h | pending | — |
-| 2 | [M4 live verification + sign-off](phase-02-m4-live-verification-and-signoff.md) | 4–5h | pending | Phase 1 |
-| 3 | [M5.3 — permission matrix editor](phase-03-m5-3-permission-matrix-editor.md) | 6–8h | pending | Phase 1 (decision only) |
-| 4 | [M5.4 — Config sheet editing](phase-04-m5-4-config-sheet-editing.md) | 5–7h | pending | Phase 3 (file conflict) |
-| 5 | [productCode ↔ Products link](phase-05-productcode-product-link.md) | 3–4h | pending | Q5 decision |
-| 6 | [M5 live verification + sign-off](phase-06-m5-live-verification-and-signoff.md) | 4–5h | pending | Phases 3, 4, 5 |
-| 7 | [Documentation final sync](phase-07-documentation-final-sync.md) | 1.5h | pending | Phases 2, 6 |
+| 1 | [Truth baseline + `export_statistics` resolution](phase-01-truth-baseline-and-export-statistics.md) | 2h | ✅ done | — |
+| 2 | [M4 live verification + sign-off](phase-02-m4-live-verification-and-signoff.md) | 4–5h | ✅ done | — (live-verified user 2026-09-12) |
+| 3 | [M5.3 — permission matrix editor](phase-03-m5-3-permission-matrix-editor.md) | 6–8h | ✅ done | Phase 1 (decision only) |
+| 4 | [M5.4 — Config sheet editing](phase-04-m5-4-config-sheet-editing.md) | 5–7h | ✅ done | Phase 3 (file conflict) |
+| 5 | [productCode ↔ Products link](phase-05-productcode-product-link.md) | 3–4h | ✅ done | Q5 decision |
+| 6 | [M5 live verification + sign-off](phase-06-m5-live-verification-and-signoff.md) | 4–5h | ✅ done | Live-verified user 2026-09-13; one bug found+fixed (M5-1: inventory cache) |
+| 7 | [Documentation final sync](phase-07-documentation-final-sync.md) | 1.5h | ✅ done | — (DATA_MODEL.md, PERMISSIONS.md, OPEN_QUESTIONS.md, codebase-summary.md all synced 2026-09-13) |
+
+**Plan closed out 2026-09-13.** All 7 phases done; Milestones 0–5 are `☑` in
+`MILESTONES.md`, only Milestone 6 remains open (separate future plan).
 
 Requested-structure mapping: requested "Phase 1 critical fixes" → Phase 1 (the
 `Inventory.gs` half of it does not exist as work). Requested "Phase 3 M5

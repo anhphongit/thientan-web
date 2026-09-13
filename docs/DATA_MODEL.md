@@ -51,12 +51,17 @@ Rules:
 | `supplierPaid` | number | VND already paid to that supplier (Q1) |
 | `totalExVat` | number | **computed server-side** = Σ line `amountExVat` |
 | `totalIncVat` | number | **computed server-side** = Σ line `amountIncVat` |
+| `lineCount` | number | **computed server-side** = count of this order's `OrderLines` rows (M2.5). Maintained on every save so `actionListOrders_` need not read entire `OrderLines` sheet. |
 | `createdBy` | string | email — drives the "own orders only" rule |
 | `createdAt` | datetime | |
 | `updatedBy` | string | email |
 | `updatedAt` | datetime | |
-| `approvedBy` | string | email, empty until approved |
-| `approvedAt` | datetime | |
+| `approvedBy` | string | **DEPRECATED** (retained for column alignment only; nothing writes them since M3.8). Replaced by `approveStatus` state machine — who/when now lives in `StatusHistory` with `field='approveStatus'` |
+| `approvedAt` | datetime | **DEPRECATED** (same reason as `approvedBy`). See `Config.gs:74-81` |
+| `approveStatus` | string | one of `draft` / `wait_approval` / `approved` / `rejected` (M3.8 state machine, behind `approvalFlowEnabled`). Gates editing — see `PERMISSIONS.md` |
+| `rejectReason` | string | reviewer's note when `approveStatus = rejected`. Left stale (not cleared) once the order moves on — only surfaced while `approveStatus` is currently `rejected` |
+| `rejectedBy` | string | email of the rejecting reviewer, same staleness rule as `rejectReason` |
+| `rejectedAt` | datetime | same staleness rule as `rejectReason` |
 
 Notes:
 - There is **no** `orderNo` and no `customerPo`. See Q3: the whole PO cell is one
@@ -66,6 +71,15 @@ Notes:
 - There is **no** `invoiceNo` / `invoiceDate` here. See Q4 and §4 below.
 - Totals are stored for fast list/statistics reads, but always recalculated from
   the lines on every write. Client-supplied totals are ignored.
+
+### Migrations run live
+
+| Function | Milestone | Purpose | Live run status |
+|----------|-----------|---------|-----------------|
+| `migrateAddLineCount()` | M2.5 | Add `lineCount` column to Orders sheet and backfill from `OrderLines` | ✅ Yes (required; DevSeed.gs calls it via `ensureLineCountColumn_`) |
+| `migrateAddApproveStatus()` | M3.8 | Add `approveStatus` column to Orders and `field` column to StatusHistory; backfill from existing `approvedBy` and blank status history | ✅ Yes (CHECKLIST_M3_VI.md:14 requires run before M3 approval flow testing) |
+| `migrateAddRejectReasonColumns()` | M5 (2026-09-03d) | Add `rejectReason`, `rejectedBy`, `rejectedAt` columns to Orders | ✅ Yes (live-verified per CHECKLIST_M5_VI.md, full M5 sign-off 2026-09-13) |
+| `migrateFixDatetimeColumns()` | M5 (2026-09-03f) | Fix datetime format on `approvedAt`/`rejectedAt` columns (cosmetic; logic unaffected) | ✅ Yes (live-verified per CHECKLIST_M5_VI.md, full M5 sign-off 2026-09-13) |
 
 ---
 

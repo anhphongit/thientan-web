@@ -8,7 +8,7 @@
 - Security sheet keys (must stay out of reach): `apps/api/Config.gs:156-161`
 
 ## Overview
-- **Priority:** P2 · **Status:** pending · **Effort:** 5–7h
+- **Priority:** P2 · **Status:** ✅ COMPLETE · **Effort:** 5–7h (actual: ~5h)
 - **Blocked by:** **Phase 3** — shares `Admin.gs`, `ViewsAdmin.html`, `Router.gs`, `Config.gs`, `Main.gs`. Never run these two in parallel.
 - **Blocks:** Phase 6.
 - Goal per `TASKS.md:3041-3043`: "the last piece needed so an admin never has to open the Sheet directly for day-to-day configuration."
@@ -105,15 +105,15 @@ Deliberately excluded: `approvalFlowEnabled`, `approveStatusList`, `exportLargeT
 9. Bump `BUILD`. Run all 17+ suites.
 
 ## Todo
-- [ ] Failing assertions written first
-- [ ] `AdminConfig.gs` created, both actions permission-gated on line 1
-- [ ] `EDITABLE_CONFIG_KEYS` allowlist + per-key validators
-- [ ] `statusList` key-removal guard
-- [ ] `withConfigLock_` following existing lock pattern
-- [ ] `invalidateConfigCache_()` called on every successful write
-- [ ] `Router.gs` + `Main.gs` wiring
-- [ ] `ViewsAdmin.html` config section with Vietnamese help text
-- [ ] `BUILD` bumped, all suites green
+- [x] Failing assertions written first (admin-config.test.js with 35+ assertions)
+- [x] `AdminConfig.gs` created, both actions permission-gated on line 1
+- [x] `EDITABLE_CONFIG_KEYS` allowlist + per-key validators
+- [x] `statusList` key-removal guard
+- [x] `withConfigLock_` following existing lock pattern
+- [x] `invalidateConfigCache_()` called on every successful write
+- [x] `Router.gs` + `Main.gs` wiring
+- [x] `ViewsAdmin.html` config section with Vietnamese help text
+- [x] `BUILD` bumped (progressed through phase 3/4/5 to final 'api-2026-09-07c-product-lookup'), all 18 suites green (946+ assertions)
 
 ## Success criteria
 - Admin adds a UoM and a customer from the UI; both appear in the order form **immediately** (not after 2 minutes) — this is the cache-invalidation proof.

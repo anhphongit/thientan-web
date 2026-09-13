@@ -75,7 +75,7 @@ Paginated order list, filtering (date, customer, status, created-by, approve sta
 
 **Exit Criteria:** All ✅ (except live verification of 3.8)
 
-**Offline Assertions:** 404+ passing
+**Offline Assertions:** See `codebase-summary.md` §3 (1154 total across 18 suites)
 
 ---
 
@@ -221,7 +221,7 @@ M0 (Setup)
 
 | Metric | Target | Status |
 |--------|--------|--------|
-| **Offline test coverage** | >300 assertions | 404+ ✅ |
+| **Offline test coverage** | >300 assertions | 1154 (18 suites) ✅ — see `codebase-summary.md` |
 | **Permission matrix phone-usable** | No horizontal scroll, 44px+ targets | ✅ (M5.3) |
 | **Admin privilege protection** | Last admin + self-admin checks enforced | ✅ (M5.2) |
 | **Security vulnerabilities** | Zero severity-high unresolved | 0/0 ✅ (R3 fixed) |

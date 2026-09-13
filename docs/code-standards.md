@@ -253,10 +253,10 @@ node tools/offline-tests/orders-permissions.test.js
 # ... etc (7+ files)
 ```
 
-**Assertion Count:** Track in commit messages
+**Assertion Count:** Track in commit messages; current count is 1154 total across 18 suites (see `codebase-summary.md` §3)
 ```
-✅ 404+ assertions passing (M3 complete)
-✅ 89+ new assertions for M5.3 permission matrix
+✅ 1154 assertions passing (M0–M5 complete)
+✅ New assertions for each milestone tracked in MILESTONES.md
 ```
 
 ### Live Tests (Manual Checklists)

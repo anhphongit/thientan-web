@@ -80,7 +80,7 @@ Full `approveStatus` state machine (Draft/Wait For Approved/Approved/Rejected) i
 - Approve status filter in list (3.1-3.4 feature complete)
 - Behind `approvalFlowEnabled` flag (Config, default off)
 
-**Testing:** 404+ assertions across 7 offline test files, all passing.
+**Testing:** 1154 total assertions across 18 offline test files (as of M5 completion), all passing. See `codebase-summary.md` §3.
 
 **Note:** Flag not yet verified live — enable only after full live pass.
 

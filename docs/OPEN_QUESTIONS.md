@@ -15,9 +15,9 @@ Q2 (which blocks Milestone 4) was answered at the same time. `DATA_MODEL.md` has
 been updated to match; `Orders`, `OrderLines` and `Invoices` are created by
 `setupMilestone2()`.
 
-Still open, none of them blocking: **Q5** (automatic stock deduction — Milestone 5),
-**Q7** (yearly rollover), **Q8** (petty-cash notes), **Q9** (who may see prices),
-**Q10** (VAT rates beyond 8% / 10%).
+Still open, none of them blocking: **Q7** (yearly rollover), **Q8** (petty-cash
+notes), **Q9** (who may see prices), **Q10** (VAT rates beyond 8% / 10%).
+Q5 (automatic stock deduction) was answered 2026-09-13 — see below.
 
 ---
 
@@ -102,15 +102,18 @@ one edit in one place, and "which orders are on invoice 50" is one lookup.
 
 ---
 
-## 🟡 Q5 — Should inventory deduct automatically?
+## ✅ Q5 — Should inventory deduct automatically?
 
-`PROJECT_INSTRUCTION.md` says "basic product/stock management, linkable to order
-lines where useful" — deliberately vague.
+**Answered 2026-09-13:** Stock deduction is **manual, not automatic**.
 
-**Question:** when an order reaches a certain status, should `Products.stockQty`
-decrease automatically, or is stock adjusted manually?
-**Impact:** Milestone 5. Automatic deduction needs a defined trigger status and a
-reversal rule for cancellations.
+The Milestone 5 implementation (M5.1–5.4) added the `Products` sheet with `stockQty`
+as a plain number. Code review and live testing confirmed: nothing in `Orders.gs` or
+`Products.gs` deducts from `stockQty` when an order is created, updated, or reaches
+any status. The column is marked in the code as "manually-edited" (`Products.gs:26`).
+
+Users manage `Products.stockQty` separately from order operations—it is not a
+computed field that tracks order fulfillment state. This aligns with the
+`PROJECT_INSTRUCTION.md`'s "basic" product/stock management intent.
 
 ---
 

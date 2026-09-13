@@ -22,7 +22,7 @@ Stored per user in `Users.permissions` as a JSON object.
 | `search_filter` | Use search and filters |
 | `export` | Export the filtered order list (CSV / XLSX / PDF) |
 | `view_statistics` | See the revenue statistics screen |
-| `export_statistics` | Export statistics |
+| `export_statistics` | **Reserved for future use.** No call site exists by design (Phase 1, deferred until UI shape is known — see TASKS.md:2191-2193). Order export itself is gated on the separate `export` permission, which IS enforced. |
 | `manage_inventory` | Product / stock CRUD |
 | `manage_users` | Add, edit, deactivate users; edit the permission matrix |
 | `visible_fields` | **Array**, not boolean — which order columns this user may see |
@@ -93,6 +93,8 @@ Presets only — the Admin can override any individual checkbox.
 | manage_inventory | ✅ | ❌ | ✅ | ❌ |
 | manage_users | ✅ | ❌ | ❌ | ❌ |
 | visible_fields | all | all | no prices | all |
+
+**Note on `export_statistics`:** Reserved for future use; currently not enforced. No call site exists by design (Phase 1, deferred until UI shape is known — TASKS.md:2191-2193). Order export itself is gated on the separate `export` permission, which IS enforced. The matrix above shows suggested values; implementing the actual enforcement is deferred.
 
 ---
 

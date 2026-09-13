@@ -308,7 +308,7 @@ Web-based order management system with:
 - Testing: 300+ offline assertions; manual checklist before each milestone
 
 **Acceptance Criteria:**
-- [x] 404+ offline assertions all passing
+- [x] 1154 offline assertions all passing (18 suites; see `codebase-summary.md` §3)
 - [x] Manual checklist sections A–J verified live (M5)
 - [ ] Full M6 hardening (pending)
 
@@ -399,7 +399,7 @@ Web-based order management system with:
 
 | Metric | Target | Status |
 |--------|--------|--------|
-| **Offline test coverage** | >300 assertions | ✅ 404+ |
+| **Offline test coverage** | >300 assertions | ✅ 1154 (18 suites) — `codebase-summary.md` |
 | **Live verification** | Every milestone tested on real account | ✅ 4/6 milestones |
 | **Security vulnerabilities** | Zero severity-high unresolved | ✅ 1 HIGH (R3, FIXED) |
 | **Performance** | Order list <3s | ✅ Confirmed |

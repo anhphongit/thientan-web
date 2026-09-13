@@ -163,6 +163,9 @@ Detailed technical architecture covering data flow, component structure, securit
 | 2      | DH-001  | Widget B (Red)  | SP-002      | Cái  | 5   | 75,000    | 10%  | ... |
 ```
 
+**M5.5 ProductCode Autocomplete (Live Search):**
+The `productCode` field in order lines now provides live autocomplete search against the Products catalog. As the user types, a dropdown list appears with matching product codes. Internally: `apps/web/ui/ViewsOrders.html` calls `.apiLookupProducts({ q: searchTerm })` which invokes `apps/api/Products.gs:actionLookupProducts_()` for server-side search. Replaces the old free-text input.
+
 #### Products
 ```
 | ProductCode | Name        | UoM | LastPrice | StockQty | MinStock | Active |
@@ -173,14 +176,19 @@ Detailed technical architecture covering data flow, component structure, securit
 
 #### Config
 ```
-| Key                    | Value                                    |
-|------------------------|------------------------------------------|
-| statusList             | ["Active", "Cancelled", "Draft"]        |
-| uomList                | ["Chiếc", "Túi", "Hộp"]                |
-| customerList           | ["ABC Corp", "XYZ Ltd", ...]           |
-| approvalFlowEnabled    | false (feature flag)                    |
-| Security               | {key_expiry_days: 30, ...}             |
+| Key                    | Value                                    | Editable from Admin UI |
+|------------------------|------------------------------------------|------------------------|
+| statusList             | ["Active", "Cancelled", "Draft"]        | ✅ Yes (M5.4)         |
+| uomList                | ["Chiếc", "Túi", "Hộp"]                | ✅ Yes (M5.4)         |
+| customerList           | ["ABC Corp", "XYZ Ltd", ...]           | ✅ Yes (M5.4)         |
+| vatRates               | {"10%": 1.1, "5%": 1.05, ...}          | ✅ Yes (M5.4)         |
+| currency               | "VND"                                    | ✅ Yes (M5.4)         |
+| approvalFlowEnabled    | false (feature flag)                    | ❌ No (security)      |
+| Security               | {key_expiry_days: 30, ...}             | ❌ No (security)      |
 ```
+
+**M5.4 Config Editing:**
+Admins can edit `statusList`, `uomList`, `customerList`, `vatRates`, `currency` directly from the Admin UI (`apps/api/AdminConfig.gs`). Each key is guarded by an `EDITABLE_CONFIG_KEYS` allowlist with type validation and custom validators. Breaking configuration like `approvalFlowEnabled` and security-related keys are **explicitly excluded** from the allowlist for protection.
 
 ---
 

@@ -8,7 +8,7 @@
 - Explicit 5.1 scope exclusion: `apps/api/Products.gs:26-28`
 
 ## Overview
-- **Priority:** P2 · **Status:** pending · **Effort:** 3–4h (link only; auto-deduct is NOT in this estimate)
+- **Priority:** P2 · **Status:** ✅ COMPLETE · **Effort:** 3–4h (link only; auto-deduct is NOT in this estimate) (actual: ~3.5h)
 - **Blocked by:** the **Q5 decision**. Not blocked by Phases 3/4 in logic — only in file access if it needs new `Config.gs` MSG entries.
 - **Blocks:** Phase 6.
 - This gap is **not in the source audit at all**. It was found by tracing `productCode` through the UI.
@@ -93,15 +93,15 @@ save path unchanged: ViewsOrders.html:2596 → updateOrder → Orders.gs
 8. Bump `BUILD`. Run all suites.
 
 ## Todo
-- [ ] **Q5 answered and recorded in `OPEN_QUESTIONS.md`** (flip 🟡 → ✅)
-- [ ] Failing assertions written first
-- [ ] `actionLookupProducts_` gated on `create_order`/`edit_order`, minimal response shape
-- [ ] `Router.gs` + `Main.gs` wiring
-- [ ] Picker in `ViewsOrders.html`, respects `fieldAllowed_('productCode')`
-- [ ] Unmatched code still saveable (soft link)
-- [ ] Existing-order regression checked
-- [ ] No `stockQty` write introduced anywhere
-- [ ] `BUILD` bumped, all suites green
+- [x] **Q5 answered and recorded in `OPEN_QUESTIONS.md`** (flip 🟡 → ✅ manual stock deduction)
+- [x] Failing assertions written first (products.test.js + orders-ui.test.js)
+- [x] `actionLookupProducts_` gated on `create_order`/`edit_order`, minimal response shape (verified: no stockQty/minStock in response)
+- [x] `Router.gs` + `Main.gs` wiring (2 registry entries + pass-throughs)
+- [x] Picker in `ViewsOrders.html`, respects `fieldAllowed_('productCode')` (debounced autocomplete with 250ms)
+- [x] Unmatched code still saveable (soft link with non-blocking hint "Mã hàng không có trong kho")
+- [x] Existing-order regression checked (existing orders with unmatched codes still open/edit/save)
+- [x] No `stockQty` write introduced anywhere (grep verified)
+- [x] `BUILD` bumped ('api-2026-09-07c-product-lookup'), all 18 suites green (946+ assertions)
 
 ## Success criteria
 - A `sales` user (no `manage_inventory`) types 3 characters in `Mã hàng` and gets suggestions.
