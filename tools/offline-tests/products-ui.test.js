@@ -229,6 +229,56 @@ setTimeout(() => {
                    (callCounts.apiGetProduct || 0) === beforeGet + 1 && lastCall.fn === 'apiGetProduct' &&
                    lastCall.arg === 'SP-9999');
 
+                console.log('\nUI smoke — cache invalidation on filter mismatch (bug fix 2026-09-12)');
+                /* Regression test: when a product is edited to no longer match the
+                   current filters (e.g. active→inactive while includeInactive=false),
+                   it should disappear from the cached list, not sit there stale until
+                   a hard refresh. Drives upsertCachedProduct/removeCachedProduct
+                   directly against real `state` (exposed via _test) since this test
+                   file's DOM stub can't simulate the actual edit-form submit. */
+                const T_ = sandbox.window.TTInventory._test;
+
+                T_.state.filters = { q: '', includeInactive: false, lowStockOnly: false };
+                T_.state.products = [
+                  { productId: 'SP-1', code: 'C1', name: 'N1', active: true, isLowStock: false },
+                  { productId: 'SP-2', code: 'C2', name: 'N2', active: true, isLowStock: false }
+                ];
+                T_.state.productsMeta = { total: 2, shown: 2 };
+                T_.state.productsLoadedAt = Date.now();
+
+                T_.upsertCachedProduct({ productId: 'SP-1', code: 'C1', name: 'N1',
+                  active: false, isLowStock: false });
+                ok('deactivating a product removes it from the cache when includeInactive is off',
+                   T_.state.products.length === 1 && T_.state.products[0].productId === 'SP-2',
+                   JSON.stringify(T_.state.products));
+                ok('productsMeta.total is decremented alongside the removal',
+                   T_.state.productsMeta.total === 1, T_.state.productsMeta.total);
+
+                T_.upsertCachedProduct({ productId: 'SP-2', code: 'C2', name: 'N2 renamed',
+                  active: true, isLowStock: false });
+                ok('a product that still matches filters is updated in place, not dropped',
+                   T_.state.products.length === 1 && T_.state.products[0].name === 'N2 renamed',
+                   JSON.stringify(T_.state.products));
+
+                T_.state.filters = { q: '', includeInactive: false, lowStockOnly: true };
+                T_.state.products = [
+                  { productId: 'SP-3', code: 'C3', name: 'N3', active: true, isLowStock: true }
+                ];
+                T_.state.productsMeta = { total: 1, shown: 1 };
+                T_.upsertCachedProduct({ productId: 'SP-3', code: 'C3', name: 'N3',
+                  active: true, isLowStock: false });
+                ok('a product that drops below the low-stock threshold is removed when lowStockOnly is on',
+                   T_.state.products.length === 0, JSON.stringify(T_.state.products));
+
+                T_.state.filters = { q: '', includeInactive: true, lowStockOnly: false };
+                T_.state.products = [];
+                T_.state.productsMeta = { total: 0, shown: 0 };
+                T_.upsertCachedProduct({ productId: 'SP-4', code: 'C4', name: 'N4',
+                  active: false, isLowStock: false });
+                ok('a newly-inactive product is still added when includeInactive is on',
+                   T_.state.products.length === 1 && T_.state.products[0].productId === 'SP-4',
+                   JSON.stringify(T_.state.products));
+
                 console.log('\n' + pass + ' passed, ' + fail + ' failed');
                 process.exit(fail ? 1 : 0);
               }, 0);

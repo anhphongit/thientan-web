@@ -504,9 +504,15 @@ exporting: false,
     // show() calls root.innerHTML = '' on the next view switch, the wrapper
     // and its listeners are naturally garbage-collected, so stale handlers
     // from previous visits never fire on the current view's content.
-    // In test environments where document doesn't exist, fall back to root.
+    // In test environments where document doesn't exist — or where a fake
+    // document exists but the fake root node has no real appendChild (see
+    // orders-approvestatus-ui.test.js's minimal DOM stub) — fall back to
+    // root. Gating on root.appendChild itself (not just `typeof document`)
+    // is what actually matters here: it's root's DOM capability, not
+    // document's mere existence, that decides whether creating and
+    // attaching a wrapper node is possible.
     root.innerHTML = '';
-    if (typeof document !== 'undefined') {
+    if (typeof document !== 'undefined' && typeof root.appendChild === 'function') {
       wrapper = document.createElement('div');
       wrapper.addEventListener('click', onClick);
       wrapper.addEventListener('input', onInput);

@@ -26,10 +26,26 @@ function makeEnv(configOverrides) {
     currency: 'VND'
   }, configOverrides || {});
 
-  // Milestone 5 / 5.4 — populate Config sheet with editable keys for actionListConfig_
-  // Note: customerList first for backward compatibility with existing tests
-  const editableKeys = ['customerList', 'statusList', 'uomList', 'vatRates', 'currency'];
-  editableKeys.forEach(key => {
+  // Milestone 5 / 5.4 — populate the fake Config sheet from every key in
+  // publicConfig, mirroring production (readPublicConfig_ in Router.gs
+  // reads ALL rows of the real Config sheet, not just the admin-editable
+  // subset). Bug fix 2026-09-11: this used to loop over a hardcoded
+  // editableKeys allowlist (customerList/statusList/uomList/vatRates/
+  // currency) — the same list AdminConfig.gs uses to decide what the
+  // admin UI may edit. Conflating "seed the fake sheet" with "editable via
+  // admin UI" meant approvalFlowEnabled (deliberately NOT admin-editable,
+  // see AdminConfig.gs EDITABLE_CONFIG_KEYS) never made it into store.Config,
+  // so the harness's readPublicConfig_() (below) always read it back as
+  // undefined — approvalFlowEnabled_() was permanently false regardless of
+  // makeEnv({ approvalFlowEnabled: true }), breaking every approve-status
+  // test that depends on the flag. Seed from all publicConfig keys instead;
+  // actionListConfig_'s own EDITABLE_CONFIG_KEYS allowlist still governs
+  // what the admin UI can list/edit, independent of what's seeded here.
+  // Note: customerList first for backward compatibility with existing tests.
+  const orderedKeys = ['customerList', 'statusList', 'uomList', 'vatRates', 'currency']
+    .concat(Object.keys(publicConfig).filter(k =>
+      ['customerList', 'statusList', 'uomList', 'vatRates', 'currency'].indexOf(k) < 0));
+  orderedKeys.forEach(key => {
     if (key in publicConfig) {
       const val = publicConfig[key];
       store.Config.push({
@@ -280,10 +296,20 @@ function user(email, overrides) {
 }
 
 /** True flag helper: makeEnv({ approvalFlowEnabled: true }). Also usable to
- *  flip it back off mid-test since publicConfig is captured live per-env. */
+ *  flip it back off mid-test.
+ *  Bug fix 2026-09-11: readPublicConfig_() (see makeEnv above) rebuilds a
+ *  brand-new plain object from store.Config on every call — it is not a
+ *  live/cached reference. Mutating the object this function used to get
+ *  back from env.readPublicConfig_() was therefore thrown away immediately
+ *  and never affected the next readPublicConfig_() call. This masqueraded
+ *  as working only because approvalFlowEnabled was, until the store.Config
+ *  seeding fix above, permanently absent (=false) anyway. Write through to
+ *  store.Config directly instead, same as a real actionUpdateConfig_ write. */
 function withApprovalFlow(env, enabled) {
-  const cfg = env.readPublicConfig_();
-  cfg.approvalFlowEnabled = enabled;
+  const row = env.store.Config.find(r => r.key === 'approvalFlowEnabled');
+  const value = enabled ? 'TRUE' : 'FALSE';
+  if (row) { row.value = value; }
+  else { env.store.Config.push({ key: 'approvalFlowEnabled', value: value, description: '' }); }
 }
 
 let pass = 0, fail = 0;

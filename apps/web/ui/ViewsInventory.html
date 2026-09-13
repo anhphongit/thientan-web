@@ -433,9 +433,23 @@
 
   /** Write-through cache update after create/edit, same reasoning as
    *  ViewsOrders.html's upsertCachedOrder — next "← Danh sách" is instant
-   *  AND already correct. */
+   *  AND already correct. Bug fix 2026-09-12: a saved product that no
+   *  longer satisfies the active client-known filters (e.g. edited from
+   *  active to inactive while "Bao gồm hàng không hoạt động" is off, or
+   *  crossed the low-stock threshold while "Chỉ hiển thị hàng tồn thấp" is
+   *  on) must drop out of the cached list, not just get its fields
+   *  updated in place — otherwise it stays visible until a hard refresh.
+   *  The free-text `q` filter can't be reproduced client-side (server-only
+   *  matching), so that case is left as-is. */
   function upsertCachedProduct(product) {
     if (!state.productsLoadedAt) return;
+    var matchesFilters = (state.filters.includeInactive || product.active) &&
+      (!state.filters.lowStockOnly || product.isLowStock);
+    if (!matchesFilters) {
+      removeCachedProduct(product.productId);
+      return;
+    }
+
     var i = -1;
     for (var j = 0; j < state.products.length; j++) {
       if (state.products[j].productId === product.productId) { i = j; break; }
@@ -808,5 +822,15 @@
   }
 
   window.TTInventory = { render: render };
+  if (typeof document === 'undefined') {
+    // Same "no real browser" detection render() already uses above.
+    // tools/offline-tests/products-ui.test.js's DOM stub can't simulate a
+    // full form-collect/submit, so the cache-invalidation regression test
+    // (bug 2026-09-12) drives upsertCachedProduct/removeCachedProduct
+    // directly against real `state` instead of duplicating their logic.
+    // Gated out of production so no real caller ever sees it.
+    window.TTInventory._test = { state: state, upsertCachedProduct: upsertCachedProduct,
+      removeCachedProduct: removeCachedProduct };
+  }
 })();
 </script>
