@@ -25,7 +25,7 @@ Stored per user in `Users.permissions` as a JSON object.
 | `export_statistics` | **Reserved for future use.** No call site exists by design (Phase 1, deferred until UI shape is known — see TASKS.md:2191-2193). Order export itself is gated on the separate `export` permission, which IS enforced. |
 | `manage_inventory` | Product / stock CRUD |
 | `manage_users` | Add, edit, deactivate users; edit the permission matrix |
-| `visible_fields` | **Array**, not boolean — which order columns this user may see |
+| `visible_fields` | **Array**, not boolean — which order columns this user may see. **Milestone 5b:** Editable per-user via the admin permission matrix editor using grouped checkboxes + a "Toàn bộ cột" master toggle; not only inherited from the preset. |
 
 `visible_fields` example (current field names — see `HEADERS.Orders` /
 `DEFAULT_VISIBLE_FIELDS` in `apps/api/Config.gs`; this used to say `orderNo`,

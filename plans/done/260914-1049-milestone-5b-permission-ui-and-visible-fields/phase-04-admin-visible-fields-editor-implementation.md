@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Admin Visible-Fields Editor Implementation"
-status: pending
+status: done
 priority: P1
 effort: "6h"
 dependencies: [2, 3]
@@ -208,31 +208,31 @@ ViewsAdmin.html
 
 ## Todo List
 
-- [ ] `AdminVisibleFields.html` partial created with loader, HTML builder,
+- [x] `AdminVisibleFields.html` partial created with loader, HTML builder,
       shared `collectVisibleFields_()` helper
-- [ ] Included in `Index.html` at the right position
-- [ ] `ViewsAdmin.html` wired: load call, render call, `collect()` fix,
+- [x] Included in `Index.html` at the right position
+- [x] `ViewsAdmin.html` wired: load call, render call, `collect()` fix,
       `refreshCustomisedBadge_()` fix, change-listener extension
-- [ ] New CSS added if the approved mockup needs any
-- [ ] End-to-end manual check: edit → save → reopen round-trips correctly
-- [ ] Existing `admin-ui.test.js` Group I still passes unmodified (verify, per Key Insights)
+- [x] New CSS added if the approved mockup needs any
+- [x] End-to-end manual check: edit → save → reopen round-trips correctly
+- [x] Existing `admin-ui.test.js` Group I still passes unmodified (verify, per Key Insights)
 
 ## Success Criteria
 
-- [ ] Admin can check/uncheck individual visible_fields for a user and save
+- [x] Admin can check/uncheck individual visible_fields for a user and save
       successfully; the change persists and round-trips on reopen
-- [ ] "Toàn bộ cột" toggle correctly maps to `['*']` and disables/greys
+- [x] "Toàn bộ cột" toggle correctly maps to `['*']` and disables/greys
       individual checkboxes while checked
-- [ ] `alwaysVisible` fields render locked-on with an explanatory note, never
+- [x] `alwaysVisible` fields render locked-on with an explanatory note, never
       appear uncheckable-but-unexplained
-- [ ] "+ tuỳ chỉnh" badge reacts live to a visible_fields edit, same as it
+- [x] "+ tuỳ chỉnh" badge reacts live to a visible_fields edit, same as it
       already does for permission checkbox edits
-- [ ] Locked users (self/last-admin) show no visible_fields editor, same as
+- [x] Locked users (self/last-admin) show no visible_fields editor, same as
       today's permission checkboxes
-- [ ] `collect()` and `refreshCustomisedBadge_()` share one read
+- [x] `collect()` and `refreshCustomisedBadge_()` share one read
       implementation — no duplicated logic between them
-- [ ] Offline test suite green, including the untouched Group I assertions
-- [ ] Screenshot-verified against Phase 3's approved mockup (see Phase 5)
+- [x] Offline test suite green, including the untouched Group I assertions
+- [x] Screenshot-verified against Phase 3's approved mockup (see Phase 5)
 
 ## Risk Assessment
 
@@ -267,3 +267,26 @@ fallback branches before this phase is considered done.
 Phase 5 adds/updates test coverage for the new editor, re-verifies the
 existing escalation-guard assertions, syncs docs, and does the mandatory
 screenshot-vs-mockup comparison.
+
+## Addendum (2026-09-14, post-Phase-5 UX refinement)
+
+User feedback after reviewing the live editor: the master "Toàn bộ cột"
+toggle only dimmed individual checkboxes (CSS opacity), it didn't actually
+check them, and there was no reverse sync. Fixed:
+- Individual checkboxes now render **checked** whenever a field is
+  effectively visible, including when master/`['*']` is selected (was blank
+  before) — `checked = isLocked || masterChecked || membership`.
+- Real two-way sync: checking master cascades to check every non-locked
+  field (`cascadeFieldMaster_`); unchecking any individual afterward
+  auto-unchecks master (`syncFieldMasterFromIndividuals_`). Fields stay fully
+  interactive at all times — restricting from "all" is now subtractive
+  (uncheck a few), not additive (check dozens).
+- Dim/opacity CSS removed (`field-groups--dimmed`), superseded by real
+  checked-state.
+- `collectVisibleFields_`'s R3 contract (`['*']` only when master node
+  present AND `.checked===true`; alwaysVisible excluded from explicit list;
+  fallback to `base.visible_fields`, never a bare literal) verified
+  unchanged by a dedicated code-review pass.
+- New test file `tools/offline-tests/admin-visible-fields-editor.test.js`
+  (39 assertions) added for this behavior. Full suite (22 files) green.
+- User confirmed against the live deployment.

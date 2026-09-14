@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Backend Visible-Field Groups Source"
-status: pending
+status: done
 priority: P1
 effort: "3h"
 dependencies: []
@@ -192,23 +192,23 @@ ViewsAdmin.html (Phase 4)   T.call('apiListVisibleFieldGroups', {})
 
 ## Todo List
 
-- [ ] `FIELD_LABELS_VI` + `visibleFieldGroups_()` added to `Config.gs`
-- [ ] `actionListVisibleFieldGroups_` added to `Admin.gs`
-- [ ] Action registered in `Router.gs`
-- [ ] `apiListVisibleFieldGroups()` pass-through added to `apps/web/Main.gs`
-- [ ] Round-trip every returned field key through `cleanPermissionMatrix_` in a
+- [x] `FIELD_LABELS_VI` + `visibleFieldGroups_()` added to `Config.gs`
+- [x] `actionListVisibleFieldGroups_` added to `Admin.gs`
+- [x] Action registered in `Router.gs`
+- [x] `apiListVisibleFieldGroups()` pass-through added to `apps/web/Main.gs`
+- [x] Round-trip every returned field key through `cleanPermissionMatrix_` in a
       quick manual/offline check — none should throw
 
 ## Success Criteria
 
-- [ ] `actionListVisibleFieldGroups_` requires `manage_users` (rejects otherwise,
+- [x] `actionListVisibleFieldGroups_` requires `manage_users` (rejects otherwise,
       same error shape as `actionListPermissionPresets_`)
-- [ ] Every field key returned by `visibleFieldGroups_()` is accepted by
+- [x] Every field key returned by `visibleFieldGroups_()` is accepted by
       `cleanPermissionMatrix_` as a single-element `visible_fields` array
-- [ ] No field key appears in more than one group in the response
-- [ ] Every key in `ALWAYS_VISIBLE_FIELDS` and `MONEY_FIELDS` is correctly
+- [x] No field key appears in more than one group in the response
+- [x] Every key in `ALWAYS_VISIBLE_FIELDS` and `MONEY_FIELDS` is correctly
       flagged in its group entry
-- [ ] Offline test suite green
+- [x] Offline test suite green
 
 ## Risk Assessment
 

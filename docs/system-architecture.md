@@ -244,8 +244,17 @@ if (!fieldVisible_('supplierName', user)) {
 - If form is submitted, hidden values are preserved (not cleared)
 - API caller cannot override via direct call (clamped to safe defaults for new records)
 
+**Editor (Milestone 5b):**
+Admin permission matrix editor now includes a dedicated `visible_fields` section (separate disclosure button, "Cột dữ liệu được xem") with:
+- Grouped checkboxes by entity (Đơn hàng, Dòng đơn hàng, Hoá đơn) — 37 unique fields total
+- Live text filter to search fields by label
+- "Toàn bộ cột" master toggle (sets `['*']` when checked), two-way synced with the individual checkboxes in real time: checking it checks every non-locked field (and unchecking any single field afterward auto-unchecks the master); fields stay fully interactive at all times, so restricting from "all" is a subtractive edit (uncheck a few) rather than an additive one (check dozens)
+- Always-visible fields (approveStatus, updatedBy, updatedAt) render checked + disabled, tagged "khoá"
+- Money fields tagged "₫" for visibility
+- Backend source: `listVisibleFieldGroups` action returns live, deduplicated field list from `HEADERS` via `Config.gs`'s `visibleFieldGroups_()` function
+
 **R3 Security Fix (2026-09-10):**
-Previously, permission matrix save hardcoded `visible_fields = ['*']`, escalating any user to see all fields. Now carried from base preset; only overridden if user explicitly customizes.
+Previously, permission matrix save hardcoded `visible_fields = ['*']`, escalating any user to see all fields. Now carried from base preset by default; only overridden when admin explicitly selects fields via the editor (not a reversion — the carry-from-base behavior is still the correct default). A save of an untouched preset-based user still carries their preset's `visible_fields` unchanged; explicit editing now layers on top via the UI.
 
 ---
 

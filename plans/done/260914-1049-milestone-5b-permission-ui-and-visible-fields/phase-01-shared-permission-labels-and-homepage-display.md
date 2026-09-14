@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Shared Permission Labels and Homepage Display"
-status: pending
+status: done
 priority: P2
 effort: "3h"
 dependencies: []
@@ -205,24 +205,24 @@ Index.html
 
 ## Todo List
 
-- [ ] Create `apps/web/ui/PermissionLabels.html`
-- [ ] Wire it into `Index.html`'s include order
-- [ ] Point `ViewsAdmin.html` at the shared global, remove the duplicate literal
-- [ ] Rewrite `homeHtml()` in `App.html`
-- [ ] Manually verify (or delegate to Phase 5) both an admin account and a
+- [x] Create `apps/web/ui/PermissionLabels.html`
+- [x] Wire it into `Index.html`'s include order
+- [x] Point `ViewsAdmin.html` at the shared global, remove the duplicate literal
+- [x] Rewrite `homeHtml()` in `App.html`
+- [x] Manually verify (or delegate to Phase 5) both an admin account and a
       restricted account's homepage render correctly
 
 ## Success Criteria
 
-- [ ] A non-admin's homepage "Quyền hạn" card shows only their granted
+- [x] A non-admin's homepage "Quyền hạn" card shows only their granted
       permissions, each as a Vietnamese label, zero denied items in the DOM
-- [ ] An admin's homepage "Quyền hạn" card shows all 14 permissions, labeled,
+- [x] An admin's homepage "Quyền hạn" card shows all 14 permissions, labeled,
       granted styled `perm on` and denied styled plain `perm`
-- [ ] No raw snake_case permission key is ever rendered as visible text
-- [ ] "Cột được xem" row no longer appears anywhere on the homepage
-- [ ] `ViewsAdmin.html`'s existing matrix editor behavior is bit-for-bit
+- [x] No raw snake_case permission key is ever rendered as visible text
+- [x] "Cột được xem" row no longer appears anywhere on the homepage
+- [x] `ViewsAdmin.html`'s existing matrix editor behavior is bit-for-bit
       unchanged (labels, checkboxes, presets, disclosure toggle)
-- [ ] Offline test suite green
+- [x] Offline test suite green
 
 ## Risk Assessment
 

@@ -1,0 +1,40 @@
+<script>
+/**
+ * PermissionLabels.html — shared Vietnamese labels for the 14 boolean
+ * permission keys (Milestone 5b). Single source of truth for both the
+ * admin matrix editor (ViewsAdmin.html) and the homepage "Quyền hạn"
+ * card (App.html) — two sibling IIFEs, neither able to see the other's
+ * module-private state, so this lives on `window` instead.
+ * Keep in sync with apps/api/Config.gs's PERMISSION_KEYS (14 keys).
+ *
+ * MUST be included before ViewsAdmin.html and App.html (see Index.html's
+ * include_() order) — both read window.PERMISSION_GROUPS at module-eval
+ * time and will throw on undefined otherwise.
+ */
+window.PERMISSION_GROUPS = [
+  { label: 'Quản lý đơn hàng', keys: [
+    ['view_orders', 'Xem đơn hàng của tôi'],
+    ['view_all_orders', 'Xem tất cả đơn hàng'],
+    ['create_order', 'Tạo đơn hàng'],
+    ['edit_order', 'Sửa đơn hàng'],
+    ['delete_order', 'Xoá đơn hàng'],
+    ['change_status', 'Đổi trạng thái']
+  ]},
+  { label: 'Duyệt đơn & Xuất dữ liệu', keys: [
+    ['approve_order', 'Duyệt đơn hàng'],
+    ['can_edit_approved_order', 'Sửa đơn đã duyệt'],
+    ['search_filter', 'Tìm kiếm & Lọc'],
+    ['export', 'Xuất dữ liệu']
+  ]},
+  { label: 'Thống kê', keys: [
+    ['view_statistics', 'Xem thống kê'],
+    ['export_statistics', 'Xuất thống kê']
+  ]},
+  { label: 'Kho hàng', keys: [
+    ['manage_inventory', 'Quản lý kho hàng']
+  ]},
+  { label: 'Quản trị', keys: [
+    ['manage_users', 'Quản lý người dùng']
+  ]}
+];
+</script>

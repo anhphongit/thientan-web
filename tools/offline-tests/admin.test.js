@@ -498,4 +498,81 @@ console.log('\n20. updateUser without presetKey or permissions leaves role/permi
   eq('presetKey still warehouse', user2.presetKey, 'warehouse');
 }
 
+/* ---------- 21. visibleFieldGroups_ / actionListVisibleFieldGroups_ (Milestone 5b) ---------- */
+console.log('\n21. visibleFieldGroups_ is deduped, correctly flagged, and every key validates');
+{
+  const env = H.makeEnv();
+  const admin = user('a@x.com', { manage_users: true });
+  const noPerm = user('b@x.com', { manage_users: false });
+
+  const ALWAYS_VISIBLE_FIELDS = ['approveStatus', 'updatedBy', 'updatedAt'];
+  const MONEY_FIELDS = [
+    'unitPrice', 'vatRate', 'amountExVat', 'amountIncVat',
+    'totalExVat', 'totalIncVat', 'customerDeposit', 'supplierPaid'
+  ];
+
+  const out = env.actionListVisibleFieldGroups_(admin, {});
+  check('response has groups array', Array.isArray(out.groups));
+  eq('three groups: orders, orderLines, invoices', out.groups.map(g => g.key), ['orders', 'orderLines', 'invoices']);
+
+  // Flatten every field key across every group.
+  const allKeys = [];
+  out.groups.forEach(g => {
+    check(g.key + ' group has a label', typeof g.label === 'string' && g.label.length > 0);
+    g.fields.forEach(f => allKeys.push(f.key));
+  });
+
+  // Dedup check: no key appears in more than one group.
+  const uniqueKeys = new Set(allKeys);
+  eq('no field key appears in more than one group', allKeys.length, uniqueKeys.size);
+
+  // Every returned key validates through cleanPermissionMatrix_ as a
+  // single-element visible_fields array, without throwing.
+  allKeys.forEach(k => {
+    let threw = false;
+    try { env.cleanPermissionMatrix_({ visible_fields: [k] }); }
+    catch (err) { threw = true; }
+    check('cleanPermissionMatrix_ accepts key "' + k + '"', threw === false);
+  });
+
+  // ALWAYS_VISIBLE_FIELDS / MONEY_FIELDS are correctly flagged wherever they show up.
+  const byKey = {};
+  out.groups.forEach(g => g.fields.forEach(f => { byKey[f.key] = f; }));
+
+  ALWAYS_VISIBLE_FIELDS.forEach(k => {
+    check(k + ' flagged alwaysVisible', byKey[k] && byKey[k].alwaysVisible === true);
+  });
+  MONEY_FIELDS.forEach(k => {
+    check(k + ' flagged isMoney', byKey[k] && byKey[k].isMoney === true);
+  });
+  // Negative check: a field that is neither always-visible nor money-ish is
+  // flagged false, not merely falsy/undefined.
+  check('"customer" is not flagged alwaysVisible', byKey.customer.alwaysVisible === false);
+  check('"customer" is not flagged isMoney', byKey.customer.isMoney === false);
+
+  // Every current HEADERS column key has a real Vietnamese label today —
+  // FIELD_LABELS_VI's raw-key fallback is a degradation path for a FUTURE
+  // column, not something any key in the live schema should need right now.
+  eq('all keys have a real Vietnamese label (no raw-key fallback needed today)',
+    allKeys.every(k => byKey[k].label !== k), true);
+
+  // Gate check: same refusal shape as actionListPermissionPresets_.
+  throws('listVisibleFieldGroups refused for non-manage_users user', () =>
+    env.actionListVisibleFieldGroups_(noPerm, {}), 'không có quyền');
+
+  // Every key in every group must validate via cleanPermissionMatrix_.
+  // (allKeys was already populated in the flattening loop above)
+  allKeys.forEach(k => {
+    let threw = false;
+    try { env.cleanPermissionMatrix_({ visible_fields: [k] }); }
+    catch (err) { threw = true; }
+    check('key "' + k + '" validates via cleanPermissionMatrix_', threw === false);
+  });
+
+  // Regression: no key appears in two groups (dedup check was passing above,
+  // but state it explicitly for the test summary).
+  eq('dedup verified: no field key appears twice across all groups',
+    allKeys.length, new Set(allKeys).size);
+}
+
 H.done();

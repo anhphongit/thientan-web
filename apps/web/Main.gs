@@ -369,6 +369,14 @@ function apiListPermissionPresets() {
   });
 }
 
+/** Milestone 5b — grouped {key,label,fields:[{key,label,alwaysVisible,isMoney}]}
+ *  options for the visible_fields column editor. */
+function apiListVisibleFieldGroups() {
+  return handle_('apiListVisibleFieldGroups', function () {
+    return apiCall_('listVisibleFieldGroups', {});
+  });
+}
+
 /** Milestone 5 / 5.4 — config sheet editing. Gated on manage_users.
  *  @return {{config:Object[]}} */
 function apiListConfig() {

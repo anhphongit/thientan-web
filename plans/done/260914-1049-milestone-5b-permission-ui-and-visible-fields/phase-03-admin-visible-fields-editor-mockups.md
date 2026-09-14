@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Admin Visible-Fields Editor Mockups"
-status: pending
+status: done
 priority: P1
 effort: "2h"
 dependencies: [2]
@@ -109,29 +109,44 @@ placeholder Lorem Ipsum field names) so the user is judging against real content
 
 ## Todo List
 
-- [ ] Option A built
-- [ ] Option B built
-- [ ] Option C built only if warranted
-- [ ] Presented to user via Artifact
-- [ ] User approval recorded below (chosen option + any tweaks)
+- [x] Option A built
+- [x] Option B built
+- [x] Option C built only if warranted
+- [x] Presented to user via Artifact
+- [x] User approval recorded below (chosen option + any tweaks)
 
 ## Chosen Mockup
 
-<!-- Fill in after user approval, before Phase 4 begins:
-     - Chosen option (A/B/C or a named hybrid)
-     - Key visual decisions locked in (grouping style, always-visible/money
-       field treatment, master-toggle placement, relationship to the
-       existing permission checkboxes)
-     - Any user-requested tweaks not reflected in the original mockup -->
+**Chosen: Option B** — compact, per-group collapsible sub-sections (nested
+`<details>` per group, only "Đơn hàng" open by default) + live text filter
+input, denser 2/3-col checkbox grid (1 col phone, 2 col ≥640px per the
+mockup's `.field-items-b` breakpoint — implementation should also add a 3-col
+desktop tier per the mockup CSS if screen real estate allows, matching what
+was demoed).
+
+Approved via Artifact review (2026-09-14); no explicit answer given on the
+3 secondary sub-questions (disclosure relationship / master-toggle dim
+behavior / locked-field treatment), so the mockup's as-demoed defaults stand:
+- Second, separate disclosure ("Cột dữ liệu được xem") sits directly under
+  the existing "Nhóm quyền chi tiết" permission disclosure — not merged into
+  one.
+- "Toàn bộ cột" master toggle visually dims (not hides/unchecks) the
+  individual group sections when checked.
+- `alwaysVisible` fields (`approveStatus`, `updatedBy`, `updatedAt`) render
+  checked + disabled + a "khoá" tag. `isMoney` fields get a "₫" tag.
+
+Phase 4 implements this exactly — the live filter input is an addition beyond
+Phase 3's original spec (not in the plan's Implementation Steps) but was part
+of the approved mockup, so it's in scope for Phase 4 too.
 
 ## Success Criteria
 
-- [ ] 2-3 real, distinct mockup options presented (not variations differing
+- [x] 2-3 real, distinct mockup options presented (not variations differing
       only in color/spacing)
-- [ ] User has explicitly approved exactly one option (or a named hybrid)
-- [ ] The approved option is documented in this file, referenceable during
+- [x] User has explicitly approved exactly one option (or a named hybrid)
+- [x] The approved option is documented in this file, referenceable during
       Phase 4 implementation and Phase 5's screenshot-comparison step
-- [ ] Approved option was evaluated at both desktop and ~360px phone width
+- [x] Approved option was evaluated at both desktop and ~360px phone width
 
 ## Risk Assessment
 

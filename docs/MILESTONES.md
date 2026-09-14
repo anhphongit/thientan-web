@@ -229,7 +229,7 @@ for the full record, including two minor outstanding items noted above.
 
 ---
 
-## ☐ Milestone 5b — Permission Labels & Per-User Visible Fields Config
+## ☑ Milestone 5b — Permission Labels & Per-User Visible Fields Config  *(done 2026-09-14)*
 
 Inserted after 5a, before 6, per project-owner request (2026-09-14). Full plan:
 `plans/260914-1049-milestone-5b-permission-ui-and-visible-fields/plan.md`.
@@ -253,14 +253,14 @@ Scope:
 
 **Exit criteria**
 
-- [ ] Non-admin homepage shows only granted permissions, labeled, no raw keys
-- [ ] Admin homepage shows all permissions, labeled, styled granted/denied
-- [ ] Admin can configure per-user `visible_fields` via checkboxes and save successfully
-- [ ] "Toàn bộ cột" toggle and always-visible/money-field indicators work as designed
-- [ ] Mockup approved (Phase 3) and implementation screenshot-verified against it
-- [ ] All offline test suites green, including new/updated visible_fields and
+- [x] Non-admin homepage shows only granted permissions, labeled, no raw keys
+- [x] Admin homepage shows all permissions, labeled, styled granted/denied
+- [x] Admin can configure per-user `visible_fields` via checkboxes and save successfully
+- [x] "Toàn bộ cột" toggle and always-visible/money-field indicators work as designed
+- [x] Mockup approved (Phase 3) and implementation screenshot-verified against it
+- [x] All offline test suites green, including new/updated visible_fields and
       homepage-permission-display coverage
-- [ ] `PERMISSIONS.md`/`system-architecture.md` synced to describe the real editor
+- [x] `PERMISSIONS.md`/`system-architecture.md` synced to describe the real editor
 
 ---
 
@@ -337,6 +337,7 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-09-14 | 5b | **Milestone 5b code-complete and docs synced** — All five phases complete (shared permission labels, backend visible-field groups source, mockup-approved per-user editor, editor implementation with "Toàn bộ cột" toggle + grouped checkboxes + live filter, tests + docs sync). Homepage "Quyền hạn" card now shows Vietnamese labels instead of raw keys; non-admin users see only granted permissions, admins see full list styled granted/denied. Admin permission matrix editor now has a real per-user `visible_fields` editor (previously read-only, inherited only from preset). Editor UI: separate disclosure section with group-collapsed checkboxes (Đơn hàng, Dòng đơn hàng, Hoá đơn), master "Toàn bộ cột" toggle, live text filter, alwaysVisible fields disabled/tagged "khoá", isMoney fields tagged "₫". Backend source: `listVisibleFieldGroups` action returns live deduped field list from `HEADERS` via `visibleFieldGroups_()`, 37 unique fields. During review: caught and fixed critical bug where alwaysVisible fields in explicit saved list (approveStatus/updatedBy/updatedAt) would spuriously mark a preset-based user as role:'custom' on an otherwise untouched save. R3 escalation protection (carry-from-base-when-untouched) preserved; explicit editing layered on top. All offline test suites green (1,129+ assertions). |
 | 2026-09-14 | 5a | **Milestone 5a live migration run and signed off** — `migrateOrderLineStatus()` run once against the live sheet by the project owner; end-to-end verification (mixed/blank line statuses, one status-change history row, order list free of business status with approveStatus intact, stats/export, approval-workflow regression check, non-admin permission spot-check, 360px mobile) confirmed working. Two minor items not captured on record: an explicit pre-migration backup and a standalone `checkOrderHeaders_()` confirmation — low risk given the migration is non-destructive by design (rename, not delete); see Phase 8 sign-off table for detail. All 8 phases of the plan now complete. |
 | 2026-09-14 | 5a | **Milestone 5a code-complete and docs synced** — Phases 1–6 completed (schema migration, backend line-status logic, stats/export aggregation by line, frontend UI with mockup-approved per-line control, admin config review, comprehensive test suite). Phase 7 (docs-sync) executed: `DATA_MODEL.md` updated to show status/statusNote on OrderLines (optional) with statusList referenced from Config, StatusHistory added lineId (nullable), migration documented as not-yet-run-live. MILESTONES.md and development-roadmap.md flipped "Milestone 5a" placeholders from ☐ to ☑. Phase 8 (live migration + sign-off) pending project owner execution. All 18 offline test suites passing. Line-status aggregation by business decision: sum line revenue per status, explicit blank-status group "Chưa đặt trạng thái". Frontend option D approved: inline select + full-width always-visible status-note field below. Migration `migrateOrderLineStatus()` ready but not yet executed against live sheet. See plan `260914-0907-milestone-5a-order-status-to-line-level` for full phase details. |
 | 2026-09-13 | 5 | **Milestone 5 live verification and sign-off completed** — All exit criteria verified and signed off by project owner 2026-09-13. Inventory CRUD (products, categories, low-stock alerts), user management (create/edit/deactivate/permissions), permission matrix (14 checkboxes, phone-friendly card layout), config editing (status list, UoM list, customer list with instant cache invalidation), and admin protection rules (last-admin safeguards, self-escalation prevention) all confirmed operational. One bug found and fixed during test pass (stale inventory cache on inactive toggle — M5-1 in TASKS.md). All 126 checklist items in `CHECKLIST_M5_VI.md` passed. See checklist sections A–K for full test coverage. |

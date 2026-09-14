@@ -217,6 +217,7 @@ function getActions_() {
     createUser: actionCreateUser_,
     updateUser: actionUpdateUser_,
     listPermissionPresets: actionListPermissionPresets_,
+    listVisibleFieldGroups: actionListVisibleFieldGroups_,
 
     /* Milestone 5 / 5.4 — config sheet editing (status list, UoM list,
        customer list, VAT rates, currency) without direct sheet access.

@@ -167,6 +167,18 @@ function actionListPermissionPresets_(user, payload) {
   };
 }
 
+/**
+ * Milestone 5b — grouped, labeled visible_fields options for the admin's
+ * per-user column editor. Same manage_users gate as
+ * actionListPermissionPresets_. Sourced live from Config.gs's HEADERS via
+ * visibleFieldGroups_(), so the client's checkbox list can never list a
+ * field this file's own cleanPermissionMatrix_ would reject.
+ */
+function actionListVisibleFieldGroups_(user, payload) {
+  requirePermission_(user, 'manage_users');
+  return { groups: visibleFieldGroups_() };
+}
+
 /* =======================================================================
    Helpers
    ======================================================================= */

@@ -184,18 +184,21 @@
   /* ---------------- views ---------------- */
 
   function homeHtml() {
+    var isAdmin = can('manage_users');
     var granted = [], denied = [];
-    Object.keys(session.permissions).forEach(function (k) {
-      if (k === 'visible_fields') return;
-      (session.permissions[k] === true ? granted : denied).push(k);
+    PERMISSION_GROUPS.forEach(function (group) {
+      group.keys.forEach(function (pair) {
+        var key = pair[0], label = pair[1];
+        (session.permissions[key] === true ? granted : denied).push(label);
+      });
     });
 
-    var chips = granted.map(function (k) { return '<li class="perm on">' + esc(k) + '</li>'; })
-      .concat(denied.map(function (k) { return '<li class="perm">' + esc(k) + '</li>'; }))
-      .join('');
+    var chips = granted.map(function (label) {
+      return '<li class="perm on">' + esc(label) + '</li>';
+    }).concat(isAdmin ? denied.map(function (label) {
+      return '<li class="perm">' + esc(label) + '</li>';
+    }) : []).join('');
 
-    var fields = session.permissions.visible_fields || [];
-    var fieldText = (fields.length === 1 && fields[0] === '*') ? 'Toàn bộ cột' : fields.join(', ');
     return '' +
       '<section class="card">' +
         '<h2>Tài khoản của bạn</h2>' +
@@ -203,7 +206,6 @@
           '<dt>Họ tên</dt><dd>' + esc(session.displayName) + '</dd>' +
           '<dt>Email</dt><dd>' + esc(session.email) + '</dd>' +
           '<dt>Vai trò</dt><dd>' + esc(session.role) + '</dd>' +
-          '<dt>Cột được xem</dt><dd>' + esc(fieldText) + '</dd>' +
         '</dl>' +
       '</section>' +
       '<section class="card">' +

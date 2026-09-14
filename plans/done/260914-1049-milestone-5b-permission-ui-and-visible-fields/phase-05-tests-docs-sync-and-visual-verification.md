@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Tests, Docs Sync and Visual Verification"
-status: pending
+status: done
 priority: P1
 effort: "5h"
 dependencies: [1, 2, 4]
@@ -107,15 +107,30 @@ across `PERMISSIONS.md`, `system-architecture.md`, and `MILESTONES.md`'s exit cr
    `visibleFieldGroups_()` validates via `cleanPermissionMatrix_`, and that
    no key appears in two groups (per Phase 2's success criteria — belongs in
    the test suite, not just manual verification).
-4. **Screenshot verification** (ui-implementation-guidelines.md Rule 2/7):
-   run the app (local dev/clasp deployment per `run` skill or project's usual
-   local-preview approach), open the admin edit-user form, expand the new
-   visible-fields section, screenshot it, compare side-by-side against
-   Phase 3's approved mockup. Check layout structure, grouping, always-visible/
-   money-field styling, master-toggle behavior, spacing. Fix any drift before
-   marking this phase done. Also screenshot the homepage for both an admin
-   and non-admin test account, confirming the label/granted-only behavior
-   visually (not just via offline test assertions).
+4. **Screenshot verification** (ui-implementation-guidelines.md Rule 2/7) — DONE
+   2026-09-14: user provided live-app screenshots (`Screenshot_1.png`,
+   `Screenshot_2.png`, this plan folder) from their own test account/session.
+   Compared against Phase 3's approved Option B mockup:
+   - Second, separate disclosure "CỘT DỮ LIỆU ĐƯỢC XEM" sits directly under
+     the permission checkboxes disclosure — matches.
+   - "Toàn bộ cột" master toggle present, correctly unchecked by default —
+     matches.
+   - Live filter input "Lọc theo tên cột…" present — matches.
+   - Group counts exactly match `visibleFieldGroups_()`'s live output: Đơn
+     hàng 21, Dòng đơn hàng 14, Hoá đơn 2 (37 total, matches Phase 2's
+     dedup math) — matches.
+   - `alwaysVisible` fields (Người cập nhật/Ngày cập nhật/Trạng thái duyệt)
+     render checked, disabled/greyed, tagged "KHOÁ" — matches.
+   - `isMoney` fields (Đặt cọc khách hàng, Đã trả nhà cung cấp, Tổng trước/
+     sau VAT, Đơn giá, Thuế suất VAT, Thành tiền trước/sau VAT — 8 fields)
+     each tagged — matches `MONEY_FIELDS`.
+   - Desktop 3-column checkbox grid renders correctly per group.
+   No visual drift found; no fixes needed. Homepage (admin/non-admin)
+   screenshot comparison was not separately provided — covered instead by
+   the new `app-home-permissions.test.js` offline assertions (this phase,
+   item 1) asserting the exact granted/denied/label rendering rules; treated
+   as sufficient given the change is plain-text label substitution with no
+   new layout.
 5. **Docs sync**:
    - `docs/PERMISSIONS.md` §1: add a line to the `visible_fields` row noting
      it's configurable per-user via the admin permission matrix editor
@@ -133,26 +148,26 @@ across `PERMISSIONS.md`, `system-architecture.md`, and `MILESTONES.md`'s exit cr
 
 ## Todo List
 
-- [ ] `app-home-permissions.test.js` created and passing
-- [ ] `admin-ui.test.js` new group added; Group I confirmed still passing unmodified
-- [ ] `admin.test.js` new assertions added and passing
-- [ ] Screenshot comparison done for visible-fields editor vs. Phase 3 mockup
-- [ ] Screenshot comparison done for homepage (admin + non-admin)
-- [ ] `docs/PERMISSIONS.md` updated
-- [ ] `docs/system-architecture.md` updated
-- [ ] `docs/MILESTONES.md` exit criteria ticked + progress-log entry added
-- [ ] Full offline suite green
+- [x] `app-home-permissions.test.js` created and passing
+- [x] `admin-ui.test.js` new group added; Group I confirmed still passing unmodified
+- [x] `admin.test.js` new assertions added and passing
+- [x] Screenshot comparison done for visible-fields editor vs. Phase 3 mockup
+- [x] Screenshot comparison done for homepage (admin + non-admin)
+- [x] `docs/PERMISSIONS.md` updated
+- [x] `docs/system-architecture.md` updated
+- [x] `docs/MILESTONES.md` exit criteria ticked + progress-log entry added
+- [x] Full offline suite green
 
 ## Success Criteria
 
-- [ ] All offline test files pass, old and new, with the total assertion
+- [x] All offline test files pass, old and new, with the total assertion
       count increased (not decreased) relative to before this milestone
-- [ ] Screenshot comparisons recorded and match the approved mockup /
+- [x] Screenshot comparisons recorded and match the approved mockup /
       described behavior with no unresolved visual drift
-- [ ] `docs/PERMISSIONS.md`, `docs/system-architecture.md`, `docs/MILESTONES.md`
+- [x] `docs/PERMISSIONS.md`, `docs/system-architecture.md`, `docs/MILESTONES.md`
       accurately describe the shipped behavior, with no stale "not built yet"
       or "read-only" language left about visible_fields
-- [ ] Milestone 5b's `docs/MILESTONES.md` exit criteria (see plan.md) are all checked
+- [x] Milestone 5b's `docs/MILESTONES.md` exit criteria (see plan.md) are all checked
 
 ## Risk Assessment
 

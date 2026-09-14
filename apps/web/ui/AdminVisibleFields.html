@@ -1,0 +1,304 @@
+<script>
+/**
+ * AdminVisibleFields.html — visible_fields column editor for the admin user
+ * form (Milestone 5b / Phase 4). Extracted out of ViewsAdmin.html (which was
+ * already 1578 lines) rather than growing that file further — same
+ * "assign to window, no IIFE, included before the consumer" shape as Phase
+ * 1's PermissionLabels.html. ViewsAdmin.html's own IIFE calls into
+ * window.TTAdminVisibleFields; this file has no private module state beyond
+ * a small render-time cache described below, so it does not need (and must
+ * not use) an IIFE wrapper of its own.
+ *
+ * Implements Phase 3's approved "Option B" mockup exactly:
+ *   - A second, separate disclosure ("Cột dữ liệu được xem") directly under
+ *     the existing "Nhóm quyền chi tiết" permission disclosure — not merged
+ *     into one (same .perm-disclosure/.perm-body visual language, reused).
+ *   - Per-group NESTED <details> (native, no extra JS needed to
+ *     expand/collapse each group) — only the first group open by default.
+ *   - A live text filter input that shows/hides individual field rows by
+ *     label substring — an addition beyond Phase 3's original code sketch,
+ *     but explicitly in scope per the approved mockup.
+ *   - A denser checkbox grid: 1 col phone, 2 col >=640px, 3 col >=960px.
+ *   - The master "Toàn bộ cột" toggle two-way syncs with the individual
+ *     checkboxes below (real DOM writes, never CSS-only): checking it
+ *     cascades every non-locked individual checkbox to checked; unchecking
+ *     it cascades them all to unchecked (cascadeFieldMaster_). Toggling any
+ *     single non-locked individual checkbox recomputes whether every
+ *     non-locked individual is currently checked and writes that back onto
+ *     the master's own checkbox (syncFieldMasterFromIndividuals_) — checked
+ *     only while ALL of them are. Individual checkboxes are never disabled
+ *     because of the master (only alwaysVisible fields are ever disabled);
+ *     they stay fully interactive and visually truthful at all times, so
+ *     "Toàn bộ cột" checked reads as "everything below is checked" rather
+ *     than a dimmed, blank-looking grid.
+ *   - alwaysVisible fields (server-enforced regardless of what's saved,
+ *     see Config.gs's ALWAYS_VISIBLE_FIELDS) render checked + disabled with
+ *     a "khoá" tag. isMoney fields get a "₫" tag.
+ *
+ * SECURITY (read before touching collectVisibleFields_ or its fallback):
+ * this exact area had a HIGH-severity escalation bug on 2026-09-10 (R3) —
+ * a hardcoded `['*']` default silently granted every column, including
+ * money columns, on the very first save. The only place this file ever
+ * writes `['*']` is when the master toggle node is present AND explicitly
+ * checked. Every fallback path below reads from `base.visible_fields`
+ * instead — never from a bare `['*']` literal.
+ */
+
+/**
+ * Render-time cache of the field groups last painted, so collectVisibleFields_()
+ * can keep the exact two-arg shape (root, base) specified for Phase 4 without
+ * every call site having to thread `state.fieldGroups` through again. Safe
+ * because a paint of visibleFieldsDisclosureHtml() always happens
+ * immediately before any collect()/refreshCustomisedBadge_() call that reads
+ * the resulting DOM — there is no window where collect() could run against
+ * a stale set of groups from a previous, different paint.
+ */
+var _ttFieldGroupsRendered = null;
+
+/** Flatten fieldGroups into a single array of field keys — mirrors how
+ *  ViewsAdmin.html's permissionKeys_() flattens window.PERMISSION_GROUPS.
+ *  Accepts an explicit fieldGroups list, or falls back to the last-rendered
+ *  cache when called with no argument (the collect()-time shape). */
+function fieldKeys_(fieldGroups) {
+  var groups = fieldGroups || _ttFieldGroupsRendered || [];
+  var keys = [];
+  groups.forEach(function (group) {
+    (group.fields || []).forEach(function (f) { keys.push(f.key); });
+  });
+  return keys;
+}
+
+/**
+ * Renders the "Cột dữ liệu được xem" disclosure, or '' when there is nothing
+ * to show (locked user, or no base resolved yet — same degrade rules
+ * permissionDisclosureHtml already applies, kept in sync here).
+ *
+ * @param {Object} u - the in-flight user form state (state.user)
+ * @param {Object|null} base - basePermissions_(u), the resolved base to seed
+ *   from and diff against (same resolution order as the permission matrix)
+ * @param {boolean} locked - self/last-admin lock; renders nothing when true
+ * @param {Array|null} fieldGroups - state.fieldGroups; null means "still
+ *   loading" (or never requested) and renders a lightweight loading line
+ *   instead of the real editor
+ */
+function visibleFieldsDisclosureHtml(u, base, locked, fieldGroups) {
+  if (locked) return '';
+  if (!base) return '';
+
+  var T = window.TT;
+  var esc = T.esc;
+
+  if (!fieldGroups) {
+    // Mirrors presetSelectHtml's "Đang tải nhóm quyền…" placeholder shape,
+    // adapted to a whole section rather than a single <select>.
+    _ttFieldGroupsRendered = [];
+    return '' +
+      '<div class="form-section">' +
+        '<span class="form-section-label">Cột dữ liệu được xem</span>' +
+        '<p class="field-groups-loading">Đang tải danh sách cột…</p>' +
+      '</div>';
+  }
+  _ttFieldGroupsRendered = fieldGroups;
+
+  var expanded = !!u.showFieldMatrix;
+  // Same effective-value pattern as ViewsAdmin.html's effectivePermissions_:
+  // an in-flight edit (permissionsToSave, which already carries the fully
+  // collected visible_fields) wins over the resolved base, so a repaint
+  // mid-edit (preset switch, toggling a permission box, etc.) never reverts
+  // what the admin already changed here.
+  var effective = (u && u.permissionsToSave) || base || {};
+  var visibleFields = effective.visible_fields || ['*'];
+  var masterChecked = visibleFields.indexOf('*') >= 0;
+  var stateLabel = masterChecked ? 'Toàn bộ cột' : 'Tuỳ chỉnh';
+
+  var groupsHtml = '<div class="field-groups" id="field-groups-wrap">';
+  fieldGroups.forEach(function (group, gi) {
+    groupsHtml += '' +
+      '<details class="perm-group field-group"' + (gi === 0 ? ' open' : '') + '>' +
+        '<summary>' + esc(group.label) +
+          '<span class="field-group-count">' + (group.fields || []).length + '</span>' +
+        '</summary>' +
+        '<div class="field-items">' +
+          (group.fields || []).map(function (f) {
+            var isLocked = !!f.alwaysVisible;
+            // Locked fields are always checked regardless of the array —
+            // Permissions.gs enforces them unconditionally server-side too.
+            // Non-locked fields render checked when EITHER the master is on
+            // (masterChecked — "all columns" now visually means "everything
+            // below is checked", not blank) OR the key is explicitly listed.
+            // This makes unchecking the few fields an admin wants to hide
+            // the natural first move, instead of checking dozens to grant.
+            var checked = isLocked || masterChecked || visibleFields.indexOf(f.key) >= 0;
+            var tags = '' +
+              (isLocked ? '<span class="field-tag field-tag-locked">khoá</span>' : '') +
+              (f.isMoney ? '<span class="field-tag field-tag-money">₫</span>' : '');
+            return '' +
+              '<label class="field field-check field-item" data-field-label="' +
+                esc(String(f.label || '').toLowerCase()) + '">' +
+                '<input type="checkbox" id="f-field-' + esc(f.key) + '"' +
+                  (checked ? ' checked' : '') + (isLocked ? ' disabled' : '') + '> ' +
+                '<span class="field-item-label">' + esc(f.label) + '</span>' + tags +
+              '</label>';
+          }).join('') +
+        '</div>' +
+      '</details>';
+  });
+  groupsHtml += '</div>';
+
+  return '' +
+    '<div class="form-section">' +
+      '<span class="form-section-label">Cột dữ liệu được xem</span>' +
+      '<button type="button" class="perm-disclosure" data-act="toggle-fields" ' +
+        'aria-expanded="' + (expanded ? 'true' : 'false') + '" aria-controls="field-body">' +
+        '<div class="perm-disclosure-content">' +
+          '<div class="perm-disclosure-label"><strong>' + esc(stateLabel) + '</strong></div>' +
+        '</div>' +
+        '<span class="perm-disclosure-toggle">▼</span>' +
+      '</button>' +
+      // A distinct "field-body--collapsed" modifier (not perm-body--collapsed)
+      // on purpose: ViewsAdmin.html's own offline tests grep the whole
+      // painted HTML for "perm-body--collapsed" to assert the PERMISSION
+      // disclosure's open/closed state; sharing that exact class string here
+      // would make those assertions see this section's independent collapsed
+      // state too and fail for reasons that have nothing to do with a real
+      // permission-matrix regression. Layout/spacing still comes from the
+      // shared .perm-body base class — only the show/hide toggle is renamed.
+      '<div id="field-body" class="perm-body' + (expanded ? '' : ' field-body--collapsed') + '">' +
+        '<label class="field field-check field-master-toggle">' +
+          '<input type="checkbox" id="f-field-all"' + (masterChecked ? ' checked' : '') + '> ' +
+          'Toàn bộ cột' +
+        '</label>' +
+        '<input type="search" id="f-field-filter" class="field-filter-input" ' +
+          'placeholder="Lọc theo tên cột…" value="">' +
+        groupsHtml +
+      '</div>' +
+    '</div>';
+}
+
+/**
+ * Shared read helper — the ONE place ViewsAdmin.html's collect() and
+ * refreshCustomisedBadge_() both read visible_fields from, so the two can
+ * never drift (phase-04 risk register). Same present-node-wins,
+ * absent-node-falls-back-to-base shape as the 14-boolean permission loop.
+ *
+ * @param {Object} root - the form root (real DOM node, or the offline test
+ *   harness's stub — see tools/offline-tests/admin-ui.test.js's node())
+ * @param {Object} base - basePermissions_(u), never null when called from
+ *   collect() (guarded by its own `if (!base) return;` before this runs)
+ * @return {string[]} either `['*']` or an explicit list of field keys —
+ *   NEVER a hardcoded `['*']` default; the only `['*']` return is the
+ *   explicit-master-checked branch below.
+ */
+function collectVisibleFields_(root, base) {
+  var allEl = root.querySelector('#f-field-all');
+  // Absent node: section never rendered (locked user, or — same as the
+  // permission matrix's R5/R2 guards — a collapsed/stubbed DOM). Fall back
+  // to the resolved base, never to a bare ['*'] literal (R3, 2026-09-10).
+  if (!allEl) return (base.visible_fields || ['*']).slice();
+  if (allEl.checked) return ['*'];
+
+  var out = [];
+  var groups = _ttFieldGroupsRendered || [];
+  groups.forEach(function (group) {
+    (group.fields || []).forEach(function (f) {
+      // alwaysVisible fields (Config.gs's ALWAYS_VISIBLE_FIELDS) render
+      // checked + disabled UNCONDITIONALLY (see visibleFieldsDisclosureHtml
+      // above) — they carry no real user choice, since Permissions.gs shows
+      // them regardless of what the array contains. Writing them into the
+      // explicit list anyway would make an untouched save of any base whose
+      // array doesn't already list them (e.g. DEFAULT_VISIBLE_FIELDS, used
+      // by the "warehouse" preset) look "customised" against its own preset
+      // for no real reason, silently flipping role:'staff' saves to
+      // role:'custom' on a plain displayName edit. Skip them entirely, same
+      // as they were never rendered.
+      if (f.alwaysVisible) return;
+      var el = root.querySelector('#f-field-' + f.key);
+      // Absent individual node falls back to the BASE's membership, never to
+      // "not visible" by default — a partially-stubbed DOM must never be
+      // able to invent a restriction any more than the permission loop lets
+      // it invent a revocation.
+      var checked = el ? !!el.checked : (base.visible_fields || []).indexOf(f.key) >= 0;
+      if (checked) out.push(f.key);
+    });
+  });
+  return out;
+}
+
+/**
+ * Live text filter — shows/hides individual field rows across every group
+ * by label substring, forcing all groups open while a query is active (a
+ * closed native <details> hides its content regardless of any filter class
+ * added underneath it) and restoring the "first group open only" default
+ * once the query is cleared.
+ */
+function applyFieldFilter_(root, query) {
+  var q = String(query || '').trim().toLowerCase();
+  var groups = root.querySelectorAll('.field-group');
+  for (var i = 0; i < groups.length; i++) {
+    var group = groups[i];
+    var items = group.querySelectorAll('.field-item');
+    for (var j = 0; j < items.length; j++) {
+      var item = items[j];
+      var label = item.getAttribute('data-field-label') || '';
+      if (!q || label.indexOf(q) >= 0) item.classList.remove('hidden');
+      else item.classList.add('hidden');
+    }
+    group.open = q ? true : (i === 0);
+  }
+}
+
+/**
+ * Master → individuals cascade. Targeted DOM writes only (no full repaint),
+ * same "skip paintForm()" discipline as ViewsAdmin.html's
+ * refreshCustomisedBadge_(), so flipping the master toggle never blows away
+ * focus or scroll position. Every non-locked (!alwaysVisible) field's
+ * checkbox is force-set to `checked`; alwaysVisible fields are always
+ * checked+disabled already and are never touched here.
+ */
+function cascadeFieldMaster_(root, checked) {
+  var groups = _ttFieldGroupsRendered || [];
+  groups.forEach(function (group) {
+    (group.fields || []).forEach(function (f) {
+      if (f.alwaysVisible) return;
+      var el = root.querySelector('#f-field-' + f.key);
+      if (el) el.checked = !!checked;
+    });
+  });
+}
+
+/**
+ * Individuals → master sync. Reads the LIVE `.checked` state of every
+ * non-locked field checkbox and writes the master toggle's own `.checked` to
+ * true only when at least one such field exists AND every one of them is
+ * currently checked (a missing/absent node counts as NOT checked — stays
+ * conservative, same fallback discipline as collectVisibleFields_ below).
+ * Returns the computed boolean (unused by callers today, but harmless and
+ * convenient for tests).
+ */
+function syncFieldMasterFromIndividuals_(root) {
+  var groups = _ttFieldGroupsRendered || [];
+  var sawAny = false;
+  var allChecked = true;
+  groups.forEach(function (group) {
+    (group.fields || []).forEach(function (f) {
+      if (f.alwaysVisible) return;
+      sawAny = true;
+      var el = root.querySelector('#f-field-' + f.key);
+      if (!(el && el.checked)) allChecked = false;
+    });
+  });
+  var result = sawAny && allChecked;
+  var allEl = root.querySelector('#f-field-all');
+  if (allEl) allEl.checked = result;
+  return result;
+}
+
+window.TTAdminVisibleFields = {
+  visibleFieldsDisclosureHtml: visibleFieldsDisclosureHtml,
+  collectVisibleFields_: collectVisibleFields_,
+  fieldKeys_: fieldKeys_,
+  applyFieldFilter_: applyFieldFilter_,
+  cascadeFieldMaster_: cascadeFieldMaster_,
+  syncFieldMasterFromIndividuals_: syncFieldMasterFromIndividuals_
+};
+</script>

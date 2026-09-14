@@ -44,6 +44,9 @@
     // ensureCreatorsLoaded/state.creators pattern) — null = not fetched
     // yet, [] would be a genuinely empty (but valid) answer.
     presets: null, presetsLoading: false,
+    // Milestone 5b / Phase 4 — visible_fields column groups, same lazy-
+    // singleton shape as presets above (fetched once, null = not fetched yet).
+    fieldGroups: null, fieldGroupsLoading: false,
     // Client-side-only filters — see file doc comment. includeInactive
     // defaults to false: a deactivated account is out of the way by
     // default, same "hide inactive by default" spirit as Products.gs's list.
@@ -66,52 +69,12 @@
    *  worth more than the tiny savings of skipping it here. */
   var LIST_CACHE_TTL_MS = 60000;
 
-  /**
-   * Grouped permission matrix structure: group label + key/label pairs.
-   * Single source of truth for collect() and permissionDisclosureHtml().
-   * Keep group order (largest first) and keys in logical order per group.
-   */
-  var PERMISSION_GROUPS = [
-    {
-      label: 'Quản lý đơn hàng',
-      keys: [
-        ['view_orders', 'Xem đơn hàng của tôi'],
-        ['view_all_orders', 'Xem tất cả đơn hàng'],
-        ['create_order', 'Tạo đơn hàng'],
-        ['edit_order', 'Sửa đơn hàng'],
-        ['delete_order', 'Xoá đơn hàng'],
-        ['change_status', 'Đổi trạng thái']
-      ]
-    },
-    {
-      label: 'Duyệt đơn & Xuất dữ liệu',
-      keys: [
-        ['approve_order', 'Duyệt đơn hàng'],
-        ['can_edit_approved_order', 'Sửa đơn đã duyệt'],
-        ['search_filter', 'Tìm kiếm & Lọc'],
-        ['export', 'Xuất dữ liệu']
-      ]
-    },
-    {
-      label: 'Thống kê',
-      keys: [
-        ['view_statistics', 'Xem thống kê'],
-        ['export_statistics', 'Xuất thống kê']
-      ]
-    },
-    {
-      label: 'Kho hàng',
-      keys: [
-        ['manage_inventory', 'Quản lý kho hàng']
-      ]
-    },
-    {
-      label: 'Quản trị',
-      keys: [
-        ['manage_users', 'Quản lý người dùng']
-      ]
-    }
-  ];
+  // Grouped permission matrix structure (group label + key/label pairs) now
+  // lives in ui/PermissionLabels.html as window.PERMISSION_GROUPS, shared
+  // with App.html's homepage "Quyền hạn" card (Milestone 5b). Every other
+  // reference to the bare PERMISSION_GROUPS identifier in this file
+  // (collect(), permissionDisclosureHtml(), etc.) is unchanged.
+  var PERMISSION_GROUPS = window.PERMISSION_GROUPS;
 
   /**
    * Config display labels (Vietnamese). Server allowlist in AdminConfig.gs:38 is
@@ -258,6 +221,7 @@
       root.addEventListener('change', onChange);
     }
     ensurePresetsLoaded();
+    ensureFieldGroupsLoaded();
     // Milestone 5 / 5.4 — default to users tab; later tab navigation will switch
     if (state.activeTab === 'config') {
       showConfigTab();
@@ -285,6 +249,28 @@
       state.presets = [];
       state.presetsLoading = false;
       T.toast('Không tải được danh sách nhóm quyền: ' + err.message, true);
+      if (state.user && T.isCurrentView('users', gen)) paintForm();
+    });
+  }
+
+  /**
+   * Milestone 5b / Phase 4 — visible_fields column groups, fetched once per
+   * session. Mirrors ensurePresetsLoaded()'s exact shape: same null-means-
+   * not-fetched-yet guard, same failure fallback to [] (never leaves the
+   * request stuck retrying forever, same as presets' own failure path).
+   */
+  function ensureFieldGroupsLoaded() {
+    if (state.fieldGroups !== null || state.fieldGroupsLoading) return;
+    state.fieldGroupsLoading = true;
+    var gen = T.viewGeneration();
+    T.call('apiListVisibleFieldGroups', {}).then(function (data) {
+      state.fieldGroups = (data && data.groups) || [];
+      state.fieldGroupsLoading = false;
+      if (state.user && T.isCurrentView('users', gen)) paintForm();
+    }).catch(function (err) {
+      state.fieldGroups = [];
+      state.fieldGroupsLoading = false;
+      T.toast('Không tải được danh sách cột dữ liệu: ' + err.message, true);
       if (state.user && T.isCurrentView('users', gen)) paintForm();
     });
   }
@@ -562,7 +548,8 @@
     // see the invariant note at save()'s isNew line. Never derive it from email
     // presence again; collect() and other handlers may run long before save().
     return { email: '', displayName: '', note: '', active: true, presetKey: '',
-             isSelf: false, isLastAdmin: false, showPermissionMatrix: false, isNewUser: true };
+             isSelf: false, isLastAdmin: false, showPermissionMatrix: false,
+             showFieldMatrix: false, isNewUser: true };
   }
 
   /**
@@ -688,6 +675,8 @@
             field('Trạng thái', statusSelectHtml(u, lockActive)) +
           '</div>' +
           permissionDisclosureHtml(u, lockPermissions) +
+          window.TTAdminVisibleFields.visibleFieldsDisclosureHtml(
+            u, basePermissions_(u), lockPermissions, state.fieldGroups) +
           '<div class="form-section">' +
             '<span class="form-section-label">Ghi chú</span>' +
             '<label class="field"><textarea id="f-note" rows="3"' + d + '>' +
@@ -886,11 +875,13 @@
       // partially-stubbed DOM must never be able to invent a revocation.
       perms[key] = el ? !!el.checked : !!base[key];
     });
-    // R3 — carry visible_fields from the resolved base instead of
-    // hardcoding ['*']: a warehouse user's base restricts money columns
-    // (DEFAULT_VISIBLE_FIELDS, Config.gs:183-187); hardcoding ['*'] here
-    // would silently grant every money column on the very first save.
-    perms.visible_fields = (base.visible_fields || ['*']).slice();
+    // R3 — read visible_fields through the shared collectVisibleFields_()
+    // helper (AdminVisibleFields.html), which reads the real field-editor
+    // DOM (master toggle + per-field checkboxes) and falls back to the
+    // resolved base — NEVER hardcodes ['*'] — when the section isn't
+    // rendered. refreshCustomisedBadge_() below reads through the exact
+    // same helper so the two can never drift.
+    perms.visible_fields = window.TTAdminVisibleFields.collectVisibleFields_(root, base);
 
     // R1 — gate on an actual diff against the base. Ungated, every save
     // (even a plain displayName edit) would set permissionsToSave and force
@@ -1417,6 +1408,12 @@
         state.user.showPermissionMatrix = !state.user.showPermissionMatrix;
         paintForm();
         break;
+      case 'toggle-fields':
+        // Phase 4 — same collect()-before-flip discipline as toggle-perms.
+        collect();
+        state.user.showFieldMatrix = !state.user.showFieldMatrix;
+        paintForm();
+        break;
     }
   }
 
@@ -1425,6 +1422,13 @@
       state.searchDraft = e.target.value;
       var searchBtn = root.querySelector('[data-act="submit-search"]');
       if (searchBtn) searchBtn.disabled = !canSubmitSearch();
+    }
+
+    // Phase 4 — live text filter over the visible_fields checkbox grid.
+    // Targeted DOM write only (show/hide rows, force-open matching groups);
+    // never repaints, so typing never loses focus mid-keystroke.
+    if (e.target && e.target.id === 'f-field-filter') {
+      window.TTAdminVisibleFields.applyFieldFilter_(root, e.target.value);
     }
 
     // Milestone 5 / 5.4 — track config input changes
@@ -1520,6 +1524,29 @@
       refreshCustomisedBadge_();
       return;
     }
+
+    // Phase 4 — field checkboxes (#f-field-<key>) and the master toggle
+    // (#f-field-all, which also matches this prefix) both live-update the
+    // SAME "+ tuỳ chỉnh" badge the permission checkboxes already drive
+    // (visible_fields is part of the one compared/collected object) — see
+    // permissionsEqual_'s visible_fields set-comparison. Beyond the badge,
+    // the master toggle and individual checkboxes two-way sync via targeted
+    // DOM writes (no full repaint, same discipline as
+    // refreshCustomisedBadge_() itself): flipping the master cascades every
+    // non-locked individual to match it; flipping an individual recomputes
+    // whether they're all checked and writes that back onto the master. The
+    // filter text input (#f-field-filter) matches this same id prefix but is
+    // handled in onInput, not here, so it must be excluded explicitly.
+    if (e.target && e.target.id && e.target.id.indexOf('f-field-') === 0 &&
+        e.target.id !== 'f-field-filter') {
+      if (e.target.id === 'f-field-all') {
+        window.TTAdminVisibleFields.cascadeFieldMaster_(root, e.target.checked);
+      } else {
+        window.TTAdminVisibleFields.syncFieldMasterFromIndividuals_(root);
+      }
+      refreshCustomisedBadge_();
+      return;
+    }
   }
 
   /**
@@ -1569,7 +1596,9 @@
       var el = root.querySelector('#f-perm-' + key);
       collected[key] = el ? !!el.checked : false;
     });
-    collected.visible_fields = (base.visible_fields || ['*']).slice();
+    // Same shared helper collect() uses (see its comment) — kept in sync so
+    // the live badge and the actual save can never disagree.
+    collected.visible_fields = window.TTAdminVisibleFields.collectVisibleFields_(root, base);
 
     var badgeEl = root.querySelector('#perm-badge');
     if (!badgeEl) return;

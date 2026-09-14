@@ -1,7 +1,7 @@
 ---
 title: "Milestone 5b — Permission Labels & Per-User Visible Fields Config"
 description: "Homepage 'Quyền hạn' shows Vietnamese labels and hides denied permissions from non-admins (admins see all, styled granted/denied); admin permission matrix editor gains a real per-user visible_fields (column visibility) checkbox editor — today it's read-only, inherited silently from whichever preset the user's base resolves to."
-status: pending
+status: done
 priority: P2
 milestone: "5b"
 branch: "main"
@@ -54,11 +54,11 @@ guard test's assumptions still hold.
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Shared Permission Labels and Homepage Display](./phase-01-shared-permission-labels-and-homepage-display.md) | Pending |
-| 2 | [Backend Visible-Field Groups Source](./phase-02-backend-visible-field-groups-source.md) | Pending |
-| 3 | [Admin Visible-Fields Editor Mockups](./phase-03-admin-visible-fields-editor-mockups.md) | Pending |
-| 4 | [Admin Visible-Fields Editor Implementation](./phase-04-admin-visible-fields-editor-implementation.md) | Pending |
-| 5 | [Tests, Docs Sync and Visual Verification](./phase-05-tests-docs-sync-and-visual-verification.md) | Pending |
+| 1 | [Shared Permission Labels and Homepage Display](./phase-01-shared-permission-labels-and-homepage-display.md) | Done |
+| 2 | [Backend Visible-Field Groups Source](./phase-02-backend-visible-field-groups-source.md) | Done |
+| 3 | [Admin Visible-Fields Editor Mockups](./phase-03-admin-visible-fields-editor-mockups.md) | Done |
+| 4 | [Admin Visible-Fields Editor Implementation](./phase-04-admin-visible-fields-editor-implementation.md) | Done |
+| 5 | [Tests, Docs Sync and Visual Verification](./phase-05-tests-docs-sync-and-visual-verification.md) | Done |
 
 Phase 1 and Phase 2 are independent of each other (different files, no shared
 state) and can be built in either order or in parallel. Phase 3 depends on

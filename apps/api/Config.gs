@@ -227,6 +227,61 @@ var MONEY_FIELDS = [
 ];
 
 /**
+ * Milestone 5b — Vietnamese display labels for visible_fields columns.
+ * Raw key is used as a fallback for anything not listed here, so a future
+ * column added to HEADERS without a matching label degrades to the key
+ * itself rather than throwing or vanishing from the admin editor.
+ */
+var FIELD_LABELS_VI = {
+  orderId: 'Mã đơn', po: 'PO', poNote: 'Ghi chú PO', customer: 'Khách hàng',
+  orderDate: 'Ngày đặt', status: 'Trạng thái', statusNote: 'Ghi chú trạng thái',
+  customerDeposit: 'Đặt cọc khách hàng', supplierName: 'Nhà cung cấp',
+  supplierPaid: 'Đã trả nhà cung cấp', totalExVat: 'Tổng trước VAT',
+  totalIncVat: 'Tổng sau VAT', lineCount: 'Số dòng',
+  createdBy: 'Người tạo', createdAt: 'Ngày tạo',
+  updatedBy: 'Người cập nhật', updatedAt: 'Ngày cập nhật',
+  approvedBy: 'Người duyệt', approvedAt: 'Ngày duyệt',
+  approveStatus: 'Trạng thái duyệt', rejectReason: 'Lý do từ chối',
+  rejectedBy: 'Người từ chối', rejectedAt: 'Ngày từ chối',
+  lineId: 'Mã dòng', lineNo: 'STT dòng', productCode: 'Mã sản phẩm',
+  description: 'Mô tả', unitPrice: 'Đơn giá', qty: 'Số lượng', uom: 'ĐVT',
+  vatRate: 'Thuế suất VAT', amountExVat: 'Thành tiền trước VAT',
+  amountIncVat: 'Thành tiền sau VAT', invoiceId: 'Mã hoá đơn',
+  note: 'Ghi chú', invoiceNo: 'Số hoá đơn', invoiceDate: 'Ngày hoá đơn'
+};
+
+/**
+ * Grouped, deduped visible_fields options for the admin per-user column
+ * editor (Milestone 5b). Built live from HEADERS so it can never list a
+ * field cleanPermissionMatrix_ (Admin.gs) would reject, or omit one it
+ * allows — including after a future schema change to HEADERS.Orders/
+ * OrderLines/Invoices. A field present in more than one entity's HEADERS
+ * (e.g. 'customer', 'createdBy') is listed once, under its first group.
+ */
+function visibleFieldGroups_() {
+  var seen = {};
+  function dedupedFields(keys) {
+    return keys.filter(function (k) {
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    }).map(function (k) {
+      return {
+        key: k,
+        label: FIELD_LABELS_VI[k] || k,
+        alwaysVisible: ALWAYS_VISIBLE_FIELDS.indexOf(k) >= 0,
+        isMoney: MONEY_FIELDS.indexOf(k) >= 0
+      };
+    });
+  }
+  return [
+    { key: 'orders', label: 'Đơn hàng', fields: dedupedFields(HEADERS.Orders) },
+    { key: 'orderLines', label: 'Dòng đơn hàng', fields: dedupedFields(HEADERS.OrderLines) },
+    { key: 'invoices', label: 'Hoá đơn', fields: dedupedFields(HEADERS.Invoices) }
+  ];
+}
+
+/**
  * Milestone 5 / 5.2 — starting-profile presets, straight off PERMISSIONS.md
  * §3's table. Admin's add/edit user form assigns one of these WHOLESALE
  * (both `role` and the full `permissions` object) rather than exposing a
