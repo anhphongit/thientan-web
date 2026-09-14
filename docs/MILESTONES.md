@@ -186,6 +186,69 @@ Scope:
 
 ---
 
+## ☐ Milestone 5a — Order Status → Line Status
+
+Not a continuation of M5.1 ("Product CRUD", above — already complete, unrelated). Inserted
+after M5, before M6, per project-owner sequencing decision (2026-09-14). Full plan:
+`plans/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
+
+Scope:
+- `Orders` loses the plain `status`/`statusNote` fields entirely — keeps only `approveStatus`
+  (M3.8 workflow, unchanged, still behind `approvalFlowEnabled`)
+- `OrderLines` gains optional `status`/`statusNote` (reuses `Config.statusList`); a line may be
+  saved with no status
+- `StatusHistory` gains a `lineId` column; every line status change is audited individually
+- Order list/cards drop status entirely (no pill, no filter, no quick-change); line status is
+  editable only inside the order edit form
+- `Stats.gs`/`Export.gs` reworked to aggregate by line status (sum line revenue per status,
+  explicit blank-status group)
+- No backfill: existing orders' current `status` values are discarded, not copied to lines
+
+**Exit criteria**
+
+- [ ] All 18 offline test suites green, including new line-status coverage
+- [ ] Mockup-approved per-line status control implemented and screenshot-verified
+- [ ] Live migration (`migrateOrderLineStatus()`) run once by the project owner, verified
+      end-to-end against a real order
+- [ ] `DATA_MODEL.md`/`system-architecture.md`/`PERMISSIONS.md` synced to the new schema
+
+---
+
+## ☐ Milestone 5b — Permission Labels & Per-User Visible Fields Config
+
+Inserted after 5a, before 6, per project-owner request (2026-09-14). Full plan:
+`plans/260914-1049-milestone-5b-permission-ui-and-visible-fields/plan.md`.
+
+Scope:
+- Homepage "Quyền hạn" card (`apps/web/ui/App.html`'s `homeHtml()`) shows Vietnamese
+  labels instead of raw permission keys, reusing `ViewsAdmin.html`'s existing
+  `PERMISSION_GROUPS` (extracted into a shared `ui/PermissionLabels.html` partial)
+- Non-admin users see only their granted permissions (denied ones hidden entirely,
+  not just styled); admins (`manage_users`) keep seeing the full list styled
+  granted/denied, same as today
+- The homepage's "Cột được xem" (visible_fields) line is removed — that belongs only
+  in the admin config screen
+- Admin permission matrix editor (`ViewsAdmin.html`) gains a real per-user
+  `visible_fields` editor: grouped checkboxes (Đơn hàng / Dòng đơn hàng / Hoá đơn) +
+  a "Toàn bộ cột" master toggle, sourced live from `Config.gs`'s `HEADERS` via a new
+  `listVisibleFieldGroups` action — today it's silently inherited from whichever
+  preset a user's base resolves to, with no UI control at all
+- New `ui/AdminVisibleFields.html` partial (modularization, alongside the label
+  extraction) keeps the already-oversized `ViewsAdmin.html` from growing further inline
+
+**Exit criteria**
+
+- [ ] Non-admin homepage shows only granted permissions, labeled, no raw keys
+- [ ] Admin homepage shows all permissions, labeled, styled granted/denied
+- [ ] Admin can configure per-user `visible_fields` via checkboxes and save successfully
+- [ ] "Toàn bộ cột" toggle and always-visible/money-field indicators work as designed
+- [ ] Mockup approved (Phase 3) and implementation screenshot-verified against it
+- [ ] All offline test suites green, including new/updated visible_fields and
+      homepage-permission-display coverage
+- [ ] `PERMISSIONS.md`/`system-architecture.md` synced to describe the real editor
+
+---
+
 ## ☑ Unplanned — Identity and security hardening  *(done 2026-08-18)*
 
 Not in the original six. Forced by what live testing found, and worth listing so
@@ -216,6 +279,42 @@ Scope:
 - [ ] Every screen usable on iOS Safari and Android Chrome
 - [ ] Full permission checklist from `PERMISSIONS.md` passes
 - [ ] Employees can complete a full order lifecycle unaided using the guide
+
+---
+
+## ☐ Milestone 7 — Legacy Excel Order Import
+
+New milestone, for the live/go-live stage, per project-owner request (2026-09-14). Inserted
+after M6, before employee rollout with real data. Full plan:
+`plans/260914-1115-milestone-7-legacy-excel-import/plan.md`.
+
+A deliberate, one-time exception to the 2026-08-15 decision recorded in `OPEN_QUESTIONS.md`
+("Import the existing Excel? No. Reference only") — this milestone imports the real historical
+`FILE THEO DOI DON HANG.xlsx` (Jan–Aug 2026, ~206 orders / ~534 lines) into live data so
+employees start with real order history instead of an empty app. It does not change the
+app's manual-entry design going forward.
+
+Scope:
+- One-time admin migration script (`migrateImportLegacyOrders()`, `apps/api/LegacyImport.gs`),
+  run once from the Apps Script editor — no ongoing UI, no repeat-use import feature
+- Parses the raw legacy `.xlsx` as-is: month blocks, multi-line PO/status cells, per-line
+  VAT-ratio detection — no manual pre-cleanup spreadsheet
+- Populates `Orders` + `OrderLines` + `Invoices` only; `Config.customerList`/`uomList` self-fill
+  via the existing live mechanism, not separately seeded
+- Line status (`OrderLines.status`/`statusNote`) populated directly from the source file's
+  per-row `TRẠNG THÁI` column — requires Milestone 5a's schema first
+- Reconciles every imported month's total against the file's own printed `DOANH SỐ THÁNG n`
+  figure before and after the live run
+- Requires a fresh `backupNow()` (Milestone 6) snapshot immediately before the live run
+
+**Exit criteria**
+
+- [ ] All 8 months' imported totals reconcile against their printed `DOANH SỐ THÁNG n` value
+- [ ] Live run executed once against production, with a fresh verified backup taken immediately
+      before it, project owner present
+- [ ] Spot-checked orders render correctly in the live web app (not just the Sheet)
+- [ ] `EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`,
+      `development-roadmap.md` synced to describe this as a one-time historical import
 
 ---
 

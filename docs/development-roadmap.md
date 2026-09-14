@@ -158,6 +158,26 @@ Building admin UI for user management and inventory with permission matrix and p
 
 ## In-Progress Milestones
 
+### ☐ Milestone 5a — Order Status → Line Status (Not Started)
+
+Not M5.1 (already used, complete — "Product CRUD"). Inserted after M5, before M6, per
+project-owner sequencing decision (2026-09-14). Plan:
+`plans/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
+
+**Scope:**
+- Remove plain `status`/`statusNote` from `Orders` (keep `approveStatus` untouched)
+- Add optional `status`/`statusNote` to `OrderLines`; `StatusHistory` gains `lineId`
+- Order list/cards drop status entirely; line status editable only in the order edit form
+- `Stats.gs`/`Export.gs` reworked to aggregate by line status
+- No backfill of existing order status data
+
+**Timeline:** After M5 complete, before M6
+
+**Exit Criteria:**
+- [ ] All offline suites green, including new line-status coverage
+- [ ] Live migration run once by the project owner, verified end-to-end
+- [ ] Docs synced (DATA_MODEL.md, system-architecture.md, PERMISSIONS.md)
+
 ### ◐ Milestone 6 — Hardening & Polish (Not Started)
 
 **Scope:**
@@ -174,6 +194,29 @@ Building admin UI for user management and inventory with permission matrix and p
 - [ ] Every screen usable on iOS Safari + Android Chrome
 - [ ] Permission checklist passes (PERMISSIONS.md)
 - [ ] Employees can complete order lifecycle unaided
+
+### ☐ Milestone 7 — Legacy Excel Order Import (Not Started)
+
+New milestone, for the live/go-live stage, per project-owner request (2026-09-14). Plan:
+`plans/260914-1115-milestone-7-legacy-excel-import/plan.md`. Blocked by M5a and M6.
+
+**Scope:**
+- One-time admin migration script imports the real historical `FILE THEO DOI DON HANG.xlsx`
+  (~206 orders / ~534 lines, Jan–Aug 2026) into live `Orders`/`OrderLines`/`Invoices`
+- Deliberate, scoped exception to the 2026-08-15 "never imported" decision — a one-time
+  go-live event, not a reversal of manual-entry-only design
+- Raw legacy `.xlsx` parsed as-is (month blocks, multi-line cells, per-line VAT detection)
+- Line status populated from the source file directly into `OrderLines` (post-M5a schema)
+- Reconciled against the file's own printed monthly revenue totals; requires a fresh M6 backup
+  immediately before the live run
+
+**Timeline:** After M5a and M6 complete, before employee rollout with real data
+
+**Exit Criteria:**
+- [ ] All 8 months reconcile against printed `DOANH SỐ THÁNG n` totals
+- [ ] Live run executed once against production with a fresh verified backup, owner present
+- [ ] Spot-checked orders render correctly in the live web app
+- [ ] Docs (`EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`) synced
 
 ---
 
@@ -205,7 +248,9 @@ M0 (Setup)
     │   └─→ M3 (List/Filter/Search) ✅ 2026-09-03
     │       └─→ M4 (Export/Stats) ◐ In Progress
     └─→ M5 (Inventory + Admin) ◐ Phases 1-3b ✅, Phases 4-5 ◐ In Progress
-        └─→ M6 (Hardening & Polish) ☐ Not Started
+        └─→ M5a (Order Status → Line Status) ☐ Not Started
+            └─→ M6 (Hardening & Polish) ☐ Not Started
+                └─→ M7 (Legacy Excel Order Import) ☐ Not Started
 ```
 
 ### Critical Path
@@ -213,7 +258,10 @@ M0 (Setup)
 **Go/No-Go Decisions:**
 1. ✅ M3.8 (approve status) live verified before using in production
 2. ◐ M5 Phases 4–5 complete and tested live before M6
-3. ☐ Full M6 hardening done before employee rollout
+3. ☐ M5a (order status → line status) complete and live-verified before M6
+4. ☐ Full M6 hardening done before employee rollout
+5. ☐ M7 (legacy Excel import) reconciled and live-verified before employees start using real
+   historical data
 
 ---
 
