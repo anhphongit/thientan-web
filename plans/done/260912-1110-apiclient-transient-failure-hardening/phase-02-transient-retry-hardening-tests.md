@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Transient-retry hardening + tests"
-status: pending
+status: done
 priority: P1
 effort: "2h"
 dependencies: [1]
@@ -101,17 +101,17 @@ proves the fixed flow correctly" a checkable fact, not a claim.
 4. Run the full offline suite; all existing + new assertions must pass.
 
 ## Success Criteria
-- [ ] Scenario A assertions pass: 302(fast)-then-200(fast) succeeds via one
+- [x] Scenario A assertions pass: 302(fast)-then-200(fast) succeeds via one
       retry, no user-visible error.
-- [ ] Scenario B assertions pass: 302(slow)-then-302(slow) still throws
+- [x] Scenario B assertions pass: 302(slow)-then-302(slow) still throws
       `API_UNREACHABLE` (no worse than before), AND both logged attempts
       carry the `Location` header and an elapsed-ms value proportional to the
       simulated slow clock.
-- [ ] Regression guard passes: 404 → `fetchCalls === 1`, unchanged.
-- [ ] Full suite (`for f in tools/offline-tests/*.test.js; do node "$f" || echo FAIL; done`)
+- [x] Regression guard passes: 404 → `fetchCalls === 1`, unchanged.
+- [x] Full suite (`for f in tools/offline-tests/*.test.js; do node "$f" || echo FAIL; done`)
       stays green, count ≥ 1100 + new assertions (per the 2026-09-12 tester
       baseline in `plans/reports/tester-260912-1053-cache-invalidation-regression.md`).
-- [ ] Code diff is confined to the one `if` condition + one comment in
+- [x] Code diff is confined to the one `if` condition + one comment in
       `ApiClient.gs` (retry logic) plus Phase 1's logging lines; no unrelated
       refactor.
 

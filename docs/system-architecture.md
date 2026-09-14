@@ -399,6 +399,33 @@ function doPost(e) {
 **Known Issues:**
 - R3 (2026-09-10): Hardcoded visible_fields in matrix save — FIXED
 - Shared-secret model (Config sheet not encrypted) — ACCEPTED RISK
+- (2026-09-14) WEB→API transport (`apps/web/ApiClient.gs:apiCall_`) occasionally
+  saw a bare HTTP 3xx (redirect not resolved by `followRedirects:true`) and,
+  confirmed later the same day, a bare HTTP 404 — both surfaced live as an
+  intermittent connectivity error (`apiListProducts`, then
+  `apiListPermissionPresets`). Root cause confirmed for the 404 case: a
+  26.7s-slow attempt returning `Server: ESF` (Google's own edge) with a
+  generic Google error page, not `apps/api`'s JSON — proof the request never
+  reached script code; `apps/api`'s `doPost` can only ever answer 200 when
+  its code actually runs. Fixed: both 3xx and 404 now retried under the same
+  bounded 2-attempt cap as 5xx (other 4xx still unretried — no evidence they
+  behave the same way), and every non-200/thrown attempt logs response
+  headers + per-attempt elapsed-ms to Stackdriver. Root-cause mitigation
+  (not just retry-around): a 5-minute keep-warm trigger
+  (`apps/api/Security.gs:installKeepWarmTrigger`/`keepWarmPing`) — a
+  community-established Apps Script Web App pattern, not an official Google
+  guarantee (Google publishes no cold-start SLA for this runtime); see
+  `plans/reports/researcher-260914-1345-appsscript-coldstart-mitigation.md`.
+  Deployed and live-tested same day: no 3xx/404 recurred in that session —
+  encouraging, not conclusive proof (no Google SLA exists for the underlying
+  cause); see `plans/260912-1110-apiclient-transient-failure-hardening/`
+  (closed).
+  A separate, unrelated bug found during this investigation — `DevLog` sheet
+  silently recording zero rows despite real errors, because `actionLogDev_`
+  (`apps/api/Security.gs`) reported the DEV_MODE flag instead of the actual
+  write outcome — is fixed, and (per direct instruction) the DEV_MODE gate
+  on DevLog writes is now removed entirely on both projects: it always
+  attempts to log, in production too (see `docs/TASKS.md`).
 
 #### T4: Denial of Service
 **Threat:** User spams API calls.

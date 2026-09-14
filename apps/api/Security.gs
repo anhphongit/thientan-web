@@ -266,20 +266,60 @@ function checkSecretExpiry() {
 }
 
 /* ------------------------------------------------------------------ */
-/* DevLog — DEV_MODE diagnostics written to a sheet                    */
+/* Keep-warm — mitigate slow/cold executions behind the 3xx/404 retry  */
 /* ------------------------------------------------------------------ */
 
-function isApiDevMode_() {
-  return PropertiesService.getScriptProperties().getProperty(PROP.DEV_MODE) === 'on';
+/**
+ * Run once from the API editor to install a 5-minute keep-warm ping.
+ * Plan 260912-1110 Phase 4: a live-captured HTTP 404 (Server: ESF, i.e.
+ * Google's edge, never reached apps/api's own code) took 26.7s on the
+ * failing attempt — consistent with Apps Script's undocumented execution
+ * variability after a period of inactivity. Retrying (already in place,
+ * ApiClient.gs) only papers over a slow/failed attempt; this trigger
+ * reduces how often that variability is hit in the first place by keeping
+ * the deployment recently-executed. Community-established pattern for Apps
+ * Script Web Apps, not an officially documented Google guarantee — see
+ * plans/reports/researcher-260914-1345-appsscript-coldstart-mitigation.md.
+ */
+function installKeepWarmTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'keepWarmPing') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('keepWarmPing').timeBased().everyMinutes(5).create();
+  return 'Keep-warm ping installed (every 5 minutes).';
 }
 
 /**
- * Append one row to DevLog. No-op unless API DEV_MODE is on.
- * Creates the sheet + header row on first write if setupDevLog was not run.
- * Never throws to callers.
+ * Trigger target. Touches the real Sheets binding (not a bare no-op) so the
+ * dependency this project actually relies on stays exercised, without the
+ * cost of a full action (no lock, no write). Never throws — a keep-warm
+ * ping failing must not itself become a source of noisy trigger-failure
+ * emails from Apps Script's own trigger error notifications.
+ */
+function keepWarmPing() {
+  try {
+    getSpreadsheet_().getId();
+  } catch (err) {
+    console.error('keepWarmPing failed: ' + err);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* DevLog — error/diagnostic events written to a sheet                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Append one row to DevLog. Always attempts the write — 2026-09-14: this
+ * used to no-op unless API DEV_MODE was 'on', which meant a live outage's
+ * errors could go completely unrecorded if that Script Property drifted
+ * off; the sheet is meant to work in production too. Creates the sheet +
+ * header row on first write if setupDevLog was not run. Never throws to
+ * callers.
+ * @return {boolean} true only if a row was actually appended — false when
+ *   the write itself throws, so a caller can distinguish "nothing
+ *   happened" from "look at Stackdriver."
  */
 function logDevEvent_(level, source, message, detail, actor) {
-  if (!isApiDevMode_()) return;
   try {
     var ss = getSpreadsheet_();
     var sheet = ss.getSheetByName(SHEETS.DEV_LOG);
@@ -305,18 +345,20 @@ function logDevEvent_(level, source, message, detail, actor) {
     if (rows > DEV_LOG_MAX_ROWS + 50) {
       sheet.deleteRows(2, rows - DEV_LOG_MAX_ROWS);
     }
+    return true;
   } catch (err) {
     console.error('logDevEvent_ failed: ' + err);
+    return false;
   }
 }
 
 function actionLogDev_(user, payload) {
-  logDevEvent_(
+  var logged = logDevEvent_(
     (payload && payload.level) || 'info',
     (payload && payload.source) || 'web',
     (payload && payload.message) || '',
     (payload && payload.detail) || '',
     user.email
   );
-  return { logged: isApiDevMode_() };
+  return { logged: logged };
 }

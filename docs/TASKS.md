@@ -68,7 +68,7 @@ exercising pagination — useful again for Milestone 3's filters.
 |---|------|-------------|--------|
 | L1 | List cache with 60s TTL | Opening the tab / back from detail skips the API call if data is fresh; "Làm mới" always forces a fetch | ☑ |
 | L2 | Request generation / only-latest-wins | Rapid navigation can't let a stale response paint the wrong screen | ☑ |
-| L3 | Reduced concurrent pressure (single retry on 5xx/network error, staggered prefetch) | Fewer overlapping WEB→API calls | ☑ |
+| L3 | Reduced concurrent pressure (single retry on 5xx, bare 3xx, and network errors, staggered prefetch) | Fewer overlapping WEB→API calls | ☑ |
 
 ---
 
@@ -3385,3 +3385,76 @@ One issue found during Phong's live testing of Milestone 5 inventory features
 | # | Issue | Root cause | Fix |
 |---|-------|-----------|-----|
 | M5-1 | Inventory list still showed a product after editing it from active→inactive, when "Bao gồm hàng không hoạt động" (include inactive) filter was OFF | `upsertCachedProduct()` unconditionally wrote the saved product back into the client-side list cache on create/edit, even when the product's new state (now inactive, or newly below low-stock threshold) meant it should no longer be visible under the currently-active filter criteria | Added `matchesFilters()` check `(includeInactive || product.active) && (!lowStockOnly || product.isLowStock)` before upserting; if check fails, calls `removeCachedProduct(id)` instead to keep cache consistent with visible filter state. Reuses existing delete-from-cache logic, no new pattern |
+
+---
+
+## `ApiClient.gs` 3xx transient-failure hardening + DevLog silent-write bug (2026-09-14)
+
+Plan `plans/260912-1110-apiclient-transient-failure-hardening/`. Live M5 testing
+hit an intermittent `HTTP 302` on `apiListProducts` (potentially any `apiCall_`
+action, since they share one code path) with a long pending duration before
+the error surfaced.
+
+**Fix (Phases 1-2, offline-verified):** `apiCall_` (`apps/web/ApiClient.gs`) now
+retries a bare 3xx the same bounded way it already retried 5xx (still capped
+at 2 attempts; 4xx unchanged/never retried), and every non-200 response or
+fetch-throw now logs response headers (`Location`) + per-attempt elapsed-ms to
+Stackdriver before falling back to the existing user-facing message. Covered
+by 12 new assertions in `tools/offline-tests/apiclient-scope.test.js`
+(fast-blip transparent retry, slow-execution no-regression + diagnostics
+captured, 404 regression guard).
+
+**Phase 3 (live verification, 2026-09-14):** deployed to `apps/web`, live-tested
+during M5 Phase 6 (read + write actions, 3 concurrent accounts). **No 3xx
+recurred** in Apps Script's Executions log for the session (checked directly,
+not just top-level "Completed" status). Root cause (fast edge blip vs slow
+cold-start execution) remains unconfirmed — the issue simply didn't recur
+during this window; Phase 1's logging stays in place for the next occurrence.
+
+**Distinct bug found + fixed during Phase 3 verification — DevLog silent
+write:** while confirming the above, Phong reported several real errors during
+past live testing produced zero rows in the `DevLog` sheet, even with both
+projects' `DEV_MODE` Script Properties confirmed `on`. Investigation
+(`plans/reports/debugger-260914-1305-devlog-sheet-silent-failure.md`) found
+`actionLogDev_` (`apps/api/Security.gs`) reported `{logged: isApiDevMode_()}`
+— the DEV_MODE flag, not whether the row was actually appended — so a write
+exception silently caught inside `logDevEvent_`'s own try/catch was still
+reported back as `logged:true`. `devNote_` (`apps/web/ApiClient.gs`) also
+never inspected the response at all. Fixed: `logDevEvent_` now returns
+`true`/`false` for the actual outcome, `actionLogDev_` forwards that instead
+of the DEV_MODE flag, and `devNote_` parses the response and logs a
+distinguishing `console.error` when `logged` comes back false — so the next
+occurrence is visible in Stackdriver instead of silent. Covered by 12 new
+assertions in `tools/offline-tests/devlog-write-result-reporting.test.js`.
+Deferred (not this pass): a lock around `logDevEvent_`'s sheet write, and
+surfacing a WEB-vs-API DEV_MODE mismatch to callers.
+
+Full offline suite: 19 files, 1235 assertions, 0 failures.
+
+**Phase 4 addendum (2026-09-14):** live testing surfaced a NEW failure —
+`apiListPermissionPresets` got HTTP 404 (not 3xx). Evidence: 26.7s elapsed on
+the single attempt, `Server: ESF` header, body is Google's own generic
+error-page template — proof this never reached `apps/api`'s script code
+(`doPost`/`ContentService` can only ever answer 200 when script code runs).
+Fixed: 404 added to `apiCall_`'s retry set (same bounded 2-attempt cap; other
+4xx still unretried). Also, per direct instruction, DevLog's DEV_MODE gates
+are REMOVED entirely on both projects (`logDevEvent_`, `devNote_`,
+`apiDevLog`) — it must work in production, not only when a developer has
+that Script Property set; `devSuffix_`'s separate "[DEV] ..." user-facing
+text suffix is unaffected (still dev-only). Root-cause mitigation (not just
+retry-around): added `installKeepWarmTrigger()`/`keepWarmPing()` to
+`apps/api/Security.gs` — a 5-minute time-driven ping, the top-ranked
+mitigation from `plans/reports/researcher-260914-1345-appsscript-coldstart-mitigation.md`
+for this class of Apps Script Web App slowness (community-established
+pattern, not an official Google guarantee). New tests:
+`tools/offline-tests/keep-warm-trigger.test.js`; updated
+`apiclient-scope.test.js` and `devlog-write-result-reporting.test.js` for
+the behavior changes above. Full suite: 20 files, 1239 assertions.
+**Live-verified same day (2026-09-14):** both projects deployed, keep-warm
+trigger installed via `installKeepWarmTrigger()`. Live test afterward: no
+3xx/404 edge errors observed. One clean session doesn't prove the underlying
+Apps Script edge/execution variability is gone forever (no SLA exists) —
+Phase 1/2/4's logging + retry stay in place regardless in case it recurs.
+DevLog-always-on not re-verified this session (no errors occurred to
+generate a row) — the response-checking logic itself was already
+offline-tested. Plan closed.

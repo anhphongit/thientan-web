@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Diagnostics-first instrumentation"
-status: pending
+status: done
 priority: P1
 effort: "1h"
 dependencies: []
@@ -95,15 +95,15 @@ figure is what actually answers "was THIS attempt slow."
    independently if Phase 2 needs more design time.
 
 ## Success Criteria
-- [ ] A forced 302 in the offline sandbox (Phase 2's test harness, written
+- [x] A forced 302 in the offline sandbox (Phase 2's test harness, written
       after this phase, can double as a Phase 1 smoke test) results in a
       `console.error` call containing the mocked `Location` header value
       AND a numeric elapsed-ms field reflecting the sandbox's simulated clock.
-- [ ] A forced `UrlFetchApp.fetch` throw also produces an elapsed-ms field in
+- [x] A forced `UrlFetchApp.fetch` throw also produces an elapsed-ms field in
       its log line (not just the header-capture branch).
-- [ ] No change to any currently-passing offline test (943+ assertions still
+- [x] No change to any currently-passing offline test (943+ assertions still
       green).
-- [ ] No behavior change on 200 responses (verified by existing
+- [x] No behavior change on 200 responses (verified by existing
       `apiclient-scope.test.js` still passing unmodified).
 
 ## Risk Assessment

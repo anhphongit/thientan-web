@@ -55,16 +55,17 @@ function setupMilestone1() {
 
 
 /**
- * Create the DevLog sheet (headers only). Run once from the API editor when
- * enabling DEV_MODE diagnostics. Idempotent: leaves an existing sheet alone.
+ * Create the DevLog sheet (headers only). Idempotent: leaves an existing
+ * sheet alone.
  *
- * Also requires Script Property DEV_MODE = "on" on the API project, or
- * logDevEvent_ will no-op even after the sheet exists.
+ * 2026-09-14: logDevEvent_ now always attempts to write (no longer gated on
+ * a DEV_MODE Script Property) — run this once from the API editor to create
+ * the sheet ahead of the first error, but logging works either way once the
+ * sheet exists (it self-creates on first write too).
  *
  * HOW TO RUN
- *   1. API project → Project Settings → Script properties → DEV_MODE = on
- *   2. Select setupDevLog in the Run dropdown → Run
- *   3. Open the spreadsheet — tab DevLog should exist with a header row
+ *   1. Select setupDevLog in the Run dropdown → Run
+ *   2. Open the spreadsheet — tab DevLog should exist with a header row
  */
 function setupDevLog() {
   guardSetup_();
@@ -74,13 +75,6 @@ function setupDevLog() {
   log.push(ensureSheetWithHeaders_(ss, SHEETS.DEV_LOG, HEADERS.DevLog));
   // SecurityLog is useful alongside DevLog while debugging auth/gate issues
   log.push(ensureSheetWithHeaders_(ss, SHEETS.SECURITY_LOG, HEADERS.SecurityLog));
-
-  var devMode = PropertiesService.getScriptProperties().getProperty(PROP.DEV_MODE);
-  if (devMode === 'on') {
-    log.push('DEV_MODE is on — logDevEvent_ will write rows.');
-  } else {
-    log.push('WARNING: DEV_MODE is not "on" on this API project. Sheet created, but logging is disabled until you set Script Property DEV_MODE=on.');
-  }
 
   var summary = log.join('\n');
   console.log(summary);
@@ -101,7 +95,11 @@ function guardSetup_() {
                     'installExportJobCleanupReminder', 'cleanupExportJobs',
                     // Milestone 5 / 5.1 — creates the Products sheet, same
                     // editor-only, run-once shape as setupMilestone2.
-                    'setupMilestone5'];
+                    'setupMilestone5',
+                    // Plan 260912-1110 Phase 4 — keep-warm ping installer,
+                    // same editor-only, trigger-only shape as
+                    // installExpiryReminder/checkSecretExpiry above.
+                    'installKeepWarmTrigger', 'keepWarmPing'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

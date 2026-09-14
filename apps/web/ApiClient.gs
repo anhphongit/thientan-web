@@ -34,21 +34,25 @@ function apiCall_(action, payload) {
   // Milestone 2.5 / P1: this fetch IS the cross-project hop the perf notes in
   // docs/MILESTONES.md point at. tFetch covers the whole round trip, including
   // the API's own processing — msTransport below subtracts that out below.
-  // L3: at most one retry, and only for transient failures (network throw or
-  // HTTP 5xx). Never retry 4xx / 405 / parse errors — those would multiply load
-  // under congestion without fixing the cause.
+  // L3: at most one retry, and only for transient failures (network throw,
+  // HTTP 5xx, bare 3xx, or bare 404 — see the retry condition below for why
+  // each qualifies). Never retry any OTHER 4xx / 405 / parse errors — those
+  // would multiply load under congestion without fixing the cause.
   var tFetch = Date.now();
   var response;
   var attempt = 0;
   var lastErr = null;
   while (attempt < 2) {
     attempt++;
+    var tAttempt = Date.now();
     try {
       response = postJsonToApi_(url, bodyJson);
       lastErr = null;
     } catch (err) {
+      var msAttemptErr = Date.now() - tAttempt;
       lastErr = err;
-      console.error('apiCall_(' + action + '): fetch failed (attempt ' + attempt + '): ' + err);
+      console.error('apiCall_(' + action + '): fetch failed (attempt ' + attempt +
+        ', ' + msAttemptErr + 'ms): ' + err);
 
       // 2026-09-06 — a brand-new visitor whose OAuth consent for THIENTAN-WEB
       // never completed (interrupted, cancelled, or a stale/narrower grant
@@ -72,18 +76,38 @@ function apiCall_(action, payload) {
       throw new Error(MSG.API_UNREACHABLE + devSuffix_('fetch threw: ' + err));
     }
 
+    var msAttempt = Date.now() - tAttempt;
     var code = response.getResponseCode();
     if (code === 200) break;
 
+    // Header/timing capture is logged FIRST and wrapped in its own try/catch
+    // so a malformed response's getAllHeaders() can never suppress the
+    // body-text log line below it — see plan 260912-1110, Phase 1.
+    var headers = {};
+    try { headers = response.getAllHeaders(); } catch (e) { /* best-effort only */ }
+    console.error('apiCall_(' + action + '): HTTP ' + code + ' (attempt ' + attempt +
+      ', ' + msAttempt + 'ms) headers=' + JSON.stringify(headers));
     console.error('apiCall_(' + action + '): HTTP ' + code + ' (attempt ' + attempt + ') — ' +
       response.getContentText().slice(0, 300));
-    // Retry only transient server errors
-    if (attempt < 2 && code >= 500 && code <= 599) {
+    // Retry transient server errors, bare 3xx redirects not resolved by
+    // followRedirects:true, AND a bare 404 — plan 260912-1110 Phase 4:
+    // live-captured 2026-09-14 with `Server: ESF` in the response headers
+    // and a body that's Google's own generic front-end error page, not
+    // apps/api's JSON (26.7s elapsed before the 404) — apps/api's own
+    // doPost/ContentService can only ever answer 200 when script code
+    // actually runs (errors are caught into a 200 JSON payload), so ANY
+    // non-200 from this URL — 404 included — is produced by Google's edge
+    // in front of the script, not a genuine "route not found." Other 4xx
+    // (401/403/429/etc.) stay unretried — no evidence yet that they behave
+    // the same way. Same bounded 2-attempt cap as 5xx/3xx.
+    if (attempt < 2 && ((code >= 500 && code <= 599) || (code >= 300 && code <= 399) || code === 404)) {
       Utilities.sleep(400);
       continue;
     }
     devNote_('error', 'ApiClient', 'HTTP ' + code + ' on ' + action,
-      response.getContentText().slice(0, 1500));
+      response.getContentText().slice(0, 1500) +
+      ' | headers=' + JSON.stringify(headers).slice(0, 500) +
+      ' | msAttempt=' + msAttempt);
     throw new Error(MSG.API_UNREACHABLE + devSuffix_(
       'HTTP ' + code + ' · ' + snippet_(response.getContentText())));
   }
@@ -185,11 +209,12 @@ function devSuffix_(detail) {
 }
 
 /**
- * Best-effort DevLog write. Only when WEB DEV_MODE is on. Never throws.
+ * Best-effort DevLog write. Always attempts the write (no longer gated on
+ * WEB DEV_MODE — 2026-09-14: errors need to be recorded in production too,
+ * not just while a developer happens to have DEV_MODE on). Never throws.
  * Uses the same POST helper as apiCall_ (no followRedirects:false).
  */
 function devNote_(level, source, message, detail) {
-  if (!isDevMode_()) return;
   try {
     var props = PropertiesService.getScriptProperties();
     var url = props.getProperty(PROP.API_URL);
@@ -197,7 +222,7 @@ function devNote_(level, source, message, detail) {
     var email = '';
     try { email = resolveActiveEmail_() || ''; } catch (e) { email = ''; }
     if (!url || !secret) return;
-    postJsonToApi_(url, JSON.stringify({
+    var response = postJsonToApi_(url, JSON.stringify({
       secret: secret,
       actor: email || 'unknown@dev',
       action: 'logDev',
@@ -208,6 +233,22 @@ function devNote_(level, source, message, detail) {
         detail: String(detail || '').substring(0, 1500)
       }
     }));
+
+    // 2026-09-14 — the round trip succeeding (HTTP 200) proves nothing about
+    // whether a row actually landed in the DevLog sheet: logDevEvent_ (API
+    // side) swallows its own write exceptions into a bare console.error.
+    // Without checking body.data.logged, a "silent success" here was
+    // indistinguishable from a real write — see plan 260912-1110's Phase 3
+    // investigation (the DEV_MODE-gating this originally guarded against
+    // is gone as of Phase 4 — logging is unconditional on both sides now —
+    // but the write can still genuinely throw, e.g. a locked/moved sheet).
+    var body;
+    try { body = JSON.parse(response.getContentText()); } catch (e) { body = null; }
+    if (!body || !body.ok || !(body.data && body.data.logged)) {
+      console.error('devNote_: DevLog row NOT written for "' + message + '" — ' +
+        (body ? JSON.stringify(body) : 'non-JSON response') +
+        ' (logDevEvent_ likely threw — see its own console.error on the API side)');
+    }
   } catch (err) {
     console.error('devNote_ failed: ' + err);
   }

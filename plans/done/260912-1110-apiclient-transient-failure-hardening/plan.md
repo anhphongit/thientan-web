@@ -1,7 +1,7 @@
 ---
 title: "Harden ApiClient.gs against intermittent non-200/3xx Apps Script responses"
 description: "Live M5 testing hit intermittent 'Không kết nối được máy chủ dữ liệu ... HTTP 302' failures on apiListProducts (and, per user report, potentially any apiCall_ action). Root cause found in code: ApiClient.gs's retry logic only retries 5xx/thrown errors, never 3xx, and never captures response headers — so a transient Apps Script edge redirect is thrown straight at the user with zero diagnosis and zero retry."
-status: pending
+status: done
 priority: P1
 branch: "main"
 tags: [reliability, apps-script, apiclient, m5-live-test]
@@ -135,9 +135,10 @@ next time, instead of none.
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Diagnostics-first instrumentation](./phase-01-diagnostics-first-instrumentation.md) | Pending |
-| 2 | [Transient-retry hardening + tests](./phase-02-transient-retry-hardening-tests.md) | Pending |
-| 3 | [Live verification and docs sync](./phase-03-live-verification-and-docs-sync.md) | Pending |
+| 1 | [Diagnostics-first instrumentation](./phase-01-diagnostics-first-instrumentation.md) | Done |
+| 2 | [Transient-retry hardening + tests](./phase-02-transient-retry-hardening-tests.md) | Done |
+| 3 | [Live verification and docs sync](./phase-03-live-verification-and-docs-sync.md) | Done |
+| 4 | [404 retry extension, DevLog always-on, keep-warm mitigation](./phase-04-404-retry-devlog-always-on-and-keepwarm.md) | Done |
 
 ## Dependencies
 

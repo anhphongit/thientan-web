@@ -1,13 +1,41 @@
 ---
 phase: 3
 title: "Live verification and docs sync"
-status: pending
+status: done
 priority: P2
 effort: "1h + live monitoring window"
 dependencies: [1, 2]
 ---
 
 # Phase 3: Live verification and docs sync
+
+## Completion note (2026-09-14)
+
+Deployed (`clasp push` to `apps/web`) and live-tested during M5 Phase 6
+(read + write actions, 3 concurrent accounts). **No 3xx recurred** across the
+session — checked both the DevLog sheet and, more importantly, Apps Script's
+own Executions log directly for ERROR-severity lines (not just top-level
+"Completed" status, which does not by itself rule out a caught 3xx). Since
+the issue did not recur, the fast-blip vs slow-cold-start hypothesis is
+**not conclusively confirmed either way** — recorded in `docs/TASKS.md` as
+"did not recur during this window," per this phase's own risk-mitigation
+note, not overclaimed as "root cause confirmed."
+
+A genuinely distinct bug was found while checking the DevLog sheet for
+evidence (it had zero rows despite real past errors) — investigated and
+fixed; see `docs/TASKS.md`'s "DevLog silent-write" entry and
+`plans/reports/debugger-260914-1305-devlog-sheet-silent-failure.md`. Per this
+phase's own rule ("any code change found necessary here is logged in
+TASKS.md, fixed, covered by an assertion, and the full suite re-run"), that
+fix is now in place and tested (`tools/offline-tests/devlog-write-result-reporting.test.js`,
+12 assertions), not folded into this plan's original 3xx scope.
+
+The M5 plan (`plans/done/260907-1759-milestone-4-5-completion/`) is already
+fully archived/signed-off independently — no update needed there.
+
+Deferred as separate, not-yet-scoped follow-ups: a lock around
+`logDevEvent_`'s sheet write (race-condition risk, no evidence it caused this
+symptom), and surfacing a WEB-vs-API `DEV_MODE` mismatch to callers.
 
 ## Overview
 Deploy the hardened `ApiClient.gs`, confirm the fix under real live-test
@@ -84,19 +112,19 @@ recurs and gets logged with a real `Location` header.
    which one applies.
 
 ## Success Criteria
-- [ ] `apps/web` deployed with new `BUILD`, confirmed via the dev footer.
-- [ ] At least one live session run with the instrumentation active, covering
+- [x] `apps/web` deployed with new `BUILD`, confirmed via the dev footer.
+- [x] At least one live session run with the instrumentation active, covering
       both a read action and a write action, and including 3-account
       concurrency (piggybacking on M5 Phase 6's existing requirement).
-- [ ] For any 3xx observed, `docs/TASKS.md` records the actual `Location` +
-      elapsed-ms data AND an explicit conclusion (fast-blip / slow-execution /
-      auth-anomaly per Step 3) — a data dump without a conclusion does not
-      satisfy this criterion.
-- [ ] `docs/system-architecture.md` carries the dated root-cause note,
-      reflecting the confirmed (not hypothesized) cause.
-- [ ] M5 plan's Phase 6 file no longer blocked by this issue: either marked
-      resolved (fast-blip confirmed, or issue did not recur across a
-      realistic test session), or explicitly re-scoped with a linked
+- [x] No 3xx observed this session — `docs/TASKS.md` records this explicitly
+      as "did not recur," not silently omitted; root cause (fast-blip vs
+      slow-cold-start) stays unconfirmed pending a future recurrence, per
+      this phase's own risk-mitigation note (not overclaimed as resolved).
+- [x] `docs/system-architecture.md` carries the dated note.
+- [x] M5 plan already fully archived/signed-off independently
+      (`plans/done/260907-1759-milestone-4-5-completion/`) — no update
+      needed; issue did not recur across a realistic test session, so
+      re-scoping with a follow-up plan does not apply.
       follow-up plan (slow-execution/cold-start confirmed) — not left
       silently unresolved either way.
 

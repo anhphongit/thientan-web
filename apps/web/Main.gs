@@ -384,10 +384,9 @@ function apiUpdateConfig(payload) {
   });
 }
 
-/** DEV_MODE only — write a line to the API DevLog sheet (no-op if API DEV_MODE off). */
+/** Write a line to the API DevLog sheet. Works regardless of DEV_MODE — see ApiClient.gs devNote_. */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {
-    if (!isDevMode_()) return { logged: false };
     return apiCall_('logDev', payload || {});
   });
 }
