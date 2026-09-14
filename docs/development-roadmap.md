@@ -158,25 +158,31 @@ Building admin UI for user management and inventory with permission matrix and p
 
 ## In-Progress Milestones
 
-### ☐ Milestone 5a — Order Status → Line Status (Not Started)
+### ☑ Milestone 5a — Order Status → Line Status *(done 2026-09-14)*
 
 Not M5.1 (already used, complete — "Product CRUD"). Inserted after M5, before M6, per
 project-owner sequencing decision (2026-09-14). Plan:
-`plans/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
+`plans/done/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
+
+**Status:** All 8 phases complete — code, tests, docs synced, live migration run and signed off by the project owner (2026-09-14). See Phase 8 sign-off table for two minor outstanding items (backup/checkOrderHeaders_ confirmation not captured on record; low risk, migration is non-destructive by design).
 
 **Scope:**
 - Remove plain `status`/`statusNote` from `Orders` (keep `approveStatus` untouched)
 - Add optional `status`/`statusNote` to `OrderLines`; `StatusHistory` gains `lineId`
 - Order list/cards drop status entirely; line status editable only in the order edit form
-- `Stats.gs`/`Export.gs` reworked to aggregate by line status
+- `Stats.gs`/`Export.gs` reworked to aggregate by line status (sum line revenue per status, explicit blank-status group)
 - No backfill of existing order status data
 
-**Timeline:** After M5 complete, before M6
+**Design Decisions:**
+- Line-status aggregation: sum line revenue per status, report both line count and distinct order count per group
+- Blank-status explicit group label: "Chưa đặt trạng thái" (confirmed 2026-09-14)
+- Frontend per-line control: Option D (inline select + full-width always-visible status-note field below, no hidden state)
 
 **Exit Criteria:**
-- [ ] All offline suites green, including new line-status coverage
-- [ ] Live migration run once by the project owner, verified end-to-end
-- [ ] Docs synced (DATA_MODEL.md, system-architecture.md, PERMISSIONS.md)
+- [x] All 20 offline suites green, including new line-status coverage
+- [x] Mockup-approved per-line status control implemented and screenshot-verified
+- [x] Live migration (`migrateOrderLineStatus()`) run once by the project owner, verified end-to-end (Phase 8, 2026-09-14)
+- [x] Docs synced (DATA_MODEL.md, system-architecture.md, PERMISSIONS.md)
 
 ### ◐ Milestone 6 — Hardening & Polish (Not Started)
 
@@ -248,7 +254,7 @@ M0 (Setup)
     │   └─→ M3 (List/Filter/Search) ✅ 2026-09-03
     │       └─→ M4 (Export/Stats) ◐ In Progress
     └─→ M5 (Inventory + Admin) ◐ Phases 1-3b ✅, Phases 4-5 ◐ In Progress
-        └─→ M5a (Order Status → Line Status) ☐ Not Started
+        └─→ M5a (Order Status → Line Status) ✅ 2026-09-14 (all 8 phases complete, live migration run)
             └─→ M6 (Hardening & Polish) ☐ Not Started
                 └─→ M7 (Legacy Excel Order Import) ☐ Not Started
 ```
@@ -258,7 +264,7 @@ M0 (Setup)
 **Go/No-Go Decisions:**
 1. ✅ M3.8 (approve status) live verified before using in production
 2. ◐ M5 Phases 4–5 complete and tested live before M6
-3. ☐ M5a (order status → line status) complete and live-verified before M6
+3. ✅ M5a (order status → line status) complete — code, tests, docs synced, live migration run and signed off by project owner (2026-09-14)
 4. ☐ Full M6 hardening done before employee rollout
 5. ☐ M7 (legacy Excel import) reconciled and live-verified before employees start using real
    historical data

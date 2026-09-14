@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "AdminConfig statusList review"
-status: pending
+status: completed
 priority: P3
 effort: 1h
 dependencies: [1]
@@ -90,20 +90,37 @@ direction.)
 
 ## Todo List
 
-- [ ] `AdminConfig.gs` read in full; the three ranges re-verified
-- [ ] Key-removal guard confirmed intact (removal refused, add/relabel allowed)
-- [ ] Stale table references in comments/messages corrected
-- [ ] Admin UI statusList copy checked
-- [ ] `admin-config.test.js` passes **unchanged**
-- [ ] Outcome recorded here (edited, or verified-no-change)
+- [x] `AdminConfig.gs` read in full; the three ranges re-verified
+- [x] Key-removal guard confirmed intact (removal refused, add/relabel allowed)
+- [x] Stale table references in comments/messages corrected
+- [x] Admin UI statusList copy checked
+- [x] `admin-config.test.js` passes **unchanged**
+- [x] Outcome recorded here (edited, or verified-no-change)
+
+## Outcome (2026-09-14)
+
+One stale comment found and corrected: the file header (lines 24-26) said "statusList values
+are referenced by existing Orders.status rows" — updated to "OrderLines.status rows
+(Milestone 5a — moved off Orders.status)". No other edit needed:
+
+- The key-removal guard (`assertNoStatusKeyRemoval_`, ~line 315) is already table-agnostic —
+  it only compares key sets, never names a table. Unchanged.
+- `MSG.CONFIG_STATUS_KEY_REMOVAL_NOT_ALLOWED` (Config.gs:498) is table-agnostic Vietnamese
+  text ("Không được xoá trạng thái đã tồn tại..."). Unchanged.
+- Admin UI (`ViewsAdmin.html`) statusList copy ("Danh sách trạng thái") and logic never named
+  Orders specifically. Unchanged.
+- `admin-config.test.js` (33/33) and `admin.test.js` (98/98) both pass with zero test-file
+  modifications.
+
+Net change: one comment, in one file. Everything else verified already correct.
 
 ## Success Criteria
 
-- [ ] Attempting to remove a `statusList` key through the admin path is still refused.
-- [ ] Adding a key and relabelling an existing key both still work.
-- [ ] No comment or message in `AdminConfig.gs` claims status keys are referenced by `Orders`.
-- [ ] `admin-config.test.js` passes with **zero** modifications to the test file.
-- [ ] This file records the outcome explicitly.
+- [x] Attempting to remove a `statusList` key through the admin path is still refused.
+- [x] Adding a key and relabelling an existing key both still work.
+- [x] No comment or message in `AdminConfig.gs` claims status keys are referenced by `Orders`.
+- [x] `admin-config.test.js` passes with **zero** modifications to the test file.
+- [x] This file records the outcome explicitly.
 
 ## Risk Assessment
 

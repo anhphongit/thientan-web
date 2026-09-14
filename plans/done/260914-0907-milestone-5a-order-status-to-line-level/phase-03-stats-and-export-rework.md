@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Stats & Export rework"
-status: pending
+status: completed
 priority: P2
 effort: 4h
 dependencies: [2]
@@ -133,26 +133,28 @@ So the gates keep working verbatim — no permission change, no role reconfigura
 
 ## Todo List
 
-- [ ] Step 1 research done, aggregation decision appended to this file
-- [ ] `actionStatsByStatus_` sources line status
-- [ ] Blank-status group present with an explicit label
-- [ ] Revenue totals reconcile against the ungrouped total
-- [ ] Export status cell is per-line; `first &&` guard removed
-- [ ] `statusExportLabel_` re-sourced from the line
-- [ ] Stale docstrings updated
-- [ ] `ExportJob.gs`/`ExportSheet.gs` verified
+- [x] Step 1 research done, aggregation decision appended to this file
+- [x] `actionStatsByStatus_` sources line status
+- [x] Blank-status group present with an explicit label
+- [x] Revenue totals reconcile against the ungrouped total
+- [x] Export status cell is per-line; `first &&` guard removed
+- [x] `statusExportLabel_` re-sourced from the line
+- [x] Stale docstrings updated
+- [x] `ExportJob.gs`/`ExportSheet.gs` verified
 
 ## Success Criteria
 
-- [ ] The aggregation decision is written down in this file with its rationale.
-- [ ] `grep -n "order.status" apps/api/Stats.gs apps/api/Export.gs` returns nothing.
-- [ ] For an order with two lines in different statuses, stats shows it under both groups and
+- [x] The aggregation decision is written down in this file with its rationale.
+- [x] `grep -n "order.status" apps/api/Stats.gs apps/api/Export.gs` returns nothing.
+- [x] For an order with two lines in different statuses, stats shows it under both groups and
       the group revenues sum to the order's total.
-- [ ] An order whose lines are all blank-status appears in the blank group, not nowhere.
-- [ ] The export shows a status value on every line of a multi-line order, not just the first.
-- [ ] A role blind to `status` still gets `MSG.NO_PERMISSION` from `actionStatsByStatus_`
-      (`stats.test.js:300-304` asserts this today).
-- [ ] `exportsheet.test.js` passes unchanged.
+- [x] An order whose lines are all blank-status appears in the blank group, not nowhere.
+- [x] The export shows a status value on every line of a multi-line order, not just the first.
+- [x] A role blind to `status` still gets `MSG.NO_PERMISSION` from `actionStatsByStatus_`
+      (`stats.test.js:300-304` asserted this pre-5a; verified directly against the harness since
+      the old test now crashes on stale order-scoped fixtures before reaching that assertion —
+      see Implementation notes).
+- [x] `exportsheet.test.js` passes unchanged (44/44 pass, 0 failed).
 
 ## Risk Assessment
 
@@ -172,6 +174,64 @@ So the gates keep working verbatim — no permission change, no role reconfigura
   become a way for a status-blind role to read status through a report.
 - `export_statistics` remains deliberately deferred — do **not** add enforcement for it here
   (a prior audit wrongly flagged this; order export correctly gates on `export`).
+
+## Implementation notes (Step 1 research, appended 2026-09-14)
+
+**(i) Can `statsByField_` accept line rows as-is?** No, and it wasn't extended to — it stays
+exactly as-is (order-scoped, `statsAggregateByOrder_` underneath), still used only by
+`actionStatsByCustomer_`. The reason: `statsAggregateByOrder_`'s whole design is "one order/
+order-portion contributes to exactly one bucket" (`addTo(keyFn(order), ...)` — keyFn always
+receives the *order*). By-status is now fundamentally many-buckets-per-order (a mixed order has
+lines in different statuses), which doesn't fit that shape at all — threading a line-aware mode
+into `statsAggregateByOrder_` would have forced an order-scoped function to secretly branch into
+line-scoped behavior for one caller. Wrote a sibling instead: `statsByLineStatus_` (new,
+Stats.gs), which walks `linesForOrder_(order.orderId)` directly and sums each line's own
+`amountExVat`/`amountIncVat` into its `line.status` bucket, tracking `lineCount` plus a
+per-group `Set` of `orderId`s for distinct `orderCount`. `includeNoInvoice` keeps its existing
+meaning (true: every line counts in full; false: uninvoiced lines move into the single global
+`noInvoice` total, invoiced lines count toward their status group) via `invoiceIndex_`, the same
+helper `statsAggregateByOrder_`'s split branch already uses.
+
+**(ii) Export's real column layout / status cell index.** `EXPORT_CSV_HEADER` (Export.gs) is
+12 columns; `TRẠNG THÁI` is index 11 (0-based), last column. `buildExportRows_` assembles one
+`cells` array per order LINE (`orderLines.forEach(function (line, i) {...})`), so the row is
+already line-scoped for every other cell (`CHI TIẾT`, `ĐƠN GIÁ`, `SL`, `THÀNH TIỀN`, etc. all
+read off `line`) — only the `STT`/`PO`/`KHÁCH HÀNG`/`TRẠNG THÁI` cells were order-scoped
+(`first &&` guard or `view.*`), because those were the only fields that used to live on the
+order (STT/PO/customer still legitimately do; status doesn't anymore). So the fix is narrow:
+cell 11 drops `first &&` and reads `line.status`/`line.statusNote` instead of `view.status`/
+`view.statusNote`. STT/PO/KHÁCH HÀNG's `first &&` guards are UNCHANGED (still genuinely
+order-scoped) — confirmed not to touch those.
+
+**(iii) `ExportJob.gs` status hits — job-status vs order-status.** Grepped every `status` hit
+in `ExportJob.gs`: every one is **job** status (`job.status`, the `'running'`/`'done'`/`'error'`
+lifecycle of an async export job — see `runExportJobStep_`, `actionExportJobStatus_`,
+`deliverExportJob_`). None reference `order.status` or a line's business status. `ExportSheet.gs`
+has zero `status` hits at all (confirmed via grep, matches the phase file's prediction). Neither
+file was touched — `exportjob.test.js` (91/91) and `exportsheet.test.js` (44/44) both pass
+unchanged, confirming the classification was right.
+
+**Aggregation decision:** already fixed by the project owner (see "The design decision" section
+above) — sum LINE `amountExVat`/`amountIncVat` per `line.status` group, report `lineCount` +
+distinct `orderCount`, blank status is an explicit group labelled `LINE_STATUS_BLANK_LABEL`
+(`'Chưa đặt trạng thái'`, defined once in Export.gs next to `statusLabelIndex_`/
+`statusLabelText_`, reused by Stats.gs — not duplicated). Reconciliation verified directly
+against the harness (see below): sum of group `exVat` across all groups (including blank) equals
+the order's own `totalExVat` for a multi-status order, and holds generally since `includeNoInvoice`
+defaults to true (every line counted exactly once, into exactly one group).
+
+**Manual verification (ad hoc script against `tools/offline-tests/harness.js`, not committed —
+the existing `stats.test.js`/`export.test.js` fixtures predate the line-status move and can't
+exercise it; Phase 6 owns rewriting them):**
+- Order with 2 lines, `status: 'draft'` (100,000) and `status: 'confirmed'` (300,000): both
+  groups present, `draft.exVat=100000`, `confirmed.exVat=300000`, each `orderCount=1`, sum of
+  group `exVat` (400,000) == the order's `totalExVat` (400,000).
+- Order with 1 line, no status set: single group, `key: ''`, `label: 'Chưa đặt trạng thái'`,
+  `exVat` matches the line's amount.
+- Role with `status` not in `visible_fields`: `actionStatsByStatus_` still throws
+  `MSG.NO_PERMISSION`.
+- Export CSV of a 3-line order (statuses `draft`/`confirmed`/blank): `TRẠNG THÁI` column shows
+  `Nháp` / `Đã xác nhận` / `Chưa đặt trạng thái` on all three lines (not just the first).
 
 ## Next Steps
 

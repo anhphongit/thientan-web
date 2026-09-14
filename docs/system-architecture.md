@@ -146,22 +146,28 @@ Detailed technical architecture covering data flow, component structure, securit
 
 #### Orders
 ```
-| OrderId | Po    | Customer    | SupplierName | Status   | ApproveStatus | CreatedBy   | CreatedAt | ... |
-|---------|-------|-------------|-------------|----------|---------------|------------|-----------|-----|
-| DH-001  | PO-01 | ABC Corp    | Supplier A  | Active   | Draft         | sales@...  | 2026-09-01| ... |
+| OrderId | Po    | Customer    | SupplierName | ApproveStatus | CreatedBy   | CreatedAt | ... |
+|---------|-------|-------------|-------------|---------------|------------|-----------|-----|
+| DH-001  | PO-01 | ABC Corp    | Supplier A  | Draft         | sales@...  | 2026-09-01| ... |
 ```
 
 **Workflow States:**
-- **Status:** Active/Cancelled/Draft (business status)
-- **ApproveStatus:** Draft → Wait For Approved → Approved/Rejected (approval state machine, behind feature flag)
+- **Status:** *(Milestone 5a)* **MOVED TO OrderLines** — each line has an optional `status` field (Active/Cancelled/Draft, or blank). No longer at order level. See OrderLines section below.
+- **ApproveStatus:** Draft → Wait For Approved → Approved/Rejected (approval state machine, behind feature flag). Remains order-level only.
 
 #### OrderLines
 ```
-| LineId | OrderId | Description     | ProductCode | UoM  | Qty | UnitPrice | VAT  | ... |
-|--------|---------|-----------------|-------------|------|-----|-----------|------|-----|
-| 1      | DH-001  | Widget A (Blue) | SP-001      | Cái  | 10  | 50,000    | 10%  | ... |
-| 2      | DH-001  | Widget B (Red)  | SP-002      | Cái  | 5   | 75,000    | 10%  | ... |
+| LineId | OrderId | Description     | ProductCode | UoM  | Qty | UnitPrice | VAT  | Status   | StatusNote    | ... |
+|--------|---------|-----------------|-------------|------|-----|-----------|------|----------|---------------|-----|
+| 1      | DH-001  | Widget A (Blue) | SP-001      | Cái  | 10  | 50,000    | 10%  | Active   | In warehouse  | ... |
+| 2      | DH-001  | Widget B (Red)  | SP-002      | Cái  | 5   | 75,000    | 10%  |          |               | ... |
 ```
+
+**Line Status (Milestone 5a):**
+- **Status:** Optional field; each line can independently have a status (Active/Cancelled/Draft, or blank = no status set yet)
+- **StatusNote:** Free-text field paired with Status; e.g., "In warehouse", "On order from supplier"
+- Aggregate reporting: Stats.gs groups orders by line status, sums line revenue per status, includes explicit "Chưa đặt trạng thái" (No Status) group for blank-status lines
+- All reads/writes scoped by `change_status` permission and `visible_fields` array (keys `status` and `statusNote`)
 
 **M5.5 ProductCode Autocomplete (Live Search):**
 The `productCode` field in order lines now provides live autocomplete search against the Products catalog. As the user types, a dropdown list appears with matching product codes. Internally: `apps/web/ui/ViewsOrders.html` calls `.apiLookupProducts({ q: searchTerm })` which invokes `apps/api/Products.gs:actionLookupProducts_()` for server-side search. Replaces the old free-text input.
@@ -529,7 +535,7 @@ thientan-web/
     └── offline-tests/
         ├── orders-crud.test.js       # Order CRUD assertions
         ├── orders-filter.test.js     # Filter logic assertions
-        ├── orders-changestatus.test.js  # Status change assertions
+        ├── orders-changelinestatus.test.js  # Line-level status change assertions (renamed M5a)
         └── ... (7+ test files, 400+ assertions)
 ```
 
@@ -565,7 +571,7 @@ thientan-web/
 **Files:**
 - `tools/offline-tests/orders-crud.test.js` — Order create/read/update/delete
 - `tools/offline-tests/orders-filter.test.js` — List filters, search
-- `tools/offline-tests/orders-changestatus.test.js` — Quick status change
+- `tools/offline-tests/orders-changelinestatus.test.js` — Line-level status change (renamed M5a)
 - `tools/offline-tests/orders-approvestatus.test.js` — Approval state machine
 - `tools/offline-tests/orders-approvestatus-ui.test.js` — UI approval logic
 - `tools/offline-tests/orders-permissions.test.js` — Permission gates
@@ -575,7 +581,7 @@ thientan-web/
 ```bash
 node tools/offline-tests/orders-crud.test.js
 node tools/offline-tests/orders-filter.test.js
-node tools/offline-tests/orders-changestatus.test.js
+node tools/offline-tests/orders-changelinestatus.test.js
 ```
 
 ### Live Tests (Post-Deploy)

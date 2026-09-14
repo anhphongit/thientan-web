@@ -76,8 +76,13 @@ function exportLargeThreshold_(config) {
 
 /**
  * @param {Object} payload same filter shape as listOrders's payload
- *   (month/dateFrom/dateTo, customer, status, createdBy, approveStatus, q),
- *   plus `basis`: 'orderDate' (default) or 'invoiceDate'.
+ *   (month/dateFrom/dateTo, customer, createdBy, approveStatus, q) — note
+ *   `status` is NOT one of these: Milestone 5a moved business status off
+ *   Orders onto OrderLines, and computeOrderFilters_ (Orders.gs) dropped
+ *   the order-level status pre-filter along with it (a status FILTER on
+ *   this export, if ever added back, would need line-aware handling, not
+ *   this order-level shape) — plus `basis`: 'orderDate' (default) or
+ *   'invoiceDate'.
  * @return {{filename:string, mimeType:string, csv:string}}
  */
 function actionExportOrdersCsv_(user, payload) {
@@ -329,7 +334,14 @@ function buildExportRows_(user, buckets) {
             line && showMoney ? num_(line.amountIncVat) : '',
             invoice ? invoice.invoiceNo : '',
             invoice ? formatExportDate_(invoice.invoiceDate) : '',
-            first && fieldVisible_(user, 'status') ? (statusExportLabel_(user, view, statusLabels) || '') : ''
+            // Milestone 5a: status is LINE-scoped now (was order-scoped),
+            // so the old `first &&` guard — which printed the cell only on
+            // an order's first line, back when status was one value per
+            // order — is gone; every line prints its OWN status. A
+            // zero-line order's placeholder `line` (null, see `orderLines`
+            // above) still gets a blank cell, same as every other
+            // line-sourced column in this row.
+            fieldVisible_(user, 'status') && line ? (statusExportLabel_(user, line, statusLabels) || '') : ''
           ]
         });
 
@@ -377,6 +389,16 @@ function lineDescriptionText_(user, line) {
   return code ? (code + ' : ' + desc) : desc;
 }
 
+/** Blank-LINE-status display label (Milestone 5a — confirmed by project
+ *  owner 2026-09-14, design decision recorded in the M5a Phase 3 plan doc).
+ *  statusLabelText_'s raw-key fallback returns '' for a blank key, which
+ *  is not a usable display string on its own, so this exact label is used
+ *  everywhere a blank line status needs one: this file's own
+ *  statusExportLabel_ below, Stats.gs's actionStatsByStatus_, and any
+ *  future Phase 4 UI grouping/label lookup — one shared constant, not a
+ *  second copy of the string drifting between files. */
+var LINE_STATUS_BLANK_LABEL = 'Chưa đặt trạng thái';
+
 /** statusNote folded into the same cell as status, matching the reference
  *  file's own mixing of controlled status + free text (EXCEL_REFERENCE.md
  *  §6) — this export is meant to read the way that file already does.
@@ -387,10 +409,18 @@ function lineDescriptionText_(user, line) {
  *  client's own statusLabel() in ViewsOrders.html does the same lookup),
  *  so the export must translate through it too instead of writing the
  *  key straight through. Falls back to the raw key if it's somehow not
- *  in the list, same fallback statusLabel() uses client-side. */
-function statusExportLabel_(user, view, statusLabels) {
-  var status = statusLabelText_(statusLabels, view.status);
-  var note = fieldVisible_(user, 'statusNote') ? text_(view.statusNote) : '';
+ *  in the list, same fallback statusLabel() uses client-side.
+ *
+ *  Milestone 5a: status/statusNote moved OFF Orders onto OrderLines, so
+ *  this now reads straight off the LINE row (`line.status`/
+ *  `line.statusNote`), not a filtered order view — buildExportRows_ calls
+ *  this once per line now that the old `first &&`/order-scoped guard is
+ *  gone. A blank line status gets LINE_STATUS_BLANK_LABEL instead of an
+ *  empty string, so a line with no status set still shows something
+ *  readable rather than a blank cell that looks like a data-loss bug. */
+function statusExportLabel_(user, line, statusLabels) {
+  var status = line.status ? statusLabelText_(statusLabels, line.status) : LINE_STATUS_BLANK_LABEL;
+  var note = fieldVisible_(user, 'statusNote') ? text_(line.statusNote) : '';
   return note ? (status + ' — ' + note) : status;
 }
 

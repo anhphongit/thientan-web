@@ -17,7 +17,7 @@ function line(over) {
 }
 function order(over) {
   return Object.assign({ customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-                         status: 'draft', po: '4600041936' }, over || {});
+                         po: '4600041936' }, over || {});
 }
 
 /** Same helper export.test.js uses — attaches an invoice to one line by
@@ -286,8 +286,8 @@ console.log('\n15. actionStatsByStatus_ groups by status with real Vietnamese la
 {
   const env = H.makeEnv();
   const admin = user('a@x.com', { view_statistics: true });
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-20', status: 'draft' }), lines: [line({ qty: 1, unitPrice: 100000, vatRate: 0.08 })] });
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-21', status: 'confirmed' }), lines: [line({ qty: 1, unitPrice: 300000, vatRate: 0.08 })] });
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-20' }), lines: [line({ qty: 1, unitPrice: 100000, vatRate: 0.08, status: 'draft' })] });
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-21' }), lines: [line({ qty: 1, unitPrice: 300000, vatRate: 0.08, status: 'confirmed' })] });
 
   const res = env.actionStatsByStatus_(admin, {});
   eq('two status groups', res.groups.length, 2);

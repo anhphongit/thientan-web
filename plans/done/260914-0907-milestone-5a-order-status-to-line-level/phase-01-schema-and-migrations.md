@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Schema & migrations"
-status: pending
+status: completed
 priority: P1
 effort: 3h
 dependencies: []
@@ -113,22 +113,24 @@ irrelevant; appending is the only non-destructive choice on a live sheet.
 
 ## Todo List
 
-- [ ] `HEADERS.Orders` — remove status/statusNote (+ comment)
-- [ ] `HEADERS.OrderLines` — add status/statusNote (+ comment)
-- [ ] `HEADERS.StatusHistory` — add lineId (+ comment)
-- [ ] `LIST_CARD_FIELDS` — remove status (+ docstring)
-- [ ] `migrateOrderLineStatus()` written, idempotent, `guardSetup_()` first
-- [ ] Docblock states "no backfill" explicitly
-- [ ] Syntax check passes
+- [x] `HEADERS.Orders` — remove status/statusNote (+ comment)
+- [x] `HEADERS.OrderLines` — add status/statusNote (+ comment)
+- [x] `HEADERS.StatusHistory` — add lineId (+ comment)
+- [x] `LIST_CARD_FIELDS` — remove status (+ docstring)
+- [x] `migrateOrderLineStatus()` written, idempotent, `guardSetup_()` first
+- [x] Docblock states "no backfill" explicitly
+- [x] Syntax check passes
 
 ## Success Criteria
 
-- [ ] `grep -n "'status'" apps/api/Config.gs` shows no hit inside `HEADERS.Orders` or `LIST_CARD_FIELDS`.
-- [ ] `HEADERS.OrderLines` contains `status` and `statusNote`; `HEADERS.StatusHistory` contains `lineId`.
-- [ ] `migrateOrderLineStatus` exists, starts with `guardSetup_()`, has no trailing underscore.
-- [ ] Re-reading the migration source shows every write guarded by an `indexOf(...) < 0` check (idempotent).
-- [ ] Both files parse without syntax error.
-- [ ] The migration has **not** been executed (Phase 8 owns that).
+- [x] `grep -n "'status'" apps/api/Config.gs` shows no hit inside `HEADERS.Orders` or `LIST_CARD_FIELDS`.
+- [x] `HEADERS.OrderLines` contains `status` and `statusNote`; `HEADERS.StatusHistory` contains `lineId`.
+- [x] `migrateOrderLineStatus` exists, starts with `guardSetup_()`, has no trailing underscore.
+- [x] Re-reading the migration source shows every write guarded by an `indexOf(...) < 0` check (idempotent).
+- [x] Both files parse without syntax error.
+- [x] The migration was **not** executed as part of this phase (correct at the time — Phase 8
+      owned that). **Update (2026-09-14):** Phase 8 has since run it against the live sheet;
+      this criterion described Phase 1's own scope boundary, not a standing constraint.
 
 ## Risk Assessment
 

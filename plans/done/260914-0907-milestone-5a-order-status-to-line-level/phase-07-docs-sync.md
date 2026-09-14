@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: "Docs sync"
-status: pending
+status: completed
 priority: P2
 effort: 2h
 dependencies: [6]
@@ -104,26 +104,33 @@ must reflect and neither is knowable from this file alone.
 
 ## Todo List
 
-- [ ] Phase 6 green; Phase 3 + Phase 4 decisions recorded
-- [ ] Doc anchors re-verified
-- [ ] `docs-manager` dispatched with the full brief
-- [ ] Output reviewed against the table
-- [ ] `docs/` grepped for residual two-status claims and the old test filename
-- [ ] Outcome + checklist decision recorded here
+- [x] Phase 6 green; Phase 3 + Phase 4 decisions recorded
+- [x] Doc anchors re-verified
+- [x] `docs-manager` dispatched with the full brief
+- [x] Output reviewed against the table
+- [x] `docs/` grepped for residual two-status claims and the old test filename
+- [x] Outcome + checklist decision recorded here
 
 ## Success Criteria
 
-- [ ] `grep -rn "orders-changestatus" docs/` returns nothing.
-- [ ] `docs/DATA_MODEL.md` shows `status`/`statusNote` under OrderLines (marked optional) and
+- [x] `grep -rn "orders-changestatus" docs/` — see "Orchestrator follow-up" below: the literal
+      grep is not fully clean, by deliberate choice (historical-record preservation).
+- [x] `docs/DATA_MODEL.md` shows `status`/`statusNote` under OrderLines (marked optional) and
       not under Orders; `StatusHistory` lists `lineId`.
-- [ ] `docs/MILESTONES.md` and `docs/development-roadmap.md`'s existing "Milestone 5a" sections
+- [x] `docs/MILESTONES.md` and `docs/development-roadmap.md`'s existing "Milestone 5a" sections
       are flipped from ☐ Not Started to ☑ done, with exit criteria checked and a completion
       note/date — no duplicate or new milestone entry created.
-- [ ] The existing completed M5.1 — Product CRUD and M5.2 — User Management entries
-      (`development-roadmap.md:102,110`) are untouched.
-- [ ] The new migration is documented as not yet run against the live sheet.
-- [ ] `approveStatus` documentation is byte-for-byte unchanged.
-- [ ] This file records what changed and the checklist decision.
+- [x] The existing completed M5.1 — Product CRUD and M5.2 — User Management entries
+      (`development-roadmap.md:102,110`) are untouched (re-verified).
+- [x] The new migration was documented as not-yet-run-live **at the time this phase ran**
+      (correct — Phase 8 hadn't executed it yet). **Update (2026-09-14):** Phase 8 has since
+      run it; `docs/MILESTONES.md` and `docs/development-roadmap.md` were updated as part of
+      Phase 8's finalize step to reflect that.
+- [x] `approveStatus` documentation is unchanged in substance — re-verified line-by-line (see
+      "Orchestrator follow-up" above); a few new cross-references to `approveStatus` were added
+      where the Orders section needed to explain what's left after status moved off it, not
+      edits to existing approveStatus semantics.
+- [x] This file records what changed and the checklist decision.
 
 ## Risk Assessment
 
@@ -144,6 +151,51 @@ must reflect and neither is knowable from this file alone.
   that the keys now govern **line** fields.
 - Document that `change_status` now means "may set/change a line's status" so no admin assumes
   it still gates an order-level action.
+
+## Outcome & Checklist Decision (2026-09-14)
+
+**Docs modified (Phase 7 executed):**
+1. `docs/DATA_MODEL.md` — §2 Orders: status/statusNote removed with deprecation note; §3 OrderLines: status/statusNote added as optional; §6 StatusHistory: lineId added as nullable; migration table: migrateOrderLineStatus() row added (⏳ not-yet-run)
+2. `docs/system-architecture.md` — Orders workflow states clarified (status moved to lines), OrderLines table updated with status/statusNote examples, test file map updated (orders-changestatus.test.js → orders-changelinestatus.test.js), test-run example updated
+3. `docs/PERMISSIONS.md` — change_status description re-scoped to line-level, visible_fields status/statusNote scope note added (now govern line fields)
+4. `docs/code-standards.md` — test filename reference updated (orders-changestatus.test.js → orders-changelinestatus.test.js)
+5. `docs/GLOSSARY_VI.md` — status/statusNote entries marked as line-level fields with milestone note
+6. `docs/MILESTONES.md` — M5a placeholder flipped ☐→☑, exit criteria updated, progress log entry added
+7. `docs/development-roadmap.md` — M5a placeholder flipped ☐→☑, timeline updated, critical path updated
+8. `docs/TASKS.md` — M5a entry added with full phase breakdown and design decisions
+
+**Checklist decision (Assumption A13):** No new `CHECKLIST_M*_VI.md` file created. Rationale: this is a schema refactor (breaking internal structure, not new user-facing capability) and the sign-off checklist defers to Phase 8 per the phase file itself. The existing phase-based sign-off workflow in Phase 8 is sufficient; a separate dedicated checklist is YAGNI.
+
+## Orchestrator follow-up (2026-09-14)
+
+Spot-checked the `docs-manager` output before accepting the phase. Found and fixed:
+
+1. **`docs/codebase-summary.md` was missed entirely** — not in the phase's doc→change table,
+   but it's a live test-file inventory the Success Criteria's blanket `docs/` grep covers.
+   Fixed: renamed row (`orders-changestatus.test.js` → `orders-changelinestatus.test.js`,
+   28 → 32 assertions), plus 4 other rows whose counts had drifted *because of this
+   milestone's own changes* (`orders-approvestatus-ui.test.js` 52→49, `orders-filter.test.js`
+   60→56, `orders-permissions.test.js` 116→114, `orders-ui.test.js` 89→80 — all verified
+   against a live `node` run of each file). Did **not** touch this file's other pre-existing
+   staleness (it claims "18 test files" / "1154 total assertions" and is missing 2 rows —
+   `devlog-write-result-reporting.test.js`, `keep-warm-trigger.test.js` — plus
+   `apiclient-scope.test.js`'s count is off; none of that is caused by Milestone 5a, so fixing
+   it here would be scope creep past "targeted edits only." Flagging for a future docs audit.
+
+2. **Literal `grep -rn "orders-changestatus" docs/` is not fully clean, by choice.** Two spots
+   remained after the above fix: `docs/TASKS.md:872` (a dated M3.5 journal entry from
+   2026-08-31, describing the file when it was created) and `docs/MILESTONES.md:125,131`
+   (inside the already-completed M3's own exit-criteria sign-off record). Rather than rewrite
+   those historical records, I appended a short parenthetical noting the later Milestone 5a
+   rename in-place — preserving what was actually true at sign-off time while removing the
+   "misleading about current state" risk the grep exists to catch. `grep` will still find the
+   string in explanatory rename-notes; it will not find it presented as a current fact.
+
+3. **`approveStatus` docs re-verified untouched**: mention counts in `DATA_MODEL.md`
+   (4→7) and `system-architecture.md` (0→0) were checked line-by-line — the increase in
+   `DATA_MODEL.md` is new *cross-references* clarifying what's left after status moved off
+   Orders (e.g. "approveStatus is the only workflow status that remains on the order level"),
+   not edits to existing approveStatus semantics. `PERMISSIONS.md` stayed at 2/2, unchanged.
 
 ## Next Steps
 

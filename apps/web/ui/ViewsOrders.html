@@ -54,7 +54,7 @@ exporting: false,
     // API, filters included.
     // approveStatus: Milestone 3 / 3.8 — combines AND with everything else,
     // same as every other filter here.
-    filters: { month: '', customer: '', status: '', createdBy: '', q: '', approveStatus: '' },
+    filters: { month: '', customer: '', createdBy: '', q: '', approveStatus: '' },
     // Milestone 3 / 3.4 fix — the LIVE text of the search box, separate from
     // state.filters.q (the last value actually searched for). Every repaint
     // (toggling the filter panel, "Làm mới", background refreshes...)
@@ -65,23 +65,24 @@ exporting: false,
     // Milestone 3 / 3.3 — createdBy dropdown data (view_all_orders only).
     // null = not fetched yet; [] is a valid "nobody yet" answer.
     creators: null, creatorsLoading: false,
-    // Milestone 3 / 3.5 — orderIds with a status change in flight (server
-    // round trip not yet resolved). While an orderId is in here: its card's
-    // "open detail" buttons are blocked (see onClick) and its status pill
-    // shows a pending state instead of the pencil/select — so the user
-    // can't navigate into an order whose status the server hasn't
-    // confirmed yet, and always sees that a change is happening.
-    statusUpdatingIds: {},
     // UI revision (2026-09-03, "Option A") — which fused-marker dropdown is
     // currently open, or null for none. A string key: an orderId for a
     // list-card marker, or the literal 'detail' for the one in the detail
     // title. Only one open at a time, same as any menu of this kind.
     approveMenuOpenFor: null,
-    // Same idea as statusUpdatingIds, for an approve action fired from a
-    // LIST CARD's marker (the detail title's own in-flight state keeps
-    // using state.busyAction — there is only ever one order open there).
-    // While orderId sits in here, that card's marker renders its pending
-    // (spinner) state and cannot be clicked again.
+    // Milestone 3 / 3.8 — orderIds with an approve action fired from a
+    // LIST CARD's marker in flight (server round trip not yet resolved).
+    // The detail title's own in-flight state keeps using state.busyAction
+    // — there is only ever one order open there. While orderId sits in
+    // here, that card's marker renders its pending (spinner) state and
+    // cannot be clicked again.
+    //
+    // Milestone 5a — the sibling in-flight map for the order-level
+    // quick-status change was removed: business status no longer lives
+    // on the order at all, so there is nothing left to quick-change from a
+    // list card. Per-line status now saves with the rest of the order-edit
+    // form (Assumption A9), which already has its own single in-flight
+    // flag (state.busyAction) — no separate map needed.
     approveUpdatingIds: {},
     // Milestone 3 / 3.2-3.4 UI, "Bảng lọc thu gọn" — purely a display toggle
     // for the panel of dropdowns; never read by fetchOrders()/listPayload().
@@ -258,7 +259,10 @@ exporting: false,
    * modifier classes (approve-status-pill--*, not status-pill--*): reusing
    * a business-status class here would also drag in that class's other
    * rules (status-pill--cancelled has a strikethrough, which reads as
-   * "this order is cancelled" — wrong for an approve status of "rejected").
+   * "this line is cancelled" — wrong for an approve status of "rejected",
+   * a per-ORDER concept unrelated to any single line's business status —
+   * Milestone 5a moved business status from the order to each line, but
+   * approveStatus stays order-level).
    */
   var APPROVE_STATUS_STYLE = {
     draft: 'draft',
@@ -325,9 +329,9 @@ exporting: false,
     var label = approveStatusLabel(approveStatus);
     actions = actions || [];
     // While an action fired from THIS marker is in flight, it always shows
-    // the pending spinner regardless of the (now stale) actions list — same
-    // "no second click on top of the first" reasoning as the business-
-    // status pill's .status-pill--pending state.
+    // the pending spinner regardless of the (now stale) actions list — "no
+    // second click on top of the first" while the server round trip is
+    // outstanding.
     var actionable = !pending && actions.length > 0;
 
     var statHtml;
@@ -518,7 +522,6 @@ exporting: false,
       wrapper.addEventListener('input', onInput);
       wrapper.addEventListener('blur', onBlur, true);
       wrapper.addEventListener('keydown', onKeydown);
-      wrapper.addEventListener('change', onChange);
       root.appendChild(wrapper);
     } else {
       wrapper = root;
@@ -526,7 +529,6 @@ exporting: false,
       root.addEventListener('input', onInput);
       root.addEventListener('blur', onBlur, true);
       root.addEventListener('keydown', onKeydown);
-      root.addEventListener('change', onChange);
     }
     showList();
   }
@@ -605,7 +607,6 @@ exporting: false,
     var payload = { page: page, pageSize: PAGE_SIZE };
     if (state.filters.month) payload.month = state.filters.month;
     if (state.filters.customer) payload.customer = state.filters.customer;
-    if (state.filters.status) payload.status = state.filters.status;
     if (state.filters.createdBy) payload.createdBy = state.filters.createdBy;
     if (state.filters.q) payload.q = state.filters.q;
     if (state.filters.approveStatus) payload.approveStatus = state.filters.approveStatus;
@@ -614,7 +615,7 @@ exporting: false,
 
   function hasActiveFilters() {
     var f = state.filters;
-    return !!(f.month || f.customer || f.status || f.createdBy || f.q || f.approveStatus);
+    return !!(f.month || f.customer || f.createdBy || f.q || f.approveStatus);
   }
 
   /**
@@ -639,13 +640,18 @@ exporting: false,
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.2" y2="16.2"></line></svg>';
 
-  /** Small pencil/edit glyph for the quick-status pill (E1 option, chosen
-   *  2026-08-31): trailing icon appended after the status label, colored via
-   *  currentColor so it always matches that pill's own status color — same
-   *  technique as SEARCH_ICON_SVG above. */
-  var PENCIL_ICON_SVG = '<svg class="pill-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>';
+  /**
+   * Milestone 5a — small lock glyph for the per-line status control's
+   * disabled tag (approved mock: Option D, 2026-09-14). Shown next to the
+   * "Không có quyền đổi trạng thái" label when a line's canChangeStatus is
+   * false, same currentColor technique as SEARCH_ICON_SVG above. Replaces
+   * the removed PENCIL_ICON_SVG (E1 quick-status pill, deleted with the
+   * order-level status machinery this milestone moved to the line level).
+   */
+  var LINE_STATUS_LOCK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" aria-hidden="true">' +
+    '<rect x="4" y="10" width="16" height="10" rx="2"></rect>' +
+    '<path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>';
 
   /**
    * Milestone 3 / 3.3 — createdBy dropdown data. Fetched once, lazily, only
@@ -730,7 +736,7 @@ exporting: false,
     // the search chip) saw `changed === false` and returned before ever
     // updating state.filters or re-fetching — the enabled, clickable search
     // button did nothing because THIS check silently no-op'd it.
-    var changed = ['month', 'customer', 'status', 'createdBy', 'q', 'approveStatus'].some(function (k) {
+    var changed = ['month', 'customer', 'createdBy', 'q', 'approveStatus'].some(function (k) {
       return merged[k] !== state.filters[k];
     });
     if (!changed) return;
@@ -749,7 +755,7 @@ exporting: false,
     // Same bug's other half: 'q' was missing here too, so "Xóa lọc" cleared
     // every dropdown filter but left the search query actually applied
     // (state.filters.q) untouched, even though the chip/input looked cleared.
-    applyFilters({ month: '', customer: '', status: '', createdBy: '', q: '', approveStatus: '' });
+    applyFilters({ month: '', customer: '', createdBy: '', q: '', approveStatus: '' });
   }
 
   /**
@@ -857,7 +863,7 @@ exporting: false,
   /**
    * Milestone 4 / 4.1 — CSV export of the currently-filtered list.
    * Manual-testing button (no dedicated export screen yet): reuses the same
-   * filter fields as listPayload() (month/customer/status/createdBy/q/
+   * filter fields as listPayload() (month/customer/createdBy/q/
    * approveStatus), so "what you're looking at" is "what you export" — same
    * filters actionExportOrdersCsv_ re-applies server-side via
    * computeOrderFilters_/filteredOrderRowsForUser_ (shared with
@@ -1364,7 +1370,6 @@ exporting: false,
               '<select id="f-filter-year">' + yearOptionsHtml(selYear) + '</select>' +
             '</div>' +
             (fieldAllowed_('customer') ? '<select id="f-filter-customer">' + customerOptionsHtml(state.filters.customer) + '</select>' : '') +
-            (fieldAllowed_('status') ? '<select id="f-filter-status">' + statusOptionsHtml(state.filters.status) + '</select>' : '') +
             approveStatusFilterHtml() +
             creatorFilterHtml() +
             '<div class="filter-panel-actions">' +
@@ -1405,9 +1410,6 @@ exporting: false,
     if (state.filters.customer) {
       chips.push({ key: 'customer', label: state.filters.customer });
     }
-    if (state.filters.status) {
-      chips.push({ key: 'status', label: statusLabel(state.filters.status) });
-    }
     if (state.filters.createdBy) {
       var creator = (state.creators || []).filter(function (c) { return c.email === state.filters.createdBy; })[0];
       chips.push({ key: 'createdBy', label: creator ? creator.displayName : state.filters.createdBy });
@@ -1432,8 +1434,17 @@ exporting: false,
     return out;
   }
 
-  function statusOptionsHtml(selected) {
-    var out = '<option value="">Tất cả trạng thái</option>';
+  /**
+   * Reused two ways (Milestone 5a): the removed order-level status filter
+   * used to be the only caller with its "Tất cả trạng thái" (all statuses)
+   * blank option; the per-line status control (lineStatusHtml) now also
+   * calls this with a different blankLabel ("— Chưa có —", "not set") since
+   * "all statuses" reads wrong for a single line's blank state. Either way
+   * the blank option is a real, selectable empty-string <option> — never a
+   * placeholder that coerces to the first status key.
+   */
+  function statusOptionsHtml(selected, blankLabel) {
+    var out = '<option value="">' + T.esc(blankLabel || 'Tất cả trạng thái') + '</option>';
     statusList().forEach(function (s) {
       out += '<option value="' + T.esc(s.key) + '"' + (s.key === selected ? ' selected' : '') + '>' +
              T.esc(s.label) + '</option>';
@@ -1446,7 +1457,7 @@ exporting: false,
    * as everywhere else in this file: while the flag is off the dropdown
    * simply doesn't render, mirroring the server's own approvalFlowEnabled_()
    * guard that ignores payload.approveStatus entirely in that case. Unlike
-   * the customer/status filters above, this is never gated on
+   * the customer filter above, this is never gated on
    * fieldAllowed_() — approveStatus is always visible (spec point 2), so
    * every account gets this dropdown once the flag is on.
    */
@@ -1593,27 +1604,29 @@ exporting: false,
     // UI request, 2026-08-26: line count is a key at-a-glance number — a
     // filled circle badge (style A), grouped with the order id on the left
     // (position 3, chosen after seeing it live) — "this order, N lines"
-    // reads before status/customer. Just the number, no unit word (the
+    // reads before customer/meta. Just the number, no unit word (the
     // badge shape + position already say "this is a count"); the title
     // attribute still spells it out for anyone who hovers/long-presses.
+    // Milestone 5a — business status no longer shows on the card at all
+    // (Assumption A10: moved to the line level, YAGNI on a card-level
+    // status summary).
     var linesChip = '<span class="oc-lines" title="' + o.lineCount + ' dòng">' + o.lineCount + '</span>';
 
-    // Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): a <select>
-    // can't nest inside a <button> (invalid HTML — buttons may not contain
-    // interactive content), and the status pill itself is now the
-    // quick-status control, so the id/lines area and the customer/meta/
-    // money area are two SEPARATE sibling buttons, with the pill sitting
-    // between them as its own element (plain span, or pill+overlaid
-    // <select> when o.canChangeStatus) — never nested inside either button.
-    // Milestone 3 / 3.5 — while a status change on THIS order is in
-    // flight, both navigable buttons are disabled (not just blocked in JS):
-    // gives a visible cue and stops focus/keyboard activation, not just
-    // clicks.
-    // Approve-action in-flight also disables the card's open buttons —
-    // same reasoning as a status change: the server hasn't confirmed the
-    // new approveStatus yet, and opening the (possibly stale) detail view
-    // invites acting on it again before the change actually lands.
-    var updating = !!state.statusUpdatingIds[o.orderId] || !!state.approveUpdatingIds[o.orderId];
+    // Milestone 5a — the id/lines area and the customer/meta/money area
+    // stay two SEPARATE sibling buttons (a <select> can't nest inside a
+    // <button> — invalid HTML), a structural choice originally driven by
+    // the order-level quick-status pill+<select> overlay that used to sit
+    // between them. That pill (statusQuickPillHtml, E1 option) is gone —
+    // business status moved to the line level (Assumption A9: no
+    // list-card quick-change, no standalone endpoint) — but the two-button
+    // split stays, since the approve-status marker below has the same
+    // "own interactive element, can't nest in a button" requirement.
+    //
+    // Approve-action in-flight disables the card's open buttons: the
+    // server hasn't confirmed the new approveStatus yet, and opening the
+    // (possibly stale) detail view invites acting on it again before the
+    // change actually lands.
+    var updating = !!state.approveUpdatingIds[o.orderId];
     var openAttrs = updating ? ' disabled' : '';
 
     // UI revision (2026-09-02, "Option N"; 2026-09-03, "Option A") —
@@ -1623,8 +1636,7 @@ exporting: false,
     // quick-action trigger for it, same component and behaviour as the
     // detail title. Buttons cannot nest (invalid HTML), so as soon as the
     // marker is actionable it has its own <button>/<div> inside it and
-    // must sit OUTSIDE oc-open-id, the same way statusQuickPillHtml's
-    // pill+<select> already does — only the plain, non-interactive marker
+    // must sit OUTSIDE oc-open-id — only the plain, non-interactive marker
     // (or the plain id text, flag off) is safe to draw inside the button.
     // has(o, 'approveStatus') is really just a config-flag guard here since
     // the field is server-side ALWAYS_VISIBLE, but keeping the has() check
@@ -1632,18 +1644,7 @@ exporting: false,
     // degrades to a plain id — no stray marker.
     var approveOn = approveStatusEnabled() && has(o, 'approveStatus');
     var approvePending = !!state.approveUpdatingIds[o.orderId];
-    // Locking, point 1 (2026-09-03 feedback) — the business-status
-    // quick-select and the approve-menu trigger act on the same order at
-    // the same time, so firing one while the other is still resolving
-    // risks a real conflict (e.g. approving an order whose status just
-    // changed under it). Same-order-only lock, per Phong's answer: while
-    // THIS order's status quick-change is in flight, its approve marker
-    // is drawn as plain/non-interactive (no actions passed in at all —
-    // same "no actions" branch fusedOrderIdHtml already has), and
-    // vice versa below in statusQuickPillHtml. Other orders in the list
-    // are unaffected.
-    var statusPendingSameOrder = !!state.statusUpdatingIds[o.orderId];
-    var idActions = (approveOn && !statusPendingSameOrder) ? approveActionsFor(o) : [];
+    var idActions = approveOn ? approveActionsFor(o) : [];
     var idIsActionable = !approvePending && idActions.length > 0;
     var idHtml = approveOn
       ? fusedOrderIdHtml(T.esc(o.orderId), o.approveStatus, 'oc-id', idActions, o.orderId,
@@ -1662,7 +1663,6 @@ exporting: false,
             : '<button type="button" class="oc-open oc-open-id" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
                 '<span class="oc-top-left">' + idHtml + linesChip + '</span>' +
               '</button>') +
-          statusQuickPillHtml(o) +
         '</div>' +
         '<button type="button" class="oc-open oc-open-rest" data-open="' + T.esc(o.orderId) + '"' + openAttrs + '>' +
           '<div class="oc-customer">' + T.esc(o.customer) + '</div>' +
@@ -1670,51 +1670,6 @@ exporting: false,
           money +
         '</button>' +
       '</div>';
-  }
-
-  /**
-   * Milestone 3 / 3.5, style E1 (chosen 2026-08-31) — the status pill
-   * itself is the quick-status control: a small pencil icon (currentColor,
-   * matching that pill's own status color) trails the label, and a
-   * transparent <select> is overlaid on top of the pill to capture the
-   * click/tap. Only drawn as interactive when the server already said this
-   * user may act on THIS order (o.canChangeStatus — mayAct_'s permission+
-   * ownership check, mirrored from canEdit/canDelete); the server re-checks
-   * change_status and ownership again on the actual apiChangeStatus call
-   * regardless — this flag only decides whether to draw the control.
-   * Otherwise it's the same plain, non-interactive pill as before.
-   */
-  function statusQuickPillHtml(o) {
-    // Milestone 3 / 3.5 — while this order's status change is in flight,
-    // show a pending pill (spinner dot + "Đang cập nhật…") instead of the
-    // normal label+pencil, and drop the overlaid <select> entirely so a
-    // second change can't be queued on top of the first before it resolves.
-    if (state.statusUpdatingIds[o.orderId]) {
-      return '<span class="' + statusPillClass(o.status) + ' status-pill--pending">' +
-        '<span class="pill-spinner" aria-hidden="true"></span>Đang cập nhật…' +
-        '</span>';
-    }
-    // Locking, point 1 (2026-09-03 feedback) — same-order lock, mirror of
-    // idActions above: while an approve action on THIS order is in
-    // flight, the status quick-select is dropped (plain pill, no overlay)
-    // so the two can't fire on top of each other. No spinner here — the
-    // status itself isn't what's changing, the pill just isn't a control
-    // right now.
-    var approvePendingSameOrder = !!state.approveUpdatingIds[o.orderId];
-    var pill = '<span class="' + statusPillClass(o.status) + '">' + T.esc(statusLabel(o.status));
-    if (!o.canChangeStatus || approvePendingSameOrder) return pill + '</span>';
-    pill += PENCIL_ICON_SVG + '</span>';
-    var options = statusList().map(function (s) {
-      return '<option value="' + T.esc(s.key) + '"' + (s.key === o.status ? ' selected' : '') + '>' +
-             T.esc(s.label) + '</option>';
-    }).join('');
-    return '' +
-      '<span class="pill-wrap">' +
-        pill +
-        '<select class="pill-select" data-act="quick-status" data-order="' + T.esc(o.orderId) + '">' +
-          options +
-        '</select>' +
-      '</span>';
   }
 
   /* =====================================================================
@@ -1727,20 +1682,23 @@ exporting: false,
 
     if (!orderId) {
       var money = seesMoney();
-      // customer / orderDate / status are the minimum needed to identify and
-      // save an order at all, so they're always present regardless of
-      // visible_fields (same as the server's validateOrderPayload_, which
-      // always requires them). Everything else here is optional and gated
-      // by fieldAllowed_ — a role missing e.g. po from visible_fields must
-      // not even see a blank PO box on a brand new order.
+      // customer / orderDate are the minimum needed to identify and save an
+      // order at all, so they're always present regardless of visible_fields
+      // (same as the server's validateOrderPayload_, which always requires
+      // them). Everything else here is optional and gated by fieldAllowed_
+      // — a role missing e.g. po from visible_fields must not even see a
+      // blank PO box on a brand new order.
+      //
+      // Milestone 5a — status/statusNote/canChangeStatus dropped from this
+      // object: business status moved off the order entirely. A brand new
+      // order's first line starts blank (no default), same as every other
+      // optional line field — see blankLine() below.
       state.order = {
         orderId: '', customer: '', orderDate: today(),
-        status: statusList()[0].key,
-        canEdit: true, canDelete: false, canChangeStatus: true
+        canEdit: true, canDelete: false
       };
       if (fieldAllowed_('po')) state.order.po = '';
       if (fieldAllowed_('poNote')) state.order.poNote = '';
-      if (fieldAllowed_('statusNote')) state.order.statusNote = '';
       if (fieldAllowed_('supplierName')) state.order.supplierName = '';
       if (money) {
         state.order.customerDeposit = '';
@@ -1819,9 +1777,19 @@ exporting: false,
 
   // description / qty are always required (validateLine_ rejects a line
   // without them), so they're unconditional here, same reasoning as
-  // customer/orderDate/status on the order itself. Everything else is
-  // optional and gated by fieldAllowed_ so a role missing e.g. productCode
-  // from visible_fields never sees a blank "Mã hàng" box on a new line.
+  // customer/orderDate on the order itself. Everything else is optional
+  // and gated by fieldAllowed_ so a role missing e.g. productCode from
+  // visible_fields never sees a blank "Mã hàng" box on a new line.
+  //
+  // Milestone 5a — status/statusNote/canChangeStatus, moved here from the
+  // order (see openForm's new-order defaults, above): a brand new line
+  // starts BLANK (no default status key, per Assumption A3 — unlike the
+  // old order-level default of statusList()[0].key, which is the exact
+  // "coerces to the first status" bug the mock's blank-state requirement
+  // exists to avoid). canChangeStatus defaults true, mirroring the old
+  // order-level default (a brand new, not-yet-saved line has nothing for
+  // the server to have denied yet); the server re-checks change_status on
+  // every save regardless (Phase 2, A6).
   function blankLine() {
     var l = { lineId: '', description: '', qty: '' };
     if (fieldAllowed_('productCode')) l.productCode = '';
@@ -1829,6 +1797,7 @@ exporting: false,
     if (!state.hiddenMoney) { l.unitPrice = ''; l.vatRate = vatRates()[0]; }
     if (fieldAllowed_('invoiceNo')) { l.invoiceNo = ''; l.invoiceDate = ''; }
     if (fieldAllowed_('note')) l.note = '';
+    if (fieldAllowed_('status')) { l.status = ''; l.statusNote = ''; l.canChangeStatus = true; }
     return l;
   }
 
@@ -1856,6 +1825,18 @@ exporting: false,
       out.invoiceDate = dateInputValue(line.invoiceDate);
     }
     if (has(line, 'note')) out.note = line.note || '';
+    // Milestone 5a — status/statusNote gated as one pair on has(line,
+    // 'status') alone, mirroring clampHiddenLineFields_'s write-side pairing
+    // (Orders.gs) — a role that can't see status never sees the note input
+    // either, even though 'statusNote' is technically its own
+    // visible_fields key. canChangeStatus is NOT field-filtered server-side
+    // (buildOrderResponse_ sets it unconditionally after filterVisibleFields_
+    // runs), so it's read here regardless of has(line, 'status').
+    if (has(line, 'status')) {
+      out.status = line.status || '';
+      out.statusNote = line.statusNote || '';
+    }
+    out.canChangeStatus = !!line.canChangeStatus;
     return out;
   }
 
@@ -1974,11 +1955,15 @@ exporting: false,
     return 'dữ liệu lúc ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
+  /**
+   * Milestone 5a — the order-level "Trạng thái"/"Ghi chú trạng thái" inputs
+   * are gone: business status moved to each line (see lineStatusHtml,
+   * called from lineHtml below), approved as Option D in the phase-4
+   * mockup round (2026-09-14). approveStatus is untouched — it never lived
+   * in this card, see the detail title / banner instead.
+   */
   function headerCardHtml(o, ro) {
     var d = ro ? ' disabled' : '';
-    // Status is locked on an existing order for someone without change_status:
-    // the server refuses it anyway, and a control that always errors is a trap.
-    var statusDisabled = (ro || (o.orderId && !o.canChangeStatus)) ? ' disabled' : '';
 
     return '' +
       '<section class="card">' +
@@ -2001,17 +1986,6 @@ exporting: false,
             ? field('Ghi chú về PO',
                 '<input id="f-poNote" value="' + T.esc(o.poNote) +
                 '" placeholder="PO tạm, chờ PO thật..."' + d + '>') : '') +
-          field('Trạng thái',
-            '<select id="f-status"' + statusDisabled + '>' +
-              statusList().map(function (s) {
-                return '<option value="' + T.esc(s.key) + '"' +
-                  (s.key === o.status ? ' selected' : '') + '>' + T.esc(s.label) + '</option>';
-              }).join('') +
-            '</select>') +
-          (has(o, 'statusNote')
-            ? field('Ghi chú trạng thái',
-                '<input id="f-statusNote" value="' + T.esc(o.statusNote) +
-                '" placeholder="Hẹn giao 22/09..."' + d + '>') : '') +
           (has(o, 'customerDeposit')
             ? field('Khách đã cọc (VNĐ)',
                 '<input id="f-customerDeposit" inputmode="numeric" class="money" value="' +
@@ -2158,6 +2132,59 @@ exporting: false,
       '</section>';
   }
 
+  /**
+   * Milestone 5a / Phase 4 — per-line status control. Approved mock: Option
+   * D (2026-09-14, "inline select + note as full-width row below") — the
+   * status select sits inline in the line-card's .form-grid, the exact
+   * position Option A used (mirroring qty/VAT/etc.); the status note is a
+   * normal, ALWAYS-VISIBLE .field spanning the full row width directly
+   * beneath the select — no icon/toggle, no hidden state (rejected Option A
+   * for hiding the note behind a pencil icon; rejected Option E for putting
+   * the note inline beside the select instead of stacked below).
+   *
+   * Reuses statusOptionsHtml()/statusPillClass()-adjacent styling and
+   * fieldAllowed_('status') (checked by the caller via has(line, 'status'))
+   * per the phase's Implementation Steps. New namespaced classes only
+   * (.line-status-*, Rule 6) — never repurposes .field/.card/.form-linear.
+   *
+   * Blank status renders via statusOptionsHtml's blank <option value="">,
+   * a REAL selectable option (never coerced to the first status key — the
+   * exact bug the old order-level `status: statusList()[0].key` default
+   * would have reintroduced at the line level).
+   */
+  function lineStatusHtml(line, disabled) {
+    var isBlank = !line.status;
+    var d = disabled ? ' disabled' : '';
+    var cell =
+      '<div class="line-status-cell">' +
+        '<label class="field"><span class="field-label">Trạng thái dòng</span>' +
+          '<select class="l-status line-status-select' + (isBlank ? ' is-blank' : '') + '"' + d + '>' +
+            statusOptionsHtml(line.status, '— Chưa có —') +
+          '</select>' +
+        '</label>' +
+      '</div>';
+    var note =
+      '<div class="line-status-note-wrap">' +
+        '<label class="field"><span class="field-label">Ghi chú trạng thái</span>' +
+          '<input class="l-statusNote line-status-note-input" ' +
+            'value="' + T.esc(line.statusNote || '') + '" ' +
+            'placeholder="Chưa có ghi chú trạng thái"' + d + '>' +
+        '</label>' +
+      '</div>';
+    // Disabled tag: this specific user's canChangeStatus is false (Phase 2
+    // permission hint) — the select/note above still show the current
+    // values (read-only, per the approved mock), this tag just explains why
+    // they can't be changed. Client-side hiding/disabling is cosmetic only
+    // — the server re-checks change_status + ownership on every save
+    // (Phase 2, A6); clampHiddenLineFields_ is the real security control.
+    var disabledTag = disabled
+      ? '<div class="line-status-disabled-tag">' + LINE_STATUS_LOCK_ICON_SVG +
+          'Không có quyền đổi trạng thái' +
+        '</div>'
+      : '';
+    return cell + note + disabledTag;
+  }
+
   function lineHtml(line, index, ro) {
     var d = ro ? ' disabled' : '';
     var showMoney = !state.hiddenMoney;
@@ -2183,6 +2210,15 @@ exporting: false,
           '<input class="l-invoiceDate" type="date" value="' + T.esc(line.invoiceDate) + '"' + d + '>')
       : '';
 
+    // Milestone 5a — per-line status control (approved mock: Option D,
+    // 2026-09-14). ro locks it same as every other line input; a line this
+    // specific user cannot change (line.canChangeStatus false — Phase 2's
+    // per-line permission hint, buildOrderResponse_) locks it too, even
+    // when the rest of the form is editable.
+    var statusFields = has(line, 'status')
+      ? lineStatusHtml(line, !!ro || !line.canChangeStatus)
+      : '';
+
     return '' +
       '<div class="line-card" data-index="' + index + '">' +
         '<div class="line-top">' +
@@ -2205,6 +2241,7 @@ exporting: false,
             : '') +
           money +
           invoiceFields +
+          statusFields +
         '</div>' +
         (has(line, 'note')
           ? '<label class="field field-wide"><span class="field-label">Ghi chú dòng</span>' +
@@ -2361,11 +2398,7 @@ exporting: false,
       // pending spinner instead of this button at all (fusedOrderIdHtml),
       // but guard here too in case a click landed a moment before that
       // repaint — same belt-and-suspenders as the data-open guard below.
-      // Locking, point 1 (2026-09-03 feedback) — also refuse to open the
-      // menu while THIS order's status quick-change is in flight (the
-      // marker isn't even drawn as a button in that case; this is the same
-      // belt-and-suspenders layer as the line above, for the same reason).
-      if (state.approveUpdatingIds[key] || state.statusUpdatingIds[key]) return;
+      if (state.approveUpdatingIds[key]) return;
       state.approveMenuOpenFor = (state.approveMenuOpenFor === key) ? null : key;
       repaintAfterApproveMenuChange();
       return;
@@ -2373,11 +2406,11 @@ exporting: false,
 
     var open = target.getAttribute('data-open');
     if (open) {
-      // Milestone 3 / 3.5 — don't let the user open an order whose status
-      // change is still in flight: the server hasn't confirmed it yet, and
+      // Milestone 3 / 3.6 — don't let the user open an order whose approve
+      // action is still in flight: the server hasn't confirmed it yet, and
       // opening the (possibly stale) detail form invites acting on it
       // before the change actually lands.
-      if (state.statusUpdatingIds[open] || state.approveUpdatingIds[open]) return;
+      if (state.approveUpdatingIds[open]) return;
       openForm(open);
       return;
     }
@@ -2468,7 +2501,6 @@ exporting: false,
           break;
         }
         var customerSel = root.querySelector('#f-filter-customer');
-        var statusSel = root.querySelector('#f-filter-status');
         var createdBySel = root.querySelector('#f-filter-createdBy');
         var approveStatusSel = root.querySelector('#f-filter-approveStatus');
         // Phong's spec 2026-08-31 (2d): the dropdown panel's "Áp dụng" is
@@ -2481,7 +2513,6 @@ exporting: false,
         applyFilters({
           month: (mv && yv) ? (yv + '-' + mv) : '',
           customer: customerSel ? customerSel.value : '',
-          status: statusSel ? statusSel.value : '',
           createdBy: createdBySel ? createdBySel.value : '',
           approveStatus: approveStatusSel ? approveStatusSel.value : ''
         });
@@ -2531,22 +2562,24 @@ exporting: false,
 
   /**
    * Milestone 3 — builds the record-summary block T.confirm() shows inside
-   * the popup ("S2": a mini order-card — id, status pill, customer, meta,
-   * total — same look as a real list card, so the user recognizes exactly
-   * which order they're about to act on). Respects the same visibility
-   * rules as the rest of this screen: a field simply isn't included when
-   * the order object doesn't carry it (has()) or the user can't see money
+   * the popup ("S2": a mini order-card — id, customer, meta, total — same
+   * look as a real list card, so the user recognizes exactly which order
+   * they're about to act on). Respects the same visibility rules as the
+   * rest of this screen: a field simply isn't included when the order
+   * object doesn't carry it (has()) or the user can't see money
    * (state.hiddenMoney) — T.confirm()'s summary renderer already treats
    * every field as optional, so omitting one here just leaves that line
    * out of the card, nothing breaks.
+   *
+   * Milestone 5a — statusLabel/statusClass dropped: business status no
+   * longer lives on the order at all (Assumption A10, no card-level
+   * status summary either).
    */
   function orderSummaryFor(o) {
     if (!o) return null;
     var meta = [T.formatDate(o.orderDate), o.po ? 'PO ' + o.po : ''].filter(Boolean).join(' · ');
     return {
       id: o.orderId,
-      statusLabel: statusLabel(o.status),
-      statusClass: statusPillClass(o.status),
       customer: o.customer,
       meta: meta,
       money: (!state.hiddenMoney && has(o, 'totalIncVat'))
@@ -2690,84 +2723,15 @@ exporting: false,
   }
 
   /**
-   * Milestone 3 / 3.5 — the quick-status <select> on a list card. Uses
-   * 'change', not 'input': 'change' is the event a <select> is guaranteed to
-   * fire on every browser/webview when its value commits, where 'input' on
-   * a <select> is a newer addition some older mobile webviews still miss —
-   * and these are the employees' own phones, not a controlled desktop.
+   * Milestone 5a — the order-level quick-status <select> (changeStatusQuick/
+   * doChangeStatusQuick, backed by apiChangeStatus) is deleted outright:
+   * business status moved to the line level, there is no replacement
+   * endpoint (Phase 2, Assumption A6 — apiChangeStatus/actionChangeStatus_
+   * removed server-side), and Assumption A9 confirms there is no standalone
+   * quick-change affordance anywhere for the new per-line control either —
+   * it saves with the rest of the order-edit form through actionUpdateOrder_,
+   * same as every other line field (see collect() below).
    */
-  function onChange(e) {
-    if (e.target && e.target.matches && e.target.matches('[data-act="quick-status"]')) {
-      changeStatusQuick(e.target);
-    }
-  }
-
-  /**
-   * Not optimistic: the status only changes in state.orders once the server
-   * confirms it. While the round trip is in flight, orderId sits in
-   * state.statusUpdatingIds — paintList() (called immediately, before the
-   * request even goes out) then renders that card's pill as a pending
-   * "Đang cập nhật…" state with no select, and disables both of the card's
-   * "open detail" buttons (see orderCardHtml/statusQuickPillHtml), so the
-   * user can't navigate into this order or queue a second status change
-   * until the current one has actually landed. onClick's data-open handler
-   * enforces the same block server-round-trip-side, in case a click slips
-   * in before the repaint above lands.
-   */
-  function changeStatusQuick(selectEl) {
-    var orderId = selectEl.getAttribute('data-order');
-    var newStatus = selectEl.value;
-    var order = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
-    if (!order || order.status === newStatus) return;
-    var previousStatus = order.status;
-
-    // Milestone 3 — a quick confirm before firing, closing gap #4 found in
-    // the confirm-popup review: this was a one-click <select> with no undo
-    // and no confirm at all. Deliberately lightweight (no order-summary
-    // card, unlike delete/approve/reload) — it's meant to stay a QUICK
-    // action (task 3.5's original design goal), just no longer a single
-    // click with zero friction. The <select>'s value already changed to
-    // newStatus the instant the browser fired 'change' — on Không, put it
-    // back without a full paintList() (nothing else in state changed, no
-    // need to touch the rest of the list).
-    T.confirm({
-      title: 'Đổi trạng thái?',
-      message: statusLabel(previousStatus) + ' → ' + statusLabel(newStatus) + ' cho đơn ' + orderId + '.',
-      okLabel: 'Đổi trạng thái', cancelLabel: 'Không', danger: false
-    }).then(function (ok) {
-      if (!ok) { selectEl.value = previousStatus; return; }
-      doChangeStatusQuick(orderId, newStatus, order);
-    });
-  }
-
-  function doChangeStatusQuick(orderId, newStatus, order) {
-    state.statusUpdatingIds[orderId] = true;
-    paintList();
-    T.call('apiChangeStatus', { orderId: orderId, status: newStatus })
-      .then(function () {
-        order.status = newStatus;
-        if (state.ordersLoadedAt) state.ordersLoadedAt = Date.now(); // own write keeps the list cache fresh, same as upsertCachedOrder
-        // Bug fix, 2026-08-31: orderCache (the detail-view cache keyed by
-        // orderId, see openForm/fetchOrder) is a SEPARATE cache from
-        // state.orders — updating the list card above did nothing to it.
-        // A quick status change from the list left any cached detail view
-        // showing the old status until its DETAIL_CACHE_TTL_MS expired.
-        // Drop the cache entry entirely rather than patch it in place: the
-        // detail view also holds StatusHistory and other server-computed
-        // fields (canEdit/canDelete/canChangeStatus) this response doesn't
-        // return, so the safe fix is "next open re-fetches", not "guess at
-        // a merged object".
-        delete orderCache[orderId];
-        delete state.statusUpdatingIds[orderId];
-        paintList();
-        T.toast('Đã đổi trạng thái.');
-      })
-      .catch(function (err) {
-        delete state.statusUpdatingIds[orderId];
-        paintList();
-        T.toast(err.message, true);
-      });
-  }
 
   /** Reformat money on the way out of a field, so 1200000 reads as 1.200.000.
    *  Also close product picker dropdowns. */
@@ -2797,7 +2761,6 @@ exporting: false,
     // Required, always rendered, always collected.
     o.customer = get('#f-customer');
     o.orderDate = get('#f-orderDate');
-    o.status = get('#f-status') || o.status;
     // Everything below is optional and only exists on `o` (and therefore
     // only rendered by headerCardHtml) when has(o, field) was true — i.e.
     // this role's visible_fields includes it. Only touch what was actually
@@ -2805,9 +2768,11 @@ exporting: false,
     // server preserves it either way (fieldVisible_), but there is no
     // reason for the client to send a value for an input that was never on
     // screen.
+    //
+    // Milestone 5a — o.status/o.statusNote dropped: business status no
+    // longer lives on the order, see the per-line collection below instead.
     if (has(o, 'po')) o.po = get('#f-po');
     if (has(o, 'poNote')) o.poNote = get('#f-poNote');
-    if (has(o, 'statusNote')) o.statusNote = get('#f-statusNote');
     if (has(o, 'supplierName')) o.supplierName = get('#f-supplierName');
     if (has(o, 'customerDeposit')) o.customerDeposit = get('#f-customerDeposit');
     if (has(o, 'supplierPaid')) o.supplierPaid = get('#f-supplierPaid');
@@ -2831,6 +2796,19 @@ exporting: false,
           line.invoiceDate = pick('.l-invoiceDate');
         }
         if (has(previous, 'note')) line.note = pick('.l-note');
+        // Milestone 5a — per-line status/statusNote, rides along with the
+        // rest of this line into the same save payload actionUpdateOrder_
+        // already reads (Assumption A9, no separate save action). pick()
+        // on the <select> returns '' for the blank option — a real,
+        // selectable empty string, never coerced to the first status key.
+        // canChangeStatus is a server-computed permission hint, not a form
+        // field — carried forward from `previous` so the next repaint's
+        // disabled state stays correct without a round trip.
+        if (has(previous, 'status')) {
+          line.status = pick('.l-status');
+          line.statusNote = pick('.l-statusNote');
+        }
+        line.canChangeStatus = previous.canChangeStatus;
         return line;
       });
   }
@@ -3081,9 +3059,9 @@ exporting: false,
    * generalized to the four actions. Not optimistic: the server is the source of truth
    * for the new approveStatus (it re-checks state inside the lock against a
    * race), so the form is repainted from the actual response rather than
-   * guessed at locally. Also patches the list-card cache the same way
-   * changeStatusQuick/the old doApprove did, so "← Danh sách" never shows a
-   * stale approveStatus or stale canRequestApprove/canApprove/canReject.
+   * guessed at locally. Also patches the list-card cache the same way the
+   * old doApprove did, so "← Danh sách" never shows a stale approveStatus
+   * or stale canRequestApprove/canApprove/canReject.
    */
   function doApproveStatusAction(apiFn, busyLabel, newApproveStatus, successToast, note) {
     if (isBusy()) return;
@@ -3105,7 +3083,7 @@ exporting: false,
         state.order.canApprove = flags.canApprove;
         state.order.canReject = flags.canReject;
         state.order.canSetDraft = flags.canSetDraft;
-        delete orderCache[orderId]; // stale otherwise, same reasoning as changeStatusQuick
+        delete orderCache[orderId]; // stale otherwise — detail cache is separate from state.orders
         var card = state.orders.filter(function (o) { return o.orderId === orderId; })[0];
         if (card) card.approveStatus = newApproveStatus;
         if (staleView_(seq)) return;

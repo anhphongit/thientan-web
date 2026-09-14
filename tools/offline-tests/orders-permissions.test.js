@@ -40,12 +40,13 @@ console.log('\n5. A user without view_all_orders cannot reach another user\'s or
   eq('viewer gets canDelete false', asViewer.order.canDelete, false);
 
   const noStatus = user('nostatus@x.com', { change_status: false });
-  throws('changing status needs change_status',
-         () => env.actionUpdateOrder_(noStatus, { orderId: 'DH-2026-0001',
-               order: order({ status: 'confirmed' }), lines: [line()] }), 'không có quyền');
-  const same = env.actionUpdateOrder_(noStatus, { orderId: 'DH-2026-0001',
-        order: order({ status: 'draft', statusNote: 'ghi chú' }), lines: [line()] });
-  eq('editing without touching status is allowed', same.order.statusNote, 'ghi chú');
+  const createdForStatus = env.actionCreateOrder_(noStatus, { order: order(), lines: [line()] });
+  throws('changing line status needs change_status',
+         () => env.actionUpdateOrder_(noStatus, { orderId: createdForStatus.order.orderId,
+               order: order(), lines: [{ lineId: createdForStatus.lines[0].lineId, description: 'Ống nhựa PVC 90', qty: 2, uom: 'Cái', status: 'confirmed' }] }), 'không có quyền');
+  const sameNoStatus = env.actionUpdateOrder_(noStatus, { orderId: createdForStatus.order.orderId,
+        order: order(), lines: [{ lineId: createdForStatus.lines[0].lineId, description: 'Ống nhựa PVC 90', qty: 2, uom: 'Cái' }] });
+  eq('editing line without touching status is allowed', sameNoStatus.lines[0].description, 'Ống nhựa PVC 90');
 }
 
 /* ---------- 6. field filtering and money-blind editing ---------- */
@@ -84,14 +85,19 @@ console.log('\n6. A user who cannot see prices cannot erase them either');
   eq('supplier payment survived', env.store.Orders[0].supplierPaid, 18765000);
 }
 
-/* ---------- 6b. Milestone 2.5c bugfix — po/poNote/statusNote/supplierName
-   survive an update from a role whose visible_fields doesn't list them ---------- */
-console.log('\n6b. A role missing po/poNote/statusNote/supplierName from visible_fields cannot erase them either');
+/* ---------- 6b. Milestone 2.5c bugfix — po/poNote/supplierName survive an
+   update from a role whose visible_fields doesn't list them. (statusNote
+   moved to OrderLines in Milestone 5a — its equivalent line-scoped clamp
+   test lives in §6f below and orders-changelinestatus.test.js §7; it is
+   deliberately NOT re-asserted here, since an order response never carries
+   statusNote any more and a check against it would be vacuously true
+   regardless of the clamp.) ---------- */
+console.log('\n6b. A role missing po/poNote/supplierName from visible_fields cannot erase them either');
 {
   const env = H.makeEnv();
   const admin = user('admin@x.com');
   env.actionCreateOrder_(admin, {
-    order: order({ po: '4600041936', poNote: 'PO tam', statusNote: 'ghi chu goc',
+    order: order({ po: '4600041936', poNote: 'PO tam',
                    supplierName: 'Tam Thinh Phat' }),
     lines: [line()]
   });
@@ -110,28 +116,25 @@ console.log('\n6b. A role missing po/poNote/statusNote/supplierName from visible
   const seen = env.actionGetOrder_(sales, { orderId: 'DH-2026-0001' });
   check('this role does not receive po at all', !('po' in seen.order));
   check('or poNote', !('poNote' in seen.order));
-  check('or statusNote', !('statusNote' in seen.order));
   check('or supplierName', !('supplierName' in seen.order));
 
   // Their form has none of those fields, so it posts back blanks — exactly
   // what a real browser would send from a form that never rendered them.
   env.actionUpdateOrder_(sales, {
     orderId: 'DH-2026-0001',
-    order: { customer: 'Khach moi', orderDate: '2026-08-20', status: 'confirmed',
-             po: '', poNote: '', statusNote: '', supplierName: '' },
+    order: { customer: 'Khach moi', orderDate: '2026-08-20',
+             po: '', poNote: '', supplierName: '' },
     lines: [{ lineId: env.store.OrderLines[0].lineId, description: 'Ống nhựa PVC 90',
               qty: 2, uom: 'Cái', unitPrice: 1200000, vatRate: 0.08 }]
   });
 
   eq('po survived the update', env.store.Orders[0].po, '4600041936');
   eq('poNote survived', env.store.Orders[0].poNote, 'PO tam');
-  eq('statusNote survived', env.store.Orders[0].statusNote, 'ghi chu goc');
   eq('supplierName survived', env.store.Orders[0].supplierName, 'Tam Thinh Phat');
   // Fields this role DOES see and that are always rendered regardless of
-  // visible_fields (customer/orderDate/status) must still take the edit —
+  // visible_fields (customer/orderDate) must still take the edit —
   // preservation must not become a blanket ignore-everything.
   eq('customer still updates', env.store.Orders[0].customer, 'Khach moi');
-  eq('status still updates', env.store.Orders[0].status, 'confirmed');
 }
 
 /* ---------- 6c. Same bugfix, line-level fields: productCode / uom / note /
@@ -205,7 +208,7 @@ console.log('\n6d. A role missing money/po/product fields from visible_fields ca
   // trusted.
   env.actionCreateOrder_(junior, {
     order: order({ customerDeposit: 999000000, supplierName: 'Ke gia mao',
-                   supplierPaid: 999000000, poNote: 'gia mao', statusNote: 'gia mao' }),
+                   supplierPaid: 999000000, poNote: 'gia mao' }),
     lines: [line({ unitPrice: 999000000, vatRate: 0.1, productCode: 'GIA-MAO',
                    note: 'gia mao', invoiceNo: '999', invoiceDate: '2026-08-27' })]
   });
@@ -215,7 +218,6 @@ console.log('\n6d. A role missing money/po/product fields from visible_fields ca
   eq('supplierPaid clamped to 0', env.store.Orders[0].supplierPaid, 0);
   eq('supplierName clamped to empty', env.store.Orders[0].supplierName, '');
   eq('poNote clamped to empty', env.store.Orders[0].poNote, '');
-  eq('statusNote clamped to empty', env.store.Orders[0].statusNote, '');
   // po IS in visible_fields here, so it must still go through untouched.
   eq('po (a field this role DOES see) is not clamped', env.store.Orders[0].po, '4600041936');
 
@@ -270,6 +272,38 @@ console.log('\n6e. A role missing money/product fields from visible_fields canno
         !env.store.Invoices.some(inv => inv.invoiceNo === '888'));
 }
 
+/* ---------- 6f. Security review, 2026-08-27 — line-level status/statusNote
+   must be unsettable when hidden from a role's visible_fields, same as 6d/6e
+   but for status instead of money/product fields. ---------- */
+console.log('\n6f. A role missing status/statusNote from visible_fields cannot set them on a line');
+{
+  const env = H.makeEnv();
+  const admin = user('admin@x.com');
+  const created = env.actionCreateOrder_(admin, { order: order(), lines: [line()] });
+
+  // Role that cannot see line-level status — exactly like 6d/6e but without status
+  const blind = user('blind@x.com', { visible_fields:
+    ['orderId', 'po', 'customer', 'orderDate', 'description', 'qty', 'uom', 'lineId'] });
+
+  // Try to set status on a new line added during update
+  env.actionUpdateOrder_(blind, {
+    orderId: 'DH-2026-0001',
+    order: order(),
+    lines: [
+      { lineId: created.lines[0].lineId, description: 'Ống nhựa PVC 90', qty: 2, uom: 'Cái' },
+      line({ status: 'confirmed', statusNote: 'hidden line status attempt' })
+    ]
+  });
+
+  eq('two lines now stored', env.store.OrderLines.length, 2);
+  const newLine = env.store.OrderLines[1];
+  eq('the new line\'s status is clamped to empty, not the attacker-supplied value',
+     newLine.status || '', '');
+  eq('the new line\'s statusNote is clamped to empty', newLine.statusNote || '', '');
+  // The field this role DOES see (qty/description/uom) must still update.
+  eq('qty (a field this role DOES see) is not clamped', newLine.qty, 2);
+}
+
 /* ---------- 7. invoices ---------- */
 console.log('\n7. One invoice across several orders, several invoices in one order');
 {
@@ -320,8 +354,8 @@ console.log('\n8. Validation refuses what the sheet should never hold');
     { order: order(), lines: [] }), 'ít nhất một dòng');
   throws('bad date', () => env.actionCreateOrder_(admin,
     { order: order({ orderDate: 'hôm qua' }), lines: [line()] }), 'Ngày đặt hàng');
-  throws('unknown status', () => env.actionCreateOrder_(admin,
-    { order: order({ status: 'xong_roi' }), lines: [line()] }), 'Trạng thái');
+  throws('unknown line status', () => env.actionCreateOrder_(admin,
+    { order: order(), lines: [line({ status: 'xong_roi' })] }), 'Trạng thái');
   throws('empty description', () => env.actionCreateOrder_(admin,
     { order: order(), lines: [line({ description: '' })] }), 'Dòng 1');
   throws('zero quantity', () => env.actionCreateOrder_(admin,
@@ -369,7 +403,7 @@ console.log('\n10. List cards are slimmed to LIST_CARD_FIELDS, even for an admin
   const env = H.makeEnv();
   const admin = user('admin@x.com');
   env.actionCreateOrder_(admin, {
-    order: order({ poNote: 'PO tạm, chờ PO thật', statusNote: 'Hẹn giao 22/09',
+    order: order({ poNote: 'PO tạm, chờ PO thật',
                    supplierName: 'ACME', customerDeposit: '1.000.000',
                    supplierPaid: '500.000' }),
     lines: [line()]
@@ -377,13 +411,15 @@ console.log('\n10. List cards are slimmed to LIST_CARD_FIELDS, even for an admin
 
   const list = env.actionListOrders_(admin, {});
   const card = list.orders[0];
-  ['poNote', 'statusNote', 'supplierName', 'customerDeposit', 'supplierPaid',
+  // statusNote is not checked here — it moved to OrderLines in Milestone 5a,
+  // so an order card never carries it regardless of LIST_CARD_FIELDS; a
+  // check against it would be vacuously true, not a real slimming test.
+  ['poNote', 'supplierName', 'customerDeposit', 'supplierPaid',
    'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt']
     .forEach(f => check('an admin\'s list card still omits ' + f, !(f in card)));
   check('list card keeps po', 'po' in card);
   check('list card keeps customer', 'customer' in card);
   check('list card keeps orderDate', 'orderDate' in card);
-  check('list card keeps status', 'status' in card);
   check('an admin still sees totalExVat on the list', 'totalExVat' in card);
   check('an admin still sees totalIncVat on the list', 'totalIncVat' in card);
   check('detail (buildOrderResponse_) is NOT slimmed the same way',

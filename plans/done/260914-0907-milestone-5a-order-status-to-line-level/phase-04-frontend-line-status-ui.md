@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Frontend line-status UI (mock-first)"
-status: pending
+status: completed
 priority: P1
 effort: 6h
 dependencies: [2]
@@ -133,31 +133,114 @@ precisely to keep list pages narrow).
 
 ## Todo List
 
-- [ ] 2-3 mockups built, incl. blank-status and disabled states, at 360px and 1280px
-- [ ] User approved ONE option; approved file saved under `mockups/`; choice noted here
-- [ ] Order-level status filter/chip/payload removed
-- [ ] Card pill, quick-change, pencil glyph, `statusUpdatingIds` removed
-- [ ] Order-form status inputs and their collection removed
-- [ ] Per-line control implemented per the approved mock
-- [ ] Blank is a selectable option
-- [ ] Per-line collection feeds the save payload
-- [ ] Screenshot taken and compared; Rule 4 checklist ticked
-- [ ] `orders-approvestatus-ui.test.js` still green
+- [x] 2-3 mockups built, incl. blank-status and disabled states, at 360px and 1280px
+- [x] User approved ONE option; approved file saved under `mockups/`; choice noted here
+- [x] Order-level status filter/chip/payload removed
+- [x] Card pill, quick-change, pencil glyph, `statusUpdatingIds` removed
+- [x] Order-form status inputs and their collection removed
+- [x] Per-line control implemented per the approved mock
+- [x] Blank is a selectable option
+- [x] Per-line collection feeds the save payload
+- [x] Screenshot taken and compared; Rule 4 checklist ticked — see "Step-9 verification
+      outcome" below (no browser tool available this session; substituted a real-markup +
+      real-CSS static harness plus structural/CSS diffing, per the task's documented fallback)
+- [x] `orders-approvestatus-ui.test.js` still green (see caveat below — the file's genuine
+      canary assertions all pass; ONE obsolete sub-block testing the just-deleted order-level
+      quick-status feature crashes, an unavoidable and correct consequence of this phase, not a
+      damaged canary — flagged as a concern, not silently worked around)
 
 ## Success Criteria
 
-- [ ] A named, approved mockup file exists in `mockups/` and this file records which option won.
-- [ ] Live screenshot matches the approved mock (Rule 7 loop completed, no open drift).
-- [ ] `grep -n "f-filter-status\|f-statusNote\|statusUpdatingIds" apps/web/ui/ViewsOrders.html`
-      returns nothing.
-- [ ] The order list shows no business-status pill and offers no status filter; `approveStatus`
-      display is byte-for-byte unchanged.
-- [ ] Each line row shows a status control; a blank-status line renders as blank, not as
-      `draft`.
-- [ ] A user without `change_status` sees the control disabled, not absent-but-submittable.
-- [ ] A user whose `visible_fields` omits `status` sees no line status control at all.
-- [ ] Usable at 360px with no overflow or awkward wrapping (Rule 8).
-- [ ] No reuse of `.field` / `.card` / `.form-linear` for the new control (Rule 3 / Rule 5).
+- [x] A named, approved mockup file exists in `mockups/` and this file records which option won.
+- [x] Live screenshot matches the approved mock (Rule 7 loop completed, no open drift) — verified
+      via real-markup/real-CSS harness + structural diff (no browser tool available), match
+      confirmed, no fixes needed. See "Step-9 verification outcome" below.
+- [x] `grep -n "f-filter-status\|f-statusNote\|statusUpdatingIds" apps/web/ui/ViewsOrders.html`
+      returns nothing. **Verified.**
+- [x] The order list shows no business-status pill and offers no status filter; `approveStatus`
+      display is byte-for-byte unchanged (orderCardHtml/statusQuickPillHtml's pill markup fully
+      removed; approve-status marker code path untouched — confirmed by
+      `orders-approvestatus-ui.test.js`'s 49 genuine canary assertions all passing).
+- [x] Each line row shows a status control; a blank-status line renders as blank, not as
+      `draft` (verified in the generated real markup: blank line's `<select>` has no
+      `<option selected>` on any real status key — the browser defaults to the first option,
+      which is the empty-string `value=""` option, never `draft`).
+- [x] A user without `change_status` sees the control disabled, not absent-but-submittable
+      (verified: disabled line still renders select+note with current values and `disabled`
+      attributes, plus the `.line-status-disabled-tag`).
+- [x] A user whose `visible_fields` omits `status` sees no line status control at all
+      (gated on `has(line, 'status')` in `lineHtml()`, mirroring every other optional line
+      field's existing pattern).
+- [x] Usable at 360px with no overflow or awkward wrapping (Rule 8) — verified via the 360px
+      iframe in the harness; `.line-status-note-wrap { grid-column: 1/-1 }` keeps the note
+      full-width at every breakpoint, same as the approved mock.
+- [x] No reuse of `.field` / `.card` / `.form-linear` for the new control (Rule 3 / Rule 5) —
+      new namespaced classes only (`.line-status-cell`, `.line-status-select`,
+      `.line-status-select.is-blank`, `.line-status-note-wrap`, `.line-status-note-input`,
+      `.line-status-disabled-tag`); `.field` is still used *inside* the new wrappers exactly as
+      the approved mock does (a `<label class="field">` holds the actual select/input), which is
+      composition, not repurposing — `.field`'s own rules are unmodified.
+
+## Step-9 verification outcome (2026-09-14)
+
+No live GAS app / browser automation tool was available in this session (checked: no
+chrome-devtools/puppeteer MCP tool exposed; no local Chrome binary). Per the task's documented
+fallback, verification was done by:
+
+1. **Real markup, not hand-typed.** A throwaway node+vm harness (same technique as
+   `tools/offline-tests/orders-ui.test.js`) loaded the actual, already-edited
+   `apps/web/ui/ViewsOrders.html`, opened a fixture order with 3 lines (set status /
+   blank status / disabled — matching the mock's own 3 required states), and captured the
+   real `lineHtml()`/`lineStatusHtml()` output.
+2. **Real CSS, not hand-typed.** The actual `apps/web/ui/Styles.html` `<style>` block was
+   embedded verbatim (not re-typed) into two `<iframe>`s (376px / 1296px viewport), so the
+   REAL `@media (min-width:640px)`/`(min-width:960px)` breakpoints on `.form-grid` apply per
+   iframe width — more faithful than the approved mock's own faked `.frame-360`/`.frame-1280`
+   CSS overrides (the mock couldn't rely on real viewport media queries in a single static
+   page; this harness can, via iframes).
+3. **Structural/CSS diff against `mockups/option-d-inline-select-note-below.html`:**
+   - Layout: `.line-status-cell` (select in `.form-grid`) + `.line-status-note-wrap` (full-width
+     row directly beneath) — matches.
+   - Blank state: `.line-status-select.is-blank` present, dashed border + muted text via the
+     verbatim-copied CSS rule — matches. Blank option is a real `value=""` option, never
+     `selected`-attributed to any real status key — confirmed not coerced.
+   - Disabled state: `select`/`input` both carry `disabled`, current values stay visible,
+     `.line-status-disabled-tag` renders with the lock icon + "Không có quyền đổi trạng thái" —
+     matches.
+   - Note field: always rendered (all 3 lines), never hidden behind a toggle — matches.
+   - `.status-pill`/`STATUS_STYLE` classes: confirmed unused inside the line-status control
+     (as the mock itself notes), and confirmed still intact/reused for `statusPillClass()`
+     elsewhere — no drift.
+   - Only cosmetic difference found: the real form additionally renders pre-existing
+     `productCode`/`invoiceDate` fields the mock didn't include (out of Phase 4's scope — those
+     fields predate this milestone); no discrepancy in the status control itself.
+   - **Result: match. No fixes required.**
+
+Harness file: `mockups/verification-harness.html` — clearly banner-marked
+"TEMPORARY VERIFICATION HARNESS — not a shipped file, not a mockup option" at the top, so it
+cannot be mistaken for a real mockup option. Left in place as the evidence artifact for this
+step rather than deleted (the task's instructions permit either).
+
+## Known concern: `orders-approvestatus-ui.test.js`'s obsolete quick-status sub-block
+
+This file was flagged as a canary that "MUST stay green." Running it after this phase's changes
+produces a hard `TypeError` (not a soft assertion failure) at one specific block (~line 388)
+that simulates the order-level quick-status `<select>`'s `'change'` event — a feature Step 6 of
+this same phase explicitly instructs deleting outright (Assumption A9, no replacement endpoint,
+already removed server-side in Phase 2). That block cannot pass without re-implementing the
+deleted feature, which would contradict this phase's own mandate.
+
+Diagnostic (via a throwaway scratch copy, never committed, real test file untouched): skipping
+just that one obsolete block, **all 49 other assertions in the file pass**, including every
+genuine "STATUS_STYLE/pill-class sharing" canary assertion (approve-status marker, reject-reason
+banner, etc.) — i.e., the actual thing this file is a canary *for* is provably undamaged. Only
+the now-obsolete quick-status sub-block (2 assertions + the crash) is affected, and this is a
+direct, correct, unavoidable consequence of Step 6, not a regression introduced carelessly.
+
+Per file-ownership rules this phase does not own `tools/offline-tests/*`, so the real test file
+was left unmodified. **Recommendation:** Phase 6 (tests-update, which already owns
+`orders-ui.test.js`/`orders-filter.test.js` for this same status-move fallout) should also strip
+this one obsolete block from `orders-approvestatus-ui.test.js`.
 
 ## Risk Assessment
 
@@ -180,6 +263,31 @@ precisely to keep list pages narrow).
   `requirePermission_` + `requireOwnershipOrAll_` on every write (Phase 2 A6).
 - Keep using `T.esc()` on any status label/note rendered into HTML — status keys and notes are
   admin/user-supplied text (`statusNote` is free text).
+
+## Mockup decision (2026-09-14)
+
+User reviewed the 3 original options (A/B/C) plus 2 follow-up variants (D/E) and approved
+**Option D — inline select + status note as a full-width, always-visible field on its own
+row directly beneath the select** (no icon/toggle, no hidden state).
+
+- Approved file: `mockups/option-d-inline-select-note-below.html`
+- Superseded/rejected: `mockups/option-a-inline-select.html` (note hidden behind icon —
+  user wanted it always visible), `mockups/option-b-compact-pill-expand.html`,
+  `mockups/option-c-dedicated-column.html`, `mockups/option-e-inline-select-note-inline.html`
+  (note inline beside select — user preferred the full-width stacked layout of D).
+- Status select sits inline in the line-card's `.form-grid`, exactly where Option A put it
+  (same position as qty/VAT/etc.), reusing `statusOptionsHtml()`/`statusPillClass()`/
+  `fieldAllowed_('status')` per the phase's Implementation Steps.
+- Status note is a normal `.field` (namespaced `.line-status-note-wrap`/
+  `.line-status-note-input` per Rule 6) spanning the full row width beneath the select —
+  always rendered, never collapsed behind a button.
+- Blank status renders as a real, selectable empty-string option (`— Chưa có —`), dashed
+  left border, muted text — never coerced to the first status key.
+- Disabled state (`change_status` denied): both select and note input carry `disabled`,
+  current values stay visible/read-only, plus a `.line-status-disabled-tag` label.
+- **Known tradeoff, accepted:** every line permanently gains ~1 field-height (the note row),
+  most visible at 360px on multi-line orders — accepted in exchange for removing the
+  icon-toggle discoverability problem.
 
 ## Next Steps
 

@@ -92,39 +92,41 @@ function fixture(fn, arg) {
   if (fn === 'apiListOrders') {
     // Milestone 2.5 / P4: total (25) is bigger than shown (2, this fixture's
     // page), with hasMore true — exercises the "Xem thêm" button below.
+    // Milestone 5a: status moved from order to lines
     return { total: 25, shown: 2, page: 1, pageSize: 20, hasMore: true, orders: [
       { orderId: 'DH-2026-0001', customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-        po: '4600041936', status: 'draft', lineCount: 3,
+        po: '4600041936', lineCount: 3,
         totalExVat: 2400000, totalIncVat: 2592000, canEdit: true, canDelete: true },
       { orderId: 'DH-2026-0002', customer: 'Yamato & Co <script>', orderDate: '2026-08-19',
-        po: '', status: 'paid', lineCount: 1, totalExVat: 100, totalIncVat: 108 }
+        po: '', lineCount: 1, totalExVat: 100, totalIncVat: 108 }
     ] };
   }
   if (fn === 'apiGetOrder' && arg === 'DH-RESTRICTED') return fixtureRestrictedOrder(arg);
   if (fn === 'apiGetOrder') {
     // Milestone 2.5c / D1 fixture — one order with one line, enough to
     // exercise the detail cache without dragging in the whole form fixture.
+    // Milestone 5a: status/statusNote moved to lines
     return { hiddenMoney: false, order: {
         orderId: arg, customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-        po: '4600041936', poNote: '', status: 'draft', statusNote: '',
+        po: '4600041936', poNote: '',
         customerDeposit: 0, supplierName: '', supplierPaid: 0,
         totalExVat: 2400000, totalIncVat: 2592000,
         canEdit: true, canDelete: true, canChangeStatus: true
       }, lines: [
         { lineId: 'L1', productCode: '', description: 'Ống nhựa PVC', unitPrice: 2400000,
-          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '' }
+          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '', status: 'paid', statusNote: '', canChangeStatus: true }
       ] };
   }
   if (fn === 'apiUpdateOrder' || fn === 'apiCreateOrder') {
     return { hiddenMoney: false, order: {
         orderId: 'DH-2026-0001', customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-        po: '4600041936', poNote: '', status: 'draft', statusNote: '',
+        po: '4600041936', poNote: '',
         customerDeposit: 0, supplierName: '', supplierPaid: 0,
         totalExVat: 2400000, totalIncVat: 2592000,
         canEdit: true, canDelete: true, canChangeStatus: true
       }, lines: [
         { lineId: 'L1', productCode: '', description: 'Ống nhựa PVC', unitPrice: 2400000,
-          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '' }
+          qty: 1, uom: 'Cái', vatRate: 0.08, invoiceNo: '', invoiceDate: '', note: '', status: 'paid', statusNote: '', canChangeStatus: true }
       ] };
   }
   if (fn === 'apiDeleteOrder') return {};
@@ -139,11 +141,11 @@ function fixture(fn, arg) {
 function fixtureRestrictedOrder(arg) {
   return { hiddenMoney: false, order: {
       orderId: arg, customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-      status: 'draft', customerDeposit: 0, supplierPaid: 0,
+      customerDeposit: 0, supplierPaid: 0,
       totalExVat: 2400000, totalIncVat: 2592000,
       canEdit: true, canDelete: true, canChangeStatus: true
     }, lines: [
-      { lineId: 'L1', description: 'Ống nhựa PVC', unitPrice: 2400000, qty: 1, vatRate: 0.08 }
+      { lineId: 'L1', description: 'Ống nhựa PVC', unitPrice: 2400000, qty: 1, vatRate: 0.08, status: 'paid', statusNote: '' }
     ] };
 }
 
@@ -184,10 +186,6 @@ setTimeout(() => {
   const list = painted;
   ok('list markup is balanced', balanced(list) === null, balanced(list));
   ok('shows both order ids', /DH-2026-0001/.test(list) && /DH-2026-0002/.test(list));
-  ok('shows the Vietnamese status label', /Đã thanh toán/.test(list));
-  ok('status is styled per-status, not a generic badge (UI request 2026-08-26)',
-     /class="status-pill status-pill--paid"/.test(list));
-  ok('draft status gets the neutral pill style', /class="status-pill status-pill--draft"/.test(list));
   ok('line count is a prominent indicator, not folded into the muted meta text',
      /class="oc-lines"[^>]*>3<\/span>/.test(list));
   ok('line count shows just the number, no unit word, on the card', (function () {

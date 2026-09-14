@@ -122,11 +122,16 @@ Scope:
       `visible_fields`/`view_all_orders`).
 - [x] Status change is recorded in `StatusHistory` with who and when —
       `appendStatusHistory_` on every `status`/`approveStatus` transition;
-      `orders-changestatus.test.js` (28 assertions).
+      `orders-changestatus.test.js` (28 assertions) — renamed
+      `orders-changelinestatus.test.js` in Milestone 5a, when
+      `actionChangeStatus_` (the order-level quick-status action this
+      tested) was deleted outright and status moved to line scope.
 - [x] `change_status` is enforced server-side — `actionChangeStatus_`
       calls `requirePermission_('change_status')` before anything else;
       covered in `orders-changestatus.test.js` and
-      `orders-permissions.test.js` (116 assertions).
+      `orders-permissions.test.js` (116 assertions) — `actionChangeStatus_`
+      no longer exists post-Milestone 5a (see above); `change_status` is
+      now enforced per line inside `actionUpdateOrder_`.
 - [x] The approve-status edit-gating matrix (`TASKS.md`, task 3.8) is
       enforced server-side for every `approveStatus` × permission
       combination, not just the UI hiding a button —
@@ -186,11 +191,11 @@ Scope:
 
 ---
 
-## ☐ Milestone 5a — Order Status → Line Status
+## ☑ Milestone 5a — Order Status → Line Status *(done 2026-09-14)*
 
 Not a continuation of M5.1 ("Product CRUD", above — already complete, unrelated). Inserted
 after M5, before M6, per project-owner sequencing decision (2026-09-14). Full plan:
-`plans/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
+`plans/done/260914-0907-milestone-5a-order-status-to-line-level/plan.md`.
 
 Scope:
 - `Orders` loses the plain `status`/`statusNote` fields entirely — keeps only `approveStatus`
@@ -206,11 +211,21 @@ Scope:
 
 **Exit criteria**
 
-- [ ] All 18 offline test suites green, including new line-status coverage
-- [ ] Mockup-approved per-line status control implemented and screenshot-verified
-- [ ] Live migration (`migrateOrderLineStatus()`) run once by the project owner, verified
-      end-to-end against a real order
-- [ ] `DATA_MODEL.md`/`system-architecture.md`/`PERMISSIONS.md` synced to the new schema
+- [x] All 20 offline test suites green, including new line-status coverage
+- [x] Mockup-approved per-line status control implemented and screenshot-verified
+- [x] Live migration (`migrateOrderLineStatus()`) run once by the project owner, 2026-09-14 —
+      verified end-to-end against real data (mixed/blank line statuses, one status-change history
+      row, approveStatus intact, stats/export, non-admin permissions, 360px mobile all confirmed
+      by owner). Backup-before-migrate and a standalone `checkOrderHeaders_()` confirmation were
+      not explicitly captured on record — flagged as outstanding, low-risk (migration is
+      non-destructive by design, rename not delete) in Phase 8's sign-off table.
+- [x] `DATA_MODEL.md`/`system-architecture.md`/`PERMISSIONS.md` synced to the new schema
+
+**☑ Milestone 5a — done 2026-09-14.** All 8 phases (schema, backend, stats/export, frontend UI,
+admin-config review, tests, docs-sync, live verification) complete. Live migration run and
+verified by the project owner. See Phase 8 sign-off table
+(`plans/done/260914-0907-milestone-5a-order-status-to-line-level/phase-08-live-verification-and-signoff.md`)
+for the full record, including two minor outstanding items noted above.
 
 ---
 
@@ -322,6 +337,8 @@ Scope:
 
 | Date | Milestone | Note |
 |------|-----------|------|
+| 2026-09-14 | 5a | **Milestone 5a live migration run and signed off** — `migrateOrderLineStatus()` run once against the live sheet by the project owner; end-to-end verification (mixed/blank line statuses, one status-change history row, order list free of business status with approveStatus intact, stats/export, approval-workflow regression check, non-admin permission spot-check, 360px mobile) confirmed working. Two minor items not captured on record: an explicit pre-migration backup and a standalone `checkOrderHeaders_()` confirmation — low risk given the migration is non-destructive by design (rename, not delete); see Phase 8 sign-off table for detail. All 8 phases of the plan now complete. |
+| 2026-09-14 | 5a | **Milestone 5a code-complete and docs synced** — Phases 1–6 completed (schema migration, backend line-status logic, stats/export aggregation by line, frontend UI with mockup-approved per-line control, admin config review, comprehensive test suite). Phase 7 (docs-sync) executed: `DATA_MODEL.md` updated to show status/statusNote on OrderLines (optional) with statusList referenced from Config, StatusHistory added lineId (nullable), migration documented as not-yet-run-live. MILESTONES.md and development-roadmap.md flipped "Milestone 5a" placeholders from ☐ to ☑. Phase 8 (live migration + sign-off) pending project owner execution. All 18 offline test suites passing. Line-status aggregation by business decision: sum line revenue per status, explicit blank-status group "Chưa đặt trạng thái". Frontend option D approved: inline select + full-width always-visible status-note field below. Migration `migrateOrderLineStatus()` ready but not yet executed against live sheet. See plan `260914-0907-milestone-5a-order-status-to-line-level` for full phase details. |
 | 2026-09-13 | 5 | **Milestone 5 live verification and sign-off completed** — All exit criteria verified and signed off by project owner 2026-09-13. Inventory CRUD (products, categories, low-stock alerts), user management (create/edit/deactivate/permissions), permission matrix (14 checkboxes, phone-friendly card layout), config editing (status list, UoM list, customer list with instant cache invalidation), and admin protection rules (last-admin safeguards, self-escalation prevention) all confirmed operational. One bug found and fixed during test pass (stale inventory cache on inactive toggle — M5-1 in TASKS.md). All 126 checklist items in `CHECKLIST_M5_VI.md` passed. See checklist sections A–K for full test coverage. |
 | 2026-09-12 | 5 | **Bug found and fixed — stale inventory cache on active→inactive edit**: During M5 live testing, editing a product's `active` flag from true→false and returning to the list still showed the product even though "Bao gồm hàng không hoạt động" (include inactive) filter was OFF. Root cause: `upsertCachedProduct()` write-through cache after edit/create didn't check filter state. Fix: added `matchesFilters` check before upserting; now removes from cache if product no longer matches active filters. Regression test added to `products-ui.test.js`. Full suite: 18/18 passing. See `TASKS.md` for full details. |
 | 2026-09-12 | 4 | **Milestone 4 live verification and sign-off completed** — All exit criteria verified and signed off by project owner 2026-09-12. Export (CSV/XLSX/PDF) with filtering, permissions-based column hiding, Vietnamese character rendering, and revenue reconciliation all confirmed. Statistics views (by week/month/quarter/year, by customer, by status) operational. Mobile responsiveness verified. All 11 M4 subtasks (4.1-4.7.3) code-complete and live-tested. See `CHECKLIST_M4_VI.md` sections A–I all checked. |

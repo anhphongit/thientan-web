@@ -148,7 +148,10 @@ function getActions_() {
     createOrder: actionCreateOrder_,
     updateOrder: actionUpdateOrder_,
     deleteOrder: actionDeleteOrder_,
-    changeStatus: actionChangeStatus_,
+    /* Milestone 5a / A6 — no changeStatus route: the order-level quick
+       change-status action was deleted outright (see Orders.gs), not
+       replaced. Line status is editable only through updateOrder's normal
+       edit-form path. */
 
     /* Milestone 3 / 3.8 — approve-status workflow. approveOrder is REUSED
        (same action name as 3.6) but rewritten server-side for the new

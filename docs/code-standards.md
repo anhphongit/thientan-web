@@ -247,7 +247,7 @@ describe('Orders.createOrder_', () => {
 ```bash
 node tools/offline-tests/orders-crud.test.js
 node tools/offline-tests/orders-filter.test.js
-node tools/offline-tests/orders-changestatus.test.js
+node tools/offline-tests/orders-changelinestatus.test.js
 node tools/offline-tests/orders-approvestatus.test.js
 node tools/offline-tests/orders-permissions.test.js
 # ... etc (7+ files)

@@ -72,12 +72,12 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 | `exportjob.test.js` | 91 | Export job queue, concurrency, retry logic |
 | `exportsheet.test.js` | 45 | Spreadsheet export formatting (borders, merges, styles) |
 | `orders-approvestatus.test.js` | 97 | Approval workflow state machine (M3.8) |
-| `orders-approvestatus-ui.test.js` | 52 | Approval UI: request/approve/reject buttons and modals |
-| `orders-changestatus.test.js` | 28 | Order status changes and history logging |
+| `orders-approvestatus-ui.test.js` | 49 | Approval UI: request/approve/reject buttons and modals |
+| `orders-changelinestatus.test.js` | 32 | Line status changes and history logging (renamed from `orders-changestatus.test.js`, Milestone 5a) |
 | `orders-crud.test.js` | 58 | Create, read, update, delete orders and lines |
-| `orders-filter.test.js` | 60 | Filtering: date, customer, status, creator, free-text search |
-| `orders-permissions.test.js` | 116 | Permission matrix enforcement, field visibility, ownership |
-| `orders-ui.test.js` | 89 | Order list UI state: pagination, cards, edit form |
+| `orders-filter.test.js` | 56 | Filtering: date, customer, status, creator, free-text search |
+| `orders-permissions.test.js` | 114 | Permission matrix enforcement, field visibility, ownership |
+| `orders-ui.test.js` | 80 | Order list UI state: pagination, cards, edit form |
 | `products.test.js` | 67 | Product CRUD, low-stock flag, lookup, inactive handling |
 | `products-ui.test.js` | 53 | Product UI: list, detail, add/edit forms, picker |
 | `stats.test.js` | 65 | Revenue stats: bucketing, filtering, customer/status grouping |

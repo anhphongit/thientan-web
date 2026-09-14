@@ -49,6 +49,22 @@
  * (computeOrderFilters_/filteredOrderRowsForUser_) so a stats request is
  * scoped/permission-gated by the exact same rules as the order list and
  * every export action.
+ *
+ * Milestone 5a addendum (2026-09-14): business `status` moved OFF Orders
+ * and onto OrderLines (the `status` field no longer exists on an order row — Config.gs/Orders.gs,
+ * Phase 1-2). That breaks the "count and sum ORDERS" unification above for
+ * the by-status view specifically: an order's lines can now sit in several
+ * different statuses at once, so by-status can no longer be one-order-one-
+ * bucket the way by-customer/by-period still are. actionStatsByStatus_ was
+ * therefore pulled OUT of the shared statsByField_/statsAggregateByOrder_
+ * path (both stay order-scoped, unchanged, still used by by-customer/by-
+ * period) and re-implemented in statsByLineStatus_, which walks LINES and
+ * sums each line's own amountExVat/amountIncVat into its own line.status
+ * group (never the order total — that would double count a mixed order
+ * across every status it touches). See statsByLineStatus_'s own doc
+ * comment for the full shape. Every other "by-customer, by-status" /
+ * "customer/status" mention below describes the pre-5a symmetry and is
+ * kept for history; by-status is the one exception now.
  */
 
 /** Period granularities statsRevenue_ can bucket by. */
@@ -120,7 +136,9 @@ function statsRevenue_(rows, period, includeNoInvoice) {
 
 /**
  * Shared per-ORDER walk underlying every stats aggregation (by period —
- * statsRevenue_ above — and by customer/by status — 4.6.2, below).
+ * statsRevenue_ above — and by customer — 4.6.2, below). Milestone 5a: no
+ * longer used by by-status, which is line-scoped now — see
+ * statsByLineStatus_.
  * Replaces the old statsAggregateByLine_: visits every filtered order
  * exactly once and decides how much of it counts toward the stats vs.
  * noInvoice, per the includeNoInvoice toggle (see file doc comment for
@@ -150,7 +168,8 @@ function statsRevenue_(rows, period, includeNoInvoice) {
  * @param {function(Object):string} keyFn called once per counted order/
  *   portion to decide its bucket key — statsRevenue_ keys by the order's
  *   date/period; statsByField_ (4.6.2) keys by a field on the order
- *   (customer/status). Always receives the real `order` row (never a
+ *   (customer only, as of Milestone 5a — status moved to
+ *   statsByLineStatus_). Always receives the real `order` row (never a
  *   line), since the bucket is always order-date/order-field now.
  * @return {{buckets: Object<string,{exVat:number,incVat:number,
  *   orderCount:number,lineCount:number}>, noInvoice:
@@ -255,6 +274,8 @@ function statsPeriodLabel_(key, period) {
 
 /* =======================================================================
    Milestone 4 / 4.6.2 — revenue by customer, revenue by status
+   (by-status re-sourced to LINE status in Milestone 5a — see
+   statsByLineStatus_ below; by-customer is unchanged, still order-scoped)
    ======================================================================= */
 
 /**
@@ -286,11 +307,20 @@ function actionStatsByCustomer_(user, payload) {
 }
 
 /**
- * Action entry point (Router.gs registers this as `statsByStatus`). Same
- * shape/reasoning as actionStatsByCustomer_, grouped by `order.status`
- * instead, with the group label resolved through the SAME statusLabelIndex_
- * Export.gs already uses — one Vietnamese label per status key, not a
- * second copy of the status list's labels drifting from Config.statusList.
+ * Action entry point (Router.gs registers this as `statsByStatus`).
+ * Milestone 5a: business status moved OFF Orders and onto OrderLines
+ * (an order row no longer carries a `status` field), so this no longer shares
+ * actionStatsByCustomer_'s order-scoped statsByField_ path — an order's
+ * lines can now sit in several different statuses at once, so "one order
+ * -> one status group" is no longer true. Re-sourced to statsByLineStatus_,
+ * which walks lines and sums each line's own amountExVat/amountIncVat into
+ * its line.status group (see that function's doc for the full shape/
+ * includeNoInvoice semantics). Group labels still resolve through the SAME
+ * statusLabelIndex_/statusLabelText_ Export.gs already uses — one
+ * Vietnamese label per status key, not a second copy of the status list's
+ * labels drifting from Config.statusList — except the blank-status group,
+ * whose key ('') has no real label to look up, so it gets
+ * LINE_STATUS_BLANK_LABEL explicitly instead.
  */
 function actionStatsByStatus_(user, payload) {
   requirePermission_(user, 'view_statistics');
@@ -300,25 +330,109 @@ function actionStatsByStatus_(user, payload) {
   var filters = computeOrderFilters_(user, payload, config);
   var rows = filteredOrderRowsForUser_(user, filters);
   var statusLabels = statusLabelIndex_(config);
-  var result = statsByField_(rows, includeNoInvoice, function (order) { return String(order.status || ''); });
-  result.groups.forEach(function (g) { g.label = statusLabelText_(statusLabels, g.key); });
+  var result = statsByLineStatus_(rows, includeNoInvoice);
+  result.groups.forEach(function (g) {
+    g.label = g.key ? statusLabelText_(statusLabels, g.key) : LINE_STATUS_BLANK_LABEL;
+  });
   return result;
 }
 
 /**
- * Shared by both actions above: groups filtered rows by whatever
- * `keyFn(order)` returns, using statsAggregateByOrder_ for the actual
- * exVat/incVat/orderCount/lineCount summing (and its includeNoInvoice
- * handling) — this function only adds the "group by a field, not by
- * date" part on top, plus sorting groups by revenue (biggest first)
- * rather than by bucket key the way the time-period view sorts
- * chronologically.
+ * Milestone 5a — LINE-scoped counterpart to statsAggregateByOrder_/
+ * statsByField_ (both stay order-scoped, unchanged, still used by
+ * by-customer/by-period). Walks every filtered order's OrderLines
+ * directly and groups by `line.status` (blank key '' included as its own
+ * real group — never dropped), summing each line's OWN amountExVat/
+ * amountIncVat — never the order's totalExVat/totalIncVat, which would
+ * double count a mixed order across every status its lines touch. Reports
+ * both `lineCount` (lines summed into the group) and `orderCount`
+ * (DISTINCT orders contributing at least one line to the group — an order
+ * with two lines in the same status still counts once).
  *
- * `label` defaults to the same string as `key` here; actionStatsByStatus_
- * overwrites it afterward with the real Vietnamese status label — kept
- * that way (rather than passing a labelFn into this shared function too)
- * since customer needs no such translation and threading an identity
- * labelFn through just for symmetry would be needless indirection.
+ * `includeNoInvoice` keeps the exact meaning every other stats view gives
+ * it (statsAggregateByOrder_'s doc): true (default) counts every line in
+ * full, into its own status group. false moves each UNINVOICED line's
+ * money out of any status group and into the single global `noInvoice`
+ * total instead (never broken down by status — same "one grand total"
+ * shape noInvoice already has for time-period/customer), while invoiced
+ * lines still count toward their own status group.
+ *
+ * Reconciliation: with includeNoInvoice true (the default), the sum of
+ * exVat/incVat across every returned group (blank group included) equals
+ * the ungrouped total across all filtered orders' lines — nothing is
+ * double-counted (line money, not order money) and nothing is dropped
+ * (blank status is a real group). With includeNoInvoice false, groups +
+ * noInvoice together still reconcile to that same total.
+ *
+ * @param {Object[]} rows filtered order-level rows (as from
+ *   filteredOrderRowsForUser_).
+ * @param {boolean} includeNoInvoice see above.
+ * @return {{includeNoInvoice:boolean, groups:Array<{key:string,
+ *   label:string, exVat:number, incVat:number, orderCount:number,
+ *   lineCount:number}>, noInvoice:{exVat:number,incVat:number,
+ *   orderCount:number,lineCount:number}}} groups sorted biggest-first
+ *   (same convention as statsByField_); `label` defaults to `key` here —
+ *   actionStatsByStatus_ overwrites it with the real Vietnamese label (or
+ *   LINE_STATUS_BLANK_LABEL for the blank group) afterward.
+ */
+function statsByLineStatus_(rows, includeNoInvoice) {
+  var invoices = includeNoInvoice ? null : invoiceIndex_();
+  var groups = {}; // status key -> {exVat, incVat, lineCount, orderIds}
+  var noInvoiceAgg = { exVat: 0, incVat: 0, lineCount: 0, orderIds: {} };
+
+  function groupFor(key) {
+    if (!groups[key]) groups[key] = { exVat: 0, incVat: 0, lineCount: 0, orderIds: {} };
+    return groups[key];
+  }
+
+  rows.forEach(function (order) {
+    linesForOrder_(order.orderId).forEach(function (line) {
+      var isInvoiced = includeNoInvoice || (line.invoiceId && invoices[String(line.invoiceId)]);
+      var target = isInvoiced ? groupFor(String(line.status || '')) : noInvoiceAgg;
+      target.exVat += num_(line.amountExVat);
+      target.incVat += num_(line.amountIncVat);
+      target.lineCount += 1;
+      target.orderIds[order.orderId] = true;
+    });
+  });
+
+  var out = Object.keys(groups).map(function (key) {
+    var g = groups[key];
+    return {
+      key: key, label: key, exVat: g.exVat, incVat: g.incVat,
+      orderCount: Object.keys(g.orderIds).length, lineCount: g.lineCount
+    };
+  });
+  // Biggest status group first — same "reads top-to-bottom as biggest
+  // contributor first" convention statsByField_ uses.
+  out.sort(function (a, b) { return b.incVat - a.incVat; });
+
+  return {
+    includeNoInvoice: includeNoInvoice,
+    groups: out,
+    noInvoice: {
+      exVat: noInvoiceAgg.exVat, incVat: noInvoiceAgg.incVat,
+      orderCount: Object.keys(noInvoiceAgg.orderIds).length, lineCount: noInvoiceAgg.lineCount
+    }
+  };
+}
+
+/**
+ * Shared by the order-scoped actions above: groups filtered rows by
+ * whatever `keyFn(order)` returns, using statsAggregateByOrder_ for the
+ * actual exVat/incVat/orderCount/lineCount summing (and its
+ * includeNoInvoice handling) — this function only adds the "group by a
+ * field, not by date" part on top, plus sorting groups by revenue
+ * (biggest first) rather than by bucket key the way the time-period view
+ * sorts chronologically.
+ *
+ * Milestone 5a: only actionStatsByCustomer_ still calls this — status is
+ * no longer order-scoped (the order-level `status` field was removed; see statsByLineStatus_
+ * for the line-scoped by-status path, which is NOT built on this
+ * function or statsAggregateByOrder_). `label` still defaults to the same
+ * string as `key`; actionStatsByCustomer_ never needs to translate it
+ * (unlike a status key), so no labelFn indirection is threaded through
+ * here.
  */
 function statsByField_(rows, includeNoInvoice, fieldKeyFn) {
   var agg = statsAggregateByOrder_(rows, includeNoInvoice, fieldKeyFn);
@@ -328,9 +442,8 @@ function statsByField_(rows, includeNoInvoice, fieldKeyFn) {
     var b = agg.buckets[key];
     return { key: key, label: key, exVat: b.exVat, incVat: b.incVat, orderCount: b.orderCount, lineCount: b.lineCount };
   });
-  // Biggest customer/status first — a revenue breakdown reads top-to-
-  // bottom as "who/what contributes most", not alphabetically or by
-  // insertion order.
+  // Biggest contributor first — a revenue breakdown reads top-to-bottom
+  // as "who contributes most", not alphabetically or by insertion order.
   out.sort(function (a, b) { return b.incVat - a.incVat; });
 
   return { includeNoInvoice: includeNoInvoice, groups: out, noInvoice: agg.noInvoice };

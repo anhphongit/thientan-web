@@ -21,9 +21,10 @@
  *     (consumed by state machine), exportLargeThreshold, exportRetentionDays
  *   - Out of scope: Security sheet (secrets, do not hand-edit)
  *
- * statusList values are referenced by existing Orders.status rows. Renaming
- * or deleting a status KEY (not label) orphans existing orders, so this phase
- * allows add/relabel only, never key deletion.
+ * statusList values are referenced by existing OrderLines.status rows
+ * (Milestone 5a — moved off Orders.status). Renaming or deleting a status
+ * KEY (not label) orphans existing lines, so this phase allows add/relabel
+ * only, never key deletion.
  */
 
 /* =======================================================================

@@ -372,36 +372,6 @@ function clickMenuItem(dataAct, menuKey) {
     TT_BRIDGE.call = originalCall;
   }
 
-  {
-    var deferredResolve2;
-    var originalCall2 = TT_BRIDGE.call;
-    TT_BRIDGE.call = function (fn, arg) {
-      lastCall = { fn: fn, arg: arg };
-      if (fn === 'apiChangeStatus') {
-        return new Promise(function (resolve) {
-          deferredResolve2 = function () { resolve(fixture(fn, arg)); };
-        });
-      }
-      return originalCall2(fn, arg);
-    };
-
-    captured.change({ target: { matches: function (sel) { return sel === '[data-act="quick-status"]'; },
-                                 getAttribute: function (a) { return a === 'data-order' ? 'DH-2026-0001' : 'paid'; },
-                                 value: 'paid' } });
-    await tick();
-
-    var midStatus = painted;
-    ok('status quick-change in flight: this order\'s approve marker is not a button',
-       !/data-act="toggle-approve-menu" data-menu-key="DH-2026-0001"/.test(midStatus));
-    ok('status quick-change in flight: the status pill shows its own pending state',
-       /status-pill--pending/.test(midStatus));
-
-    deferredResolve2();
-    await tick();
-    await tick();
-    TT_BRIDGE.call = originalCall2;
-  }
-
   // Revision 2026-09-03b — "B2" reject-reason banner on the detail screen.
   captured.click({ target: makeTarget({ 'data-act': 'back' }) });
   await tick();

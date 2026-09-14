@@ -299,17 +299,17 @@ console.log('\n15. invoice-date basis: revenue totals are attributed per bucket,
   check('THÁNG 9 total reflects only Dòng B (200,000)', body.indexOf('DOANH SỐ THÁNG 9,200.000 / 216.000') >= 0);
 }
 
-/* ---------- 16. status column shows the Vietnamese label, not the raw key ---------- */
+/* ---------- 16. status column shows the Vietnamese label, not the raw key (line-level status) ---------- */
 console.log('\n16. TRẠNG THÁI column shows the config label, not the raw status key');
 {
   const env = H.makeEnv();
   const admin = user('admin@x.com', { export: true });
-  env.actionCreateOrder_(admin, { order: order({ status: 'draft' }), lines: [line()] });
+  env.actionCreateOrder_(admin, { order: order(), lines: [line({ status: 'confirmed' })] });
 
   const res = env.actionExportOrdersCsv_(admin, {});
   const allRows = rows(res.csv);
   const dataRow = allRows.filter(r => r[3] === 'Ống nhựa PVC 90')[0];
-  check('status cell shows "Nháp" (config label), not "draft" (the raw key)', dataRow[11] === 'Nháp');
+  check('status cell shows "Đã xác nhận" (config label for confirmed), not "confirmed" (the raw key)', dataRow[11] === 'Đã xác nhận');
 }
 
 /* ---------- 17. buildExportRows_ sets groupSize for XLSX merges (ExportSheet.gs's contract) ---------- */

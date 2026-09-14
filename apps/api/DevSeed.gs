@@ -94,6 +94,10 @@ function seedTestOrders(count) {
     var orderDate = new Date();
     orderDate.setDate(orderDate.getDate() - (count - i));
 
+    // Milestone 5a — status moved from the order to each line (see
+    // seedStatusKeys_ below); every seeded line gets its own status key
+    // instead of one shared order-level value, cycling by (seedNo + l) so
+    // a multi-line seeded order shows a mix of statuses, not all identical.
     var lineCount = 1 + (seedNo % 5); // 1..5 lines, so card lineCount varies too
     var lines = [];
     for (var l = 0; l < lineCount; l++) {
@@ -102,7 +106,8 @@ function seedTestOrders(count) {
         qty: 1 + (l % 4),
         unitPrice: String(100000 * (1 + ((seedNo + l) % 10))),
         uom: 'Cái',
-        vatRate: (l % 2 === 0) ? 0.08 : 0.1
+        vatRate: (l % 2 === 0) ? 0.08 : 0.1,
+        status: statuses[(seedNo + l) % statuses.length]
       });
     }
 
@@ -110,7 +115,6 @@ function seedTestOrders(count) {
       order: {
         customer: 'TEST ' + customers[seedNo % customers.length],
         orderDate: orderDate,
-        status: statuses[seedNo % statuses.length],
         po: 'SEED-' + seedNo
       },
       lines: lines

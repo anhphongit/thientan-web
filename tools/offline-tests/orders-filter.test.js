@@ -12,7 +12,7 @@ function line(over) {
 }
 function order(over) {
   return Object.assign({ customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-                         status: 'draft', po: '460004' }, over || {});
+                         po: '460004' }, over || {});
 }
 
 function seed(env, admin) {
@@ -159,23 +159,7 @@ console.log('\n8. Customer filter (exact, case/whitespace-insensitive)');
   eq('unknown customer matches nothing', none.total, 0);
 }
 
-/* ---------- 9. status filter ---------- */
-console.log('\n9. Status filter is exact and case-sensitive (fixed status keys)');
-{
-  const env = H.makeEnv();
-  const admin = user('admin@x.com');
-  env.actionCreateOrder_(admin, { order: order({ status: 'draft' }), lines: [line()] });
-  env.actionCreateOrder_(admin, { order: order({ status: 'confirmed' }), lines: [line()] });
-  env.actionCreateOrder_(admin, { order: order({ status: 'confirmed' }), lines: [line()] });
-
-  const res = env.actionListOrders_(admin, { status: 'confirmed' });
-  eq('two confirmed orders', res.total, 2);
-
-  const wrongCase = env.actionListOrders_(admin, { status: 'Confirmed' });
-  eq('status match is case-sensitive on the fixed status keys', wrongCase.total, 0);
-}
-
-/* ---------- 10. createdBy filter, gated on view_all_orders ---------- */
+/* ---------- 9. createdBy filter, gated on view_all_orders ---------- */
 console.log('\n10. createdBy filter is only honoured for a caller who can see everyone');
 {
   const env = H.makeEnv();
@@ -198,21 +182,20 @@ console.log('\n10. createdBy filter is only honoured for a caller who can see ev
 }
 
 /* ---------- 11. filters combine (AND, not OR) ---------- */
-console.log('\n11. Date + customer + status + createdBy combine as AND');
+console.log('\n11. Date + customer + createdBy combine as AND');
 {
   const env = H.makeEnv();
   const admin = user('admin@x.com');
   const staff = user('staff@x.com', { view_all_orders: false });
 
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0001 admin, matches all
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'draft' }), lines: [line()] });     // 0002 wrong status
-  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0003 wrong creator
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-01', customer: 'Yamato', status: 'confirmed' }), lines: [line()] }); // 0004 wrong month
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line()] }); // 0001 admin, matches all
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line()] });  // 0002 matches too
+  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line()] }); // 0003 wrong creator
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-08-01', customer: 'Yamato' }), lines: [line()] }); // 0004 wrong month
 
   const res = env.actionListOrders_(admin,
-    { month: '2026-07', customer: 'Yamato', status: 'confirmed', createdBy: 'admin@x.com' });
-  eq('only the order matching every filter is returned', res.total, 1);
-  eq('it is DH-2026-0001', res.orders[0].orderId, 'DH-2026-0001');
+    { month: '2026-07', customer: 'Yamato', createdBy: 'admin@x.com' });
+  eq('orders matching every filter are returned', res.total, 2);
 }
 
 /* ---------- 12. actionListOrderCreators_ ---------- */
@@ -285,20 +268,19 @@ console.log('\n14. Free-text search also matches a line description');
 }
 
 /* ---------- 15. search combines with the other filters (AND) ---------- */
-console.log('\n15. Search combines with date/customer/status/createdBy as AND');
+console.log('\n15. Search combines with date/customer/createdBy as AND');
 {
   const env = H.makeEnv();
   const admin = user('admin@x.com');
   const staff = user('staff@x.com', { view_all_orders: false });
 
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0001, matches everything
-  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'draft' }), lines: [line({ description: 'Ống nhựa PVC' })] });     // 0002, wrong status
-  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato', status: 'confirmed' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0003, wrong creator
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0001, matches everything
+  env.actionCreateOrder_(admin, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line({ description: 'Ống nhựa PVC' })] });  // 0002, matches too
+  env.actionCreateOrder_(staff, { order: order({ orderDate: '2026-07-05', customer: 'Yamato' }), lines: [line({ description: 'Ống nhựa PVC' })] }); // 0003, wrong creator
 
   const res = env.actionListOrders_(admin,
-    { month: '2026-07', customer: 'Yamato', status: 'confirmed', createdBy: 'admin@x.com', q: 'pvc' });
-  eq('only the order matching search AND every other filter', res.total, 1);
-  eq('it is DH-2026-0001', res.orders[0].orderId, 'DH-2026-0001');
+    { month: '2026-07', customer: 'Yamato', createdBy: 'admin@x.com', q: 'pvc' });
+  eq('orders matching search AND every other filter', res.total, 2);
 
   // A staff account's search still only ever searches within their own scope.
   const staffRes = env.actionListOrders_(staff, { q: 'pvc' });

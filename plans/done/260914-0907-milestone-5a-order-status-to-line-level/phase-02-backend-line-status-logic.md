@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Backend line-status logic"
-status: pending
+status: completed
 priority: P1
 effort: 6h
 dependencies: [1]
@@ -203,33 +203,40 @@ Every line-status write — create, update, or a lone status flip — goes throu
 
 ## Todo List
 
-- [ ] Line numbers re-verified against current `Orders.gs`
-- [ ] `validateLine_` accepts optional status (blank OK, unknown rejected)
-- [ ] `buildLineRecord_` persists status/statusNote
-- [ ] `clampHiddenLineFields_` clamps the pair; `clampHiddenOrderFields_` no longer clamps statusNote
-- [ ] `validateOrderPayload_` free of order status
-- [ ] create / update / delete write no order status and no order-status history
-- [ ] `appendStatusHistory_` takes `lineId`; all call sites updated
-- [ ] `actionChangeStatus_` deleted outright; `Router.gs:151` route removed (no replacement, A6)
-- [ ] `defaultStatus_` deleted, `isKnownStatus_` reused
-- [ ] `canChangeStatus` moved from order to line in the response
-- [ ] Order-level status filter removed
-- [ ] `DevSeed.gs` seeds line status
-- [ ] Suite run; failure list captured for Phase 6
+- [x] Line numbers re-verified against current `Orders.gs`
+- [x] `validateLine_` accepts optional status (blank OK, unknown rejected)
+- [x] `buildLineRecord_` persists status/statusNote
+- [x] `clampHiddenLineFields_` clamps the pair; `clampHiddenOrderFields_` no longer clamps statusNote
+- [x] `validateOrderPayload_` free of order status
+- [x] create / update / delete write no order status and no order-status history
+- [x] `appendStatusHistory_` takes `lineId`; all call sites updated
+- [x] `actionChangeStatus_` deleted outright; `Router.gs:151` route removed (no replacement, A6)
+- [x] `defaultStatus_` deleted, `isKnownStatus_` reused
+- [x] `canChangeStatus` moved from order to line in the response
+- [x] Order-level status filter removed
+- [x] `DevSeed.gs` seeds line status
+- [x] Suite run; failure list captured for Phase 6
 
 ## Success Criteria
 
-- [ ] `grep -n "clean.status\|order.status\|row.status\|current.status" apps/api/*.gs` returns
-      nothing outside approveStatus code and `Stats.gs`/`Export.gs` (Phase 3's job).
-- [ ] `grep -n "defaultStatus_" apps/api/` returns nothing.
-- [ ] `grep -rn "actionChangeStatus_" apps/api/` returns nothing.
-- [ ] A line saved with `status: ''` round-trips and is accepted.
-- [ ] A line saved with `status: 'not_a_key'` is rejected with the line-prefixed message.
-- [ ] A user without `change_status` can edit a line's qty/description but not its status.
-- [ ] A user whose `visible_fields` omits `status` cannot set a line status via a direct API
-      call (the clamp fires on both create and new-line-on-update).
-- [ ] Changing one line's status writes exactly one `StatusHistory` row with that `lineId`.
-- [ ] `orders-approvestatus.test.js` and `orders-approvestatus-ui.test.js` still pass unchanged.
+- [x] `grep -n "clean.status\|order.status\|row.status\|current.status" apps/api/*.gs` returns
+      nothing outside approveStatus code and `Stats.gs`/`Export.gs` (Phase 3's job). — verified,
+      remaining matches are Config.gs:94 (a comment) and Stats.gs:290,303.
+- [x] `grep -n "defaultStatus_" apps/api/` returns nothing. — verified clean (function deleted,
+      no leftover literal references anywhere, including comments).
+- [x] `grep -rn "actionChangeStatus_" apps/api/` returns nothing. — verified clean.
+- [x] A line saved with `status: ''` round-trips and is accepted. — verified with an ad-hoc
+      harness script (not committed).
+- [x] A line saved with `status: 'not_a_key'` is rejected with the line-prefixed message. —
+      verified.
+- [x] A user without `change_status` can edit a line's qty/description but not its status. —
+      verified.
+- [x] A user whose `visible_fields` omits `status` cannot set a line status via a direct API
+      call (the clamp fires on both create and new-line-on-update). — verified both cases.
+- [x] Changing one line's status writes exactly one `StatusHistory` row with that `lineId`. —
+      verified (oldStatus/newStatus/field also asserted correct).
+- [x] `orders-approvestatus.test.js` and `orders-approvestatus-ui.test.js` still pass unchanged.
+      — both green, full offline suite run below.
 
 ## Risk Assessment
 
@@ -253,7 +260,35 @@ Every line-status write — create, update, or a lone status flip — goes throu
 - No change to `PERMISSION_KEYS` — `change_status` (Config.gs:175) keeps its key, so no role
   config on the live Users sheet needs editing.
 
+## Implementation Report (2026-09-14)
+
+**Orders.gs line count:** 1649 → 1700 (+51, i.e. it grew, not the hoped-for net-neutral/negative).
+Cause: the two-pass restructure of `actionUpdateOrder_`'s line loop (resolve+clamp pass, then a
+permission-check pass, then the write pass — needed so a missing `change_status` on line 3 can
+never leave lines 1-2 already written) plus per-project-convention explanatory comments on every
+changed block. No refactor attempted mid-phase per the risk table's own instruction ("do not
+refactor mid-phase") — flagged here for a later extraction pass instead.
+
+**Full offline suite (`for f in tools/offline-tests/*.test.js; do node "$f"; done`, 20 files):**
+- Canary green as required: `orders-approvestatus.test.js`, `orders-approvestatus-ui.test.js`.
+- 8 files fail, all attributable to the intentional order-status → line-status move (Phase 6's
+  input, not unrelated breaks):
+  - `orders-changestatus.test.js` — entire file, `actionChangeStatus_` no longer exists (A6,
+    deleted outright). File needs removal/replacement in Phase 6.
+  - `orders-crud.test.js` — 2 asserts expecting an order-level StatusHistory row on create/update
+    (removed by design; line-status history now).
+  - `orders-filter.test.js` — 5 asserts using the removed order-level `statusFilter`.
+  - `orders-permissions.test.js` — 10 asserts: order-level `change_status`/`statusNote` gating,
+    an "unknown order status" create-time throw, and their cascading effects on later
+    order-numbering asserts in the same test block, plus "list card keeps status" (order-level).
+  - `export.test.js` — 1 assert: TRẠNG THÁI column still reads `order.status` (Export.gs is
+    Phase 3's job).
+  - `stats.test.js` — `actionStatsByStatus_` assertions read `order.status` (Stats.gs is Phase
+    3's job).
+  - Everything else (12 files, including both approveStatus canaries) is green.
+
 ## Next Steps
 
 Phase 3 (Stats/Export) needs line status to actually be written before its aggregation can be
-designed against real data.
+designed against real data. Phase 3/6 should also budget time to rewrite/retire
+`orders-changestatus.test.js` and update the order-status-shaped asserts listed above.

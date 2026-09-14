@@ -62,14 +62,13 @@ function actionListOrders_(user, payload) {
   var filters = computeOrderFilters_(user, payload, approveConfig);
   var dateFilter = filters.dateFilter;
   var customerFilter = filters.customerFilter;
-  var statusFilter = filters.statusFilter;
   var createdByFilter = filters.createdByFilter;
   var searchQuery = filters.searchQuery;
   var approveStatusFilter = filters.approveStatusFilter;
 
   var version = getOrdersVersion_();
   var cacheKey = listCacheKey_(version, user.email, page, pageSize,
-                                dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery,
+                                dateFilter, customerFilter, createdByFilter, searchQuery,
                                 approveStatusFilter);
   var cached = getListCache_(cacheKey);
   if (cached) return cached;
@@ -77,7 +76,6 @@ function actionListOrders_(user, payload) {
   var orders = filteredOrderRowsForUser_(user, {
     dateFilter: dateFilter,
     customerFilter: customerFilter,
-    statusFilter: statusFilter,
     createdByFilter: createdByFilter,
     approveStatusFilter: approveStatusFilter,
     searchQuery: searchQuery
@@ -124,8 +122,9 @@ function actionListOrders_(user, payload) {
  * slices+trims to card view, Export.gs's actions build a report row shape).
  *
  * `filters` is the already-computed set of filter values (dateFilter object,
- * customerFilter/statusFilter/createdByFilter/approveStatusFilter/searchQuery
- * strings) — computing those from a raw payload is still the caller's job,
+ * customerFilter/createdByFilter/approveStatusFilter/searchQuery strings —
+ * Milestone 5a removed the order-level statusFilter, business status now
+ * lives per line) — computing those from a raw payload is still the caller's job,
  * since actionListOrders_ and the export actions want the identical
  * gating logic (fieldVisible_/canSeeAllOrders_/approvalFlowEnabled_ checks)
  * applied to the payload before it ever reaches here.
@@ -137,9 +136,6 @@ function filteredOrderRowsForUser_(user, filters) {
   }
   if (filters.customerFilter) {
     orders = orders.filter(function (row) { return normalizeFilter_(row.customer) === filters.customerFilter; });
-  }
-  if (filters.statusFilter) {
-    orders = orders.filter(function (row) { return String(row.status || '') === filters.statusFilter; });
   }
   if (filters.createdByFilter) {
     orders = orders.filter(function (row) { return normalizeFilter_(row.createdBy) === filters.createdByFilter; });
@@ -171,8 +167,6 @@ function computeOrderFilters_(user, payload, config) {
   return {
     dateFilter: orderDateFilter_(payload),
     customerFilter: fieldVisible_(user, 'customer') ? normalizeFilter_(payload && payload.customer) : '',
-    statusFilter: fieldVisible_(user, 'status')
-      ? normalizeFilter_(payload && payload.status, { keepCase: true }) : '',
     createdByFilter: canSeeAllOrders_(user) ? normalizeFilter_(payload && payload.createdBy) : '',
     searchQuery: normalizeFilter_(payload && payload.q),
     approveStatusFilter: approvalFlowEnabled_(config)
@@ -325,7 +319,6 @@ function listCardView_(user, row, lineCount) {
   var editGateOk = canEditForApproveStatus_(user, approveStatus, config);
   view.canEdit = mayAct_(user, row, 'edit_order') && editGateOk;
   view.canDelete = mayAct_(user, row, 'delete_order');
-  view.canChangeStatus = mayAct_(user, row, 'change_status'); // Milestone 3 / 3.5
 
   // Logic revision 2026-09-03 — all four flags come from approveActionFlags_
   // now (self-approvers get the free transitions; everyone else keeps the
@@ -397,8 +390,6 @@ function actionCreateOrder_(user, payload) {
       poNote: clean.poNote,
       customer: clean.customer,
       orderDate: clean.orderDate,
-      status: clean.status,
-      statusNote: clean.statusNote,
       customerDeposit: clean.customerDeposit,
       supplierName: clean.supplierName,
       supplierPaid: clean.supplierPaid,
@@ -426,12 +417,17 @@ function actionCreateOrder_(user, payload) {
 
     lines.forEach(function (line) { appendRecord_(SHEETS.ORDER_LINES, line); });
 
-    appendStatusHistory_(orderId, '', clean.status, 'Tạo đơn hàng', user, 'status');
+    // Milestone 5a — business status moved to the line level (validateLine_/
+    // buildLineRecord_ above), so a create no longer writes an order-status
+    // history row on its own. A line saved with a non-blank status on create
+    // is not logged either (A3/A4): the line did not exist before this save,
+    // so there is no transition to record — only a genuine CHANGE on an
+    // existing line (actionUpdateOrder_) produces a StatusHistory row.
     // Only log an approveStatus row when the order did NOT take the default
     // birth state: '' -> 'draft' on every create would be pure noise, but
     // '' -> 'approved' is a real approval event and must be auditable.
     if (bornApproved) {
-      appendStatusHistory_(orderId, '', 'approved', 'Tạo và duyệt đơn hàng', user, 'approveStatus');
+      appendStatusHistory_(orderId, '', '', 'approved', 'Tạo và duyệt đơn hàng', user, 'approveStatus');
     }
     return orderId;
   });
@@ -577,11 +573,11 @@ function actionUpdateOrder_(user, payload) {
   }
 
   var clean = validateOrderPayload_(payload, user);
-  var previousStatus = String(row.status || '');
 
-  if (clean.status !== previousStatus) {
-    requirePermission_(user, 'change_status');
-  }
+  // Milestone 5a — business status lives on lines now, not the order, so
+  // there is no single order-level change_status gate any more. Each
+  // line's own status change is checked individually inside the lock
+  // below (prepared/statusChanged), against the freshly re-read line data.
 
   // Milestone 3 / 3.8 — save-time approve-status transition (points 8/9).
   // Every save defaults to 'draft' UNLESS the saving user holds approve_order
@@ -631,22 +627,68 @@ function actionUpdateOrder_(user, payload) {
       productCode: !fieldVisible_(user, 'productCode'),
       uom: !fieldVisible_(user, 'uom'),
       note: !fieldVisible_(user, 'note'),
-      invoice: !fieldVisible_(user, 'invoiceNo') // invoiceNo/invoiceDate are edited as one pair
+      invoice: !fieldVisible_(user, 'invoiceNo'), // invoiceNo/invoiceDate are edited as one pair
+      status: !fieldVisible_(user, 'status') // status/statusNote are edited as one pair
     };
 
-    clean.lines.forEach(function (input, i) {
-      var lineNo = i + 1;
+    // Milestone 5a — two passes over clean.lines instead of one. Pass 1
+    // resolves each line's match, applies every hidden-field preserve/clamp,
+    // and works out whether that line's status actually changed — all
+    // BEFORE any sheet write. Pass 2 (below) does the actual writes. Doing
+    // the change_status permission check (also below, between the passes)
+    // this way means it runs for every affected line before this save
+    // touches a single row, so a save that fails the check on line 3 never
+    // leaves lines 1-2 already written — the same all-or-nothing guarantee
+    // the old single order-level check gave for free.
+    var prepared = clean.lines.map(function (input, i) {
       var match = input.lineId ? byId[input.lineId] : null;
 
-      if (match && blindToMoney) {
-        input.unitPrice = num_(match.unitPrice);
-        input.vatRate = num_(match.vatRate);
-      }
       if (match) {
+        if (blindToMoney) {
+          input.unitPrice = num_(match.unitPrice);
+          input.vatRate = num_(match.vatRate);
+        }
         if (lineFieldsHidden.productCode) input.productCode = match.productCode;
         if (lineFieldsHidden.uom) input.uom = match.uom;
         if (lineFieldsHidden.note) input.note = match.note;
+        if (lineFieldsHidden.status) {
+          input.status = match.status;
+          input.statusNote = match.statusNote;
+        }
+      } else {
+        // No match: an unknown lineId is treated as a new line, never trusted as
+        // an id — otherwise a client could point a line at another order's row.
+        // Security review, 2026-08-27 (extended for status/statusNote at
+        // Milestone 5a): a brand new line has no stored value to preserve,
+        // so the matched-line preserves above (which only fire `if
+        // (match)`) never touch it — clamp every hidden field to its safe
+        // default here, the same way clampHiddenOrderFields_ does for a
+        // whole new order, BEFORE deciding whether this line's status
+        // "changed": a status a hidden role could never actually set (it
+        // gets clamped to '' here) must never count as a change requiring
+        // change_status either.
+        clampHiddenLineFields_(user, input);
       }
+
+      var previousLineStatus = match ? String(match.status || '') : '';
+      var statusChanged = input.status !== previousLineStatus;
+      return {
+        input: input, lineNo: i + 1, match: match,
+        previousLineStatus: previousLineStatus, statusChanged: statusChanged
+      };
+    });
+
+    // A6 / step 10 — change_status is re-scoped from the order to the line:
+    // any line whose status actually changes (a matched line's flip, or a
+    // brand-new line born with a non-blank status) needs it.
+    prepared.forEach(function (p) {
+      if (p.statusChanged) requirePermission_(user, 'change_status');
+    });
+
+    var statusHistoryRows = [];
+
+    prepared.forEach(function (p) {
+      var input = p.input, lineNo = p.lineNo, match = p.match;
 
       if (match) {
         // id never changes on edit, and it comes from the SHEET, not the client
@@ -661,21 +703,26 @@ function actionUpdateOrder_(user, payload) {
         updateRecord_(SHEETS.ORDER_LINES, match._row, updated);
         kept[String(match.lineId)] = true;
         saved.push(updated);
+
+        if (p.statusChanged) {
+          statusHistoryRows.push({
+            lineId: match.lineId, oldStatus: p.previousLineStatus,
+            newStatus: input.status, note: input.statusNote
+          });
+        }
       } else {
-        // No match: an unknown lineId is treated as a new line, never trusted as
-        // an id — otherwise a client could point a line at another order's row.
-        // Security review, 2026-08-27: a brand new line has no stored value to
-        // preserve, so lineFieldsHidden/blindToMoney above (which only fire
-        // `if (match)`) never touch it — clamp hidden fields here the same
-        // way clampHiddenOrderFields_ does for a whole new order, otherwise
-        // adding a line is an unguarded way to write a price or a hidden
-        // field this user's own form never lets them set.
-        clampHiddenLineFields_(user, input);
         maxSeq++;
         var created = buildLineRecord_(current.orderId, lineNo, input, user,
                                        makeLineId_(current.orderId, maxSeq));
         appendRecord_(SHEETS.ORDER_LINES, created);
         saved.push(created);
+
+        if (p.statusChanged) {
+          statusHistoryRows.push({
+            lineId: created.lineId, oldStatus: '',
+            newStatus: input.status, note: input.statusNote
+          });
+        }
       }
     });
 
@@ -688,16 +735,15 @@ function actionUpdateOrder_(user, payload) {
     var totals = sumLines_(saved);
 
     updateRecord_(SHEETS.ORDERS, current._row, {
-      // po / poNote / statusNote / supplierName: preserve the stored value
-      // when this user's visible_fields excludes the field — see
-      // fieldVisible_ above. customer / orderDate / status are always
-      // rendered regardless of visible_fields, so they stay unconditional.
+      // po / poNote / supplierName: preserve the stored value when this
+      // user's visible_fields excludes the field — see fieldVisible_ above.
+      // customer / orderDate are always rendered regardless of
+      // visible_fields, so they stay unconditional. Milestone 5a — status/
+      // statusNote moved to the line level, no longer written here.
       po: fieldVisible_(user, 'po') ? clean.po : current.po,
       poNote: fieldVisible_(user, 'poNote') ? clean.poNote : current.poNote,
       customer: clean.customer,
       orderDate: clean.orderDate,
-      status: clean.status,
-      statusNote: fieldVisible_(user, 'statusNote') ? clean.statusNote : current.statusNote,
       customerDeposit: blindToMoney ? num_(current.customerDeposit) : clean.customerDeposit,
       supplierName: fieldVisible_(user, 'supplierName') ? clean.supplierName : current.supplierName,
       supplierPaid: blindToMoney ? num_(current.supplierPaid) : clean.supplierPaid,
@@ -719,16 +765,20 @@ function actionUpdateOrder_(user, payload) {
       approvedAt: nextApproveStatus === 'approved' ? new Date() : current.approvedAt
     });
 
-    if (clean.status !== previousStatus) {
-      appendStatusHistory_(current.orderId, previousStatus, clean.status,
-                           clean.statusNote, user, 'status');
-    }
+    // Milestone 5a / A4 — one StatusHistory row per line whose status
+    // actually changed, collected in the write loop above and written here
+    // (after updateRecord_(SHEETS.ORDERS, …), still inside the lock) rather
+    // than one order-level row — a single save can change several lines at
+    // once now that status lives per line, not per order.
+    statusHistoryRows.forEach(function (h) {
+      appendStatusHistory_(current.orderId, h.lineId, h.oldStatus, h.newStatus, h.note, user, 'status');
+    });
     // current.approveStatus (not previousApproveStatus, read before the lock)
     // is the value the gate above just re-verified against — logging against
     // it keeps the history row honest even if something changed in between.
     var approveStatusBefore = String(current.approveStatus || 'draft');
     if (nextApproveStatus !== approveStatusBefore) {
-      appendStatusHistory_(current.orderId, approveStatusBefore, nextApproveStatus,
+      appendStatusHistory_(current.orderId, '', approveStatusBefore, nextApproveStatus,
                            '', user, 'approveStatus');
     }
   });
@@ -756,8 +806,10 @@ function actionDeleteOrder_(user, payload) {
       .forEach(function (line) { deleteRecord_(SHEETS.ORDER_LINES, line._row); });
 
     deleteRecord_(SHEETS.ORDERS, current._row);
-    appendStatusHistory_(current.orderId, String(current.status || ''), 'deleted',
-                         'Xoá đơn hàng', user, 'status');
+    // Milestone 5a / A5 — no line-status history write on delete. Logging
+    // one row per line would be N rows of noise for an object that no
+    // longer exists; the order's disappearance is already implicit in the
+    // sheet (KISS).
   });
 
   bumpOrdersVersion_();
@@ -765,51 +817,16 @@ function actionDeleteOrder_(user, payload) {
 }
 
 /**
- * Milestone 3 / 3.5 — one-purpose status change, for the quick control on
- * the order list card. Deliberately separate from actionUpdateOrder_: that
- * one requires the WHOLE order + all its lines and re-validates everything,
- * which is the right shape for the edit form but far too much to ask for
- * "flip this one order from confirmed to delivered" from a list of cards.
- * Same rules as the status change inside actionUpdateOrder_ (change_status,
- * ownership, a known status, StatusHistory with who/when) — just without
- * the rest of the order along for the ride.
+ * Milestone 5a / A6 (confirmed by project owner 2026-09-14) — no standalone
+ * change-status action. The order-level quick-status control that used to
+ * live here (for the list card) is deleted outright now that status is a
+ * per-line field, not replaced by a line-scoped equivalent. Line status is
+ * editable only through the normal order-edit form (actionUpdateOrder_'s
+ * line loop above), which already runs inside withOrderLock_ and already
+ * re-reads fresh data before comparing — building a second endpoint for the
+ * same write would be dead code no client ever calls (YAGNI). See
+ * Router.gs: the corresponding route entry is removed alongside this.
  */
-function actionChangeStatus_(user, payload) {
-  requirePermission_(user, 'change_status');
-
-  var row = findOrderRow_(payload && payload.orderId);
-  requireOwnershipOrAll_(user, row);
-
-  var config = readPublicConfig_();
-  var newStatus = text_(payload && payload.status);
-  if (!newStatus || !isKnownStatus_(config, newStatus)) {
-    throw new Error(MSG.ORDER_BAD_STATUS);
-  }
-
-  var note = text_(payload && payload.note);
-  var wroteChange = false;
-
-  withOrderLock_(function () {
-    // Re-read (and re-compare) INSIDE the lock, not just before it: someone
-    // else's status change may have landed between the check above and
-    // acquiring the lock, and comparing against a stale `row.status` could
-    // either skip a real change or log a false "X → X" no-op.
-    var current = findOrderRow_(row.orderId);
-    var previousStatus = String(current.status || '');
-    if (newStatus === previousStatus) return; // nothing to do, nothing to log
-
-    updateRecord_(SHEETS.ORDERS, current._row, {
-      status: newStatus,
-      updatedBy: user.email,
-      updatedAt: new Date()
-    });
-    appendStatusHistory_(current.orderId, previousStatus, newStatus, note, user, 'status');
-    wroteChange = true;
-  });
-
-  if (wroteChange) bumpOrdersVersion_();
-  return { orderId: row.orderId, status: newStatus };
-}
 
 /**
  * Milestone 3 / 3.8 — request approval. Moves a draft/rejected order into
@@ -842,7 +859,7 @@ function actionRequestApprove_(user, payload) {
       updatedBy: user.email,
       updatedAt: now
     });
-    appendStatusHistory_(current.orderId, before, 'wait_approval', '', user, 'approveStatus');
+    appendStatusHistory_(current.orderId, '', before, 'wait_approval', '', user, 'approveStatus');
   });
 
   bumpOrdersVersion_();
@@ -889,7 +906,7 @@ function actionApproveOrder_(user, payload) {
       approvedBy: user.email,
       approvedAt: now
     });
-    appendStatusHistory_(current.orderId, before, 'approved', '', user, 'approveStatus');
+    appendStatusHistory_(current.orderId, '', before, 'approved', '', user, 'approveStatus');
   });
 
   bumpOrdersVersion_();
@@ -935,7 +952,7 @@ function actionRejectOrder_(user, payload) {
       rejectedBy: user.email,
       rejectedAt: now
     });
-    appendStatusHistory_(current.orderId, before, 'rejected', note, user, 'approveStatus');
+    appendStatusHistory_(current.orderId, '', before, 'rejected', note, user, 'approveStatus');
   });
 
   bumpOrdersVersion_();
@@ -980,7 +997,7 @@ function actionSetDraftOrder_(user, payload) {
       updatedBy: user.email,
       updatedAt: now
     });
-    appendStatusHistory_(current.orderId, before, 'draft', '', user, 'approveStatus');
+    appendStatusHistory_(current.orderId, '', before, 'draft', '', user, 'approveStatus');
   });
 
   bumpOrdersVersion_();
@@ -1007,6 +1024,11 @@ function buildOrderResponse_(user, row) {
       enriched.invoiceDate = invoice ? invoice.invoiceDate : '';
       var view = filterVisibleFields_(user, enriched);
       view.lineId = line.lineId;
+      // Milestone 5a — canChangeStatus moved from the order to each line
+      // (step 14): the client gates each row's status control individually.
+      // Ownership is already enforced at the action level (actionUpdateOrder_),
+      // so this is permission-only, same as the old order-level flag was.
+      view.canChangeStatus = hasPermission_(user, 'change_status');
       return view;
     });
 
@@ -1022,7 +1044,6 @@ function buildOrderResponse_(user, row) {
   var editGateOk = canEditForApproveStatus_(user, approveStatus, config);
   order.canEdit = mayAct_(user, row, 'edit_order') && editGateOk;
   order.canDelete = mayAct_(user, row, 'delete_order');
-  order.canChangeStatus = hasPermission_(user, 'change_status');
 
   // Logic revision 2026-09-03 — same shared helper as listCardView_, so the
   // list card and the detail screen can never disagree about which approve
@@ -1139,7 +1160,7 @@ function bumpOrdersVersion_() {
   }
 }
 
-function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, statusFilter, createdByFilter, searchQuery, approveStatusFilter) {
+function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilter, createdByFilter, searchQuery, approveStatusFilter) {
   var safeEmail = String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+-]/g, '_');
   // Milestone 3 / 3.2-3.4: fold every filter into the key so a filtered and an
   // unfiltered (or differently-filtered) request for the same page never
@@ -1150,7 +1171,6 @@ function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilte
        '-' + (dateFilter.toTime === null ? '' : dateFilter.toTime))
     : '';
   var c = customerFilter ? (':c' + safeToken_(customerFilter)) : '';
-  var st = statusFilter ? (':st' + safeToken_(statusFilter)) : '';
   var cb = createdByFilter ? (':cb' + safeToken_(createdByFilter)) : '';
   var q = searchQuery ? (':q' + safeToken_(searchQuery)) : '';
   var ap = approveStatusFilter ? (':ap' + safeToken_(approveStatusFilter)) : '';
@@ -1159,7 +1179,7 @@ function listCacheKey_(version, email, page, pageSize, dateFilter, customerFilte
          ':u' + safeEmail +
          ':p' + page +
          ':s' + pageSize +
-         f + c + st + cb + q + ap;
+         f + c + cb + q + ap;
 }
 
 /** Cache-key-safe token: anything not alphanumeric/@._- collapses to '_'. */
@@ -1252,7 +1272,6 @@ function clampHiddenOrderFields_(user, clean) {
   }
   if (!fieldVisible_(user, 'po')) clean.po = '';
   if (!fieldVisible_(user, 'poNote')) clean.poNote = '';
-  if (!fieldVisible_(user, 'statusNote')) clean.statusNote = '';
   if (!fieldVisible_(user, 'supplierName')) clean.supplierName = '';
   (clean.lines || []).forEach(function (line) { clampHiddenLineFields_(user, line); });
 }
@@ -1269,6 +1288,13 @@ function clampHiddenLineFields_(user, line) {
   if (!fieldVisible_(user, 'invoiceNo')) {
     line.invoiceNo = '';
     line.invoiceDate = null;
+  }
+  // Milestone 5a — status/statusNote are edited as one pair, same as
+  // invoiceNo/invoiceDate above: a role that cannot see line status must
+  // not be able to set it via a direct API call either.
+  if (!fieldVisible_(user, 'status')) {
+    line.status = '';
+    line.statusNote = '';
   }
 }
 
@@ -1287,9 +1313,6 @@ function validateOrderPayload_(payload, user) {
   var orderDate = parseDate_(raw.orderDate);
   if (!orderDate) throw new Error(MSG.ORDER_BAD_DATE);
 
-  var status = text_(raw.status) || defaultStatus_(config);
-  if (!isKnownStatus_(config, status)) throw new Error(MSG.ORDER_BAD_STATUS);
-
   if (!rawLines.length) throw new Error(MSG.ORDER_NO_LINES);
   if (rawLines.length > ORDER_LIMITS.MAX_LINES) throw new Error(MSG.ORDER_TOO_MANY_LINES);
 
@@ -1307,8 +1330,6 @@ function validateOrderPayload_(payload, user) {
     poNote: text_(raw.poNote),
     customer: customer,
     orderDate: orderDate,
-    status: status,
-    statusNote: text_(raw.statusNote),
     customerDeposit: deposit,
     supplierName: text_(raw.supplierName),
     supplierPaid: supplierPaid,
@@ -1339,6 +1360,14 @@ function validateLine_(line, lineNo, config, customer, user) {
     if (!invoiceDate) throw new Error(where + MSG.LINE_INVOICE_BAD_DATE);
   }
 
+  // Milestone 5a — business status moved here from the order. Optional: a
+  // line may be saved with a blank status (isKnownStatus_ only runs against
+  // a non-blank value), unlike the order-level status it replaces, which
+  // was always required. An unknown key is still rejected.
+  var status = text_(line.status);
+  if (status && !isKnownStatus_(config, status)) throw new Error(where + MSG.ORDER_BAD_STATUS);
+  var statusNote = text_(line.statusNote);
+
   return {
     lineId: text_(line.lineId),
     productCode: text_(line.productCode),
@@ -1350,6 +1379,8 @@ function validateLine_(line, lineNo, config, customer, user) {
     note: text_(line.note),
     invoiceNo: invoiceNo,
     invoiceDate: invoiceDate,
+    status: status,
+    statusNote: statusNote,
     customer: customer,
     actorEmail: user.email
   };
@@ -1378,7 +1409,9 @@ function buildLineRecord_(orderId, lineNo, input, user, lineId) {
     invoiceId: input.invoiceNo
       ? ensureInvoice_(input.invoiceNo, input.invoiceDate, input.customer, user)
       : '',
-    note: input.note
+    note: input.note,
+    status: input.status,
+    statusNote: input.statusNote
   };
 }
 
@@ -1413,10 +1446,21 @@ function ensureInvoice_(invoiceNo, invoiceDate, customer, user) {
   return id;
 }
 
-function appendStatusHistory_(orderId, oldStatus, newStatus, note, user, field) {
+/**
+ * Milestone 5a — `lineId` is a required 2nd parameter now (was folded into
+ * `field`-only disambiguation before). Placed right after `orderId` on
+ * purpose: a call site that forgets to update for the new signature shifts
+ * an `oldStatus` string into the `lineId` slot instead of silently keeping
+ * its old meaning — an arity/shape mismatch the approveStatus test suites
+ * catch immediately, rather than a value quietly landing one column over.
+ * Pass '' for `lineId` on every approveStatus row (order-level, no line) and
+ * on the rare case a caller wants an order-level 'status' row.
+ */
+function appendStatusHistory_(orderId, lineId, oldStatus, newStatus, note, user, field) {
   appendRecord_(SHEETS.STATUS_HISTORY, {
     historyId: 'LS-' + Utilities.getUuid().substring(0, 8).toUpperCase(),
     orderId: orderId,
+    lineId: lineId || '',
     oldStatus: oldStatus,
     newStatus: newStatus,
     note: text_(note),
@@ -1430,7 +1474,13 @@ function appendStatusHistory_(orderId, oldStatus, newStatus, note, user, field) 
   });
 }
 
-/** @return {string} 'status' or 'approveStatus' — see appendStatusHistory_. */
+/**
+ * @return {string} 'status' or 'approveStatus' — see appendStatusHistory_.
+ * Milestone 5a — `lineId` (also on the row) is what tells a 'status' row
+ * apart from an order-level history row within the same field value: a
+ * line-status change always carries a non-blank lineId, an approveStatus
+ * transition and the rare order-level write never do.
+ */
 function historyField_(row) {
   var f = String((row && row.field) || '').trim();
   return f === 'approveStatus' ? 'approveStatus' : 'status';
@@ -1619,11 +1669,13 @@ function parseDate_(value) {
   return isNaN(fallback.getTime()) ? null : fallback;
 }
 
-function defaultStatus_(config) {
-  var list = (config && config.statusList) || [];
-  return (list[0] && list[0].key) ? String(list[0].key) : 'draft';
-}
-
+/**
+ * Milestone 5a / A3 — the old per-order status-default helper is deleted
+ * (line status is explicitly optional, blank is a valid saved value — a
+ * default would silently stamp every line, contradicting that). This one
+ * (the "is it a real key" check) is kept and reused by validateLine_ for
+ * the non-blank case.
+ */
 function isKnownStatus_(config, status) {
   var list = (config && config.statusList) || [];
   if (!list.length) return true;                    // Config not seeded yet

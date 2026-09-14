@@ -86,15 +86,26 @@ var HEADERS = {
   // approveStatus is currently 'rejected'. Left stale (not cleared) once
   // the order moves on — buildOrderResponse_ never surfaces it outside
   // the 'rejected' state, so a stale value here is inert.
-  Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate', 'status', 'statusNote',
+  // Milestone 5a — business `status`/`statusNote` moved OFF Orders and onto
+  // OrderLines (see below); `approveStatus` is the only status left here,
+  // untouched by this move. The live sheet's old status/statusNote columns
+  // are not deleted — migrateOrderLineStatus() (Migrations.gs) renames them
+  // to status_deprecated/statusNote_deprecated so a reader that still
+  // expects row.status fails loudly (undefined) instead of reading stale
+  // data silently.
+  Orders: ['orderId', 'po', 'poNote', 'customer', 'orderDate',
            'customerDeposit', 'supplierName', 'supplierPaid',
            'totalExVat', 'totalIncVat', 'lineCount',
            'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'approvedBy', 'approvedAt',
            'approveStatus', 'rejectReason', 'rejectedBy', 'rejectedAt'],
 
+  // status/statusNote: Milestone 5a — business status, moved here from
+  // Orders. Optional per line (a line may be saved blank), same as the
+  // existing invoiceId/note fields — validated against Config.statusList
+  // only when present, never required.
   OrderLines: ['lineId', 'orderId', 'lineNo', 'productCode', 'description',
                'unitPrice', 'qty', 'uom', 'vatRate', 'amountExVat', 'amountIncVat',
-               'invoiceId', 'note'],
+               'invoiceId', 'note', 'status', 'statusNote'],
 
   Invoices: ['invoiceId', 'invoiceNo', 'invoiceDate', 'customer', 'note',
              'createdBy', 'createdAt'],
@@ -104,8 +115,11 @@ var HEADERS = {
   // status columns a row describes. A row written before this column
   // existed has an empty field cell; readers treat that as 'status' (see
   // appendStatusHistory_'s default and historyField_ in Orders.gs).
+  // lineId: Milestone 5a — set for a line-status change (field='status'
+  // rows written after this milestone), blank for approveStatus rows and
+  // for every row written before this column existed.
   StatusHistory: ['historyId', 'orderId', 'oldStatus', 'newStatus', 'note',
-                  'changedBy', 'changedAt', 'field']
+                  'changedBy', 'changedAt', 'field', 'lineId']
 };
 
 /** Order/line limits. A cap keeps one bad request from writing 10,000 rows. */
@@ -136,16 +150,20 @@ var LIST_PAGE_SIZE_MAX = 100;
 
 /**
  * Fields the order LIST screen actually draws on a card (see orderCardHtml in
- * ViewsOrders.html: id, status, customer, date, po, line count, two totals).
- * Everything else on an Orders row — poNote, statusNote, supplierName,
- * customerDeposit, supplierPaid, and every createdBy/At, updatedBy/At,
- * approvedBy/At column — is real data actionGetOrder_ still returns in full
- * for the detail screen, but is dead weight on every list page forever.
+ * ViewsOrders.html: id, customer, date, po, line count, two totals).
+ * Milestone 5a — status dropped from here: business status now lives per
+ * OrderLine, not on the order, so there is no single order-level value left
+ * to show on a card (approveStatus is shown separately, unconditionally, not
+ * through this allowlist — see DEFAULT_VISIBLE_FIELDS below).
+ * Everything else on an Orders row — poNote, supplierName, customerDeposit,
+ * supplierPaid, and every createdBy/At, updatedBy/At, approvedBy/At column —
+ * is real data actionGetOrder_ still returns in full for the detail screen,
+ * but is dead weight on every list page forever.
  * Intersected with the caller's visible_fields same as any other field, so
  * money-blindness still applies: this narrows what's offered, it does not
  * widen it.
  */
-var LIST_CARD_FIELDS = ['po', 'customer', 'orderDate', 'status', 'totalExVat', 'totalIncVat'];
+var LIST_CARD_FIELDS = ['po', 'customer', 'orderDate', 'totalExVat', 'totalIncVat'];
 
 /**
  * Security sheet defaults. Deliberately a SHEET, not Script Properties: the admin

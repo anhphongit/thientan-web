@@ -7,7 +7,7 @@ function line(over) {
 }
 function order(over) {
   return Object.assign({ customer: 'Nhựa Duy Tân', orderDate: '2026-08-20',
-                         status: 'draft', po: '4600041936' }, over || {});
+                         po: '4600041936' }, over || {});
 }
 
 /* ---------- 1. create: one line ---------- */
@@ -27,7 +27,7 @@ console.log('\n1. Create an order with one line');
   eq('header totalIncVat', env.store.Orders[0].totalIncVat, 2592000);
   eq('createdBy is the actor', env.store.Orders[0].createdBy, 'admin@x.com');
   eq('Milestone 2.5 / P5: lineCount stored on create', env.store.Orders[0].lineCount, 1);
-  eq('status history written', env.store.StatusHistory.length, 1);
+  eq('no status history (line created with blank status)', env.store.StatusHistory.length, 0);
   check('orderDate is a real Date',
      Object.prototype.toString.call(env.store.Orders[0].orderDate) === '[object Date]');
   eq('orderDate is 20/08/2026', env.store.Orders[0].orderDate.getDate() + '/' +
@@ -79,9 +79,9 @@ console.log('\n3. Edit: keep one line, change one, add one, remove one');
 
   const updated = env.actionUpdateOrder_(admin, {
     orderId: 'DH-2026-0001',
-    order: order({ status: 'confirmed', statusNote: 'Khách đã cọc' }),
+    order: order(),
     lines: [
-      { lineId: ids[0], description: 'A', qty: 2, unitPrice: 1200000, vatRate: 0.08 },
+      { lineId: ids[0], description: 'A', qty: 2, unitPrice: 1200000, vatRate: 0.08, status: 'confirmed', statusNote: 'Khách đã cọc' },
       { lineId: ids[2], description: 'C sửa', qty: 5, unitPrice: 200000, vatRate: 0.1 },
       { description: 'D mới', qty: 1, unitPrice: 500000, vatRate: 0.08 }
     ]
@@ -98,7 +98,7 @@ console.log('\n3. Edit: keep one line, change one, add one, remove one');
   eq('line numbers renumbered 1..3',
      env.store.OrderLines.map(l => l.lineNo).sort(), [1, 2, 3]);
   eq('totals recomputed', env.store.Orders[0].totalExVat, 2400000 + 1000000 + 500000);
-  eq('status change logged', env.store.StatusHistory.length, 2);
+  eq('status change logged (line A changed status)', env.store.StatusHistory.length, 1);
   eq('updatedBy set', env.store.Orders[0].updatedBy, 'admin@x.com');
   eq('response line count', updated.lines.length, 3);
   eq('no orphan lines',

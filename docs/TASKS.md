@@ -870,6 +870,8 @@ this order" area) plus a sibling `.oc-quick-status` row with a status
 top border.
 
 28 new offline assertions in `tools/offline-tests/orders-changestatus.test.js`
+(renamed `orders-changelinestatus.test.js` in Milestone 5a, when the
+order-level quick-status feature this file tested was deleted outright)
 covering the happy path, permission + ownership enforcement, unknown/missing
 status, the same-status no-op, `canChangeStatus` on list cards
 (ownership-aware), and an optional note. `BUILD` is
@@ -3458,3 +3460,38 @@ Phase 1/2/4's logging + retry stay in place regardless in case it recurs.
 DevLog-always-on not re-verified this session (no errors occurred to
 generate a row) — the response-checking logic itself was already
 offline-tested. Plan closed.
+
+---
+
+## Milestone 5a — Order Status → Line Status (2026-09-14)
+
+**Phases 1–6 built, Phase 7 (docs-sync) executed, Phase 8 (live-verification) pending.**
+
+All code complete and tests green as of 2026-09-14. Shipped as a series of sequential phases (schema → backend logic → stats/export → frontend UI → admin config review → test updates → docs sync). No breaking changes to `approveStatus` (untouched, still behind `approvalFlowEnabled` flag). 
+
+**Design Decisions:**
+- **Line-status aggregation** (Phase 3): sum line revenue per status, report both line count and distinct order count per group; explicit blank-status group labelled "Chưa đặt trạng thái"
+- **Frontend control** (Phase 4): Option D approved — inline select + full-width always-visible status-note field below it (no hidden state, no toggle)
+- **Migration not yet run live** (Phase 8 pending): `migrateOrderLineStatus()` added to `Migrations.gs`; renames Orders' `status`/`statusNote` → `status_deprecated`/`statusNote_deprecated`, adds both fields to OrderLines and `lineId` to StatusHistory
+
+**Docs updated (Phase 7, 2026-09-14):**
+- `DATA_MODEL.md`: status/statusNote removed from Orders (with note on deprecated columns), added to OrderLines (optional), StatusHistory added lineId (nullable); migration table row added (not-yet-run).
+- `system-architecture.md`: Orders workflow states clarified, OrderLines table updated with status/statusNote examples, test file map updated (`orders-changestatus.test.js` → `orders-changelinestatus.test.js`)
+- `PERMISSIONS.md`: `change_status` re-scoped to line-level, `visible_fields` status/statusNote keys now govern line fields with scope note added
+- `code-standards.md`: test filename reference updated
+- `GLOSSARY_VI.md`: status/statusNote marked as line-level fields
+- `MILESTONES.md`: M5a placeholder flipped from ☐ to ☑ done, exit criteria updated, progress log entry added
+- `development-roadmap.md`: M5a placeholder flipped from ☐ to ☑ done, timeline updated, critical path updated
+
+**No new CHECKLIST_M*_VI.md file created** (Assumption A13 — sign-off deferred to Phase 8, no new checklist warranted for a schema refactor).
+
+| Phase | Task | Status |
+|-------|------|--------|
+| 1 | Schema & migrations | ☑ Completed |
+| 2 | Backend line-status logic | ☑ Completed |
+| 3 | Stats & export rework | ☑ Completed |
+| 4 | Frontend line-status UI (mock-first) | ☑ Completed; Option D approved |
+| 5 | AdminConfig statusList review | ☑ Completed |
+| 6 | Tests update | ☑ Completed; 18/18 suites passing |
+| 7 | Docs sync | ☑ Completed 2026-09-14 |
+| 8 | Live-verification & sign-off | ⏳ Pending (project owner to run `migrateOrderLineStatus()` and verify live) |

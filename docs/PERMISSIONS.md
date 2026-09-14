@@ -16,7 +16,7 @@ Stored per user in `Users.permissions` as a JSON object.
 | `create_order` | Create new orders |
 | `edit_order` | Edit an existing order (own only, unless `view_all_orders`) |
 | `delete_order` | Delete an order and its lines |
-| `change_status` | Change order status |
+| `change_status` | **Milestone 5a:** Set or change a **line's** status (`OrderLines.status`). Scoped to lines in orders the user can see (ownership-enforced per-order, not per-line). |
 | `approve_order` | Milestone 3 / 3.8: request-approve is gated on `edit_order` alone, but approve/reject an order (wait_approval → approved/rejected) require `approve_order`. Also grants editing a `wait_approval`/`approved` order (together with `edit_order`), same as `can_edit_approved_order` below. Only takes effect when the `approvalFlowEnabled` Config flag is on. |
 | `can_edit_approved_order` | Milestone 3 / 3.8: together with `edit_order`, allows editing an order in approve status `wait_approval` or `approved` WITHOUT being able to approve/reject it. Editing this way auto-reverts the order to `draft` on save (see §4 below). Only takes effect when `approvalFlowEnabled` is on. |
 | `search_filter` | Use search and filters |
@@ -38,6 +38,8 @@ see `fieldVisible_` in `apps/api/Orders.gs`):
 ["po","poNote","customer","orderDate","status","statusNote","supplierName",
  "description","qty","uom","invoiceNo","invoiceDate"]
 ```
+
+**Scope note (Milestone 5a):** The `status` and `statusNote` keys in `visible_fields` now govern **line-level fields** (`OrderLines.status` / `OrderLines.statusNote`), not order-level. A user without these keys cannot see or edit any line's status, and cannot see or edit the `statusNote` for any line. The keys themselves are unchanged; only their field-level scope moved from order to line.
 
 A user without `unitPrice` / `amountExVat` in `visible_fields` must not receive
 those values in the API response at all — not merely have them hidden in the UI.

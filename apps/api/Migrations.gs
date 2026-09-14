@@ -326,3 +326,116 @@ function migrateFixDatetimeColumns() {
   console.log(summary);
   return summary;
 }
+
+/**
+ * Milestone 5a — move business status from Orders down to OrderLines.
+ *
+ * WHY THIS IS A SEPARATE STEP: same reason as every migration above —
+ * appendRecord_/updateRecord_ (SheetsRepo.gs) address columns by the ACTUAL
+ * header row on the live sheet, not by HEADERS.* in Config.gs. Editing
+ * HEADERS alone only affects a brand-new sheet.
+ *
+ * What this does:
+ *   1. Adds `status`/`statusNote` header cells to OrderLines if missing.
+ *   2. Adds `lineId` header cell to StatusHistory if missing.
+ *   3. Renames the live Orders `status`/`statusNote` header cells to
+ *      `status_deprecated`/`statusNote_deprecated` (skipped cleanly if
+ *      already renamed, or if the column is already absent).
+ *
+ * NO BACKFILL OF ANY KIND. Existing order-level status values are
+ * deliberately discarded — they are not copied onto any OrderLines row.
+ * Existing lines are left with a blank status/statusNote until someone
+ * sets one by hand. The rename in step 3 is what makes this safe: any
+ * reader that still expects Orders.status will now get `undefined`
+ * instead of a stale value, so a missed reader fails visibly rather than
+ * silently serving old data (see Config.gs HEADERS.Orders comment).
+ *
+ * HOW TO RUN
+ *   1. Push apps/api with this migration included.
+ *   2. Select `migrateOrderLineStatus` in the editor's Run dropdown and
+ *      press Run — no arguments. Read the returned summary.
+ *   3. Safe to run again later: every write is guarded by a
+ *      header-presence check, so a second run is a no-op.
+ */
+function migrateOrderLineStatus() {
+  guardSetup_();
+
+  var addedLinesCols = ensureOrderLinesStatusColumns_();
+  var addedHistoryCol = ensureStatusHistoryLineIdColumn_();
+  var renamed = renameOrdersStatusColumnsDeprecated_();
+
+  var summary =
+    (addedLinesCols.length
+      ? 'Added column(s) to OrderLines: ' + addedLinesCols.join(', ') + '. '
+      : 'OrderLines already has status/statusNote columns. ') +
+    (addedHistoryCol ? 'Added the "lineId" column to StatusHistory. '
+                     : 'StatusHistory already has a "lineId" column. ') +
+    (renamed.length
+      ? 'Renamed on Orders: ' + renamed.join(', ') + '. '
+      : 'Orders has no live status/statusNote column left to rename (already renamed or never present). ') +
+    'No backfill performed — existing order status values are discarded, existing lines stay blank.';
+  console.log(summary);
+  return summary;
+}
+
+/**
+ * Adds the `status`/`statusNote` header cells to the live OrderLines sheet
+ * for whichever of the two are missing.
+ * @return {string[]} names of the columns that were just added (empty if
+ *   both already existed).
+ */
+function ensureOrderLinesStatusColumns_() {
+  var sheet = getSheet_(SHEETS.ORDER_LINES);
+  var headers = readHeaders_(sheet);
+  var toAdd = ['status', 'statusNote'].filter(function (h) {
+    return headers.indexOf(h) < 0;
+  });
+
+  toAdd.forEach(function (h) {
+    var nextCol = readHeaders_(sheet).length + 1;
+    sheet.getRange(1, nextCol).setValue(h);
+    sheet.getRange(1, nextCol).setFontWeight('bold');
+  });
+
+  return toAdd;
+}
+
+/**
+ * Adds the `lineId` header cell to the live StatusHistory sheet if it isn't
+ * there yet.
+ * @return {boolean} true if the header cell was just added.
+ */
+function ensureStatusHistoryLineIdColumn_() {
+  var sheet = getSheet_(SHEETS.STATUS_HISTORY);
+  var headers = readHeaders_(sheet);
+  if (headers.indexOf('lineId') >= 0) return false;
+
+  var nextCol = headers.length + 1;
+  sheet.getRange(1, nextCol).setValue('lineId');
+  sheet.getRange(1, nextCol).setFontWeight('bold');
+  return true;
+}
+
+/**
+ * Renames the live Orders `status`/`statusNote` header cells to
+ * `status_deprecated`/`statusNote_deprecated`. Deprecate, don't delete —
+ * non-destructive and reversible (a rollback is a rename back), and it
+ * turns any reader still expecting Orders.status into a visible `undefined`
+ * instead of a silent stale read. Skips a column cleanly if it is already
+ * renamed or was never present.
+ * @return {string[]} the `oldName -> newName` pairs actually renamed.
+ */
+function renameOrdersStatusColumnsDeprecated_() {
+  var sheet = getSheet_(SHEETS.ORDERS);
+  var renamed = [];
+
+  [['status', 'status_deprecated'], ['statusNote', 'statusNote_deprecated']].forEach(function (pair) {
+    var headers = readHeaders_(sheet);
+    var idx = headers.indexOf(pair[0]);
+    if (idx < 0) return; // already renamed, or never present — nothing to do
+    sheet.getRange(1, idx + 1).setValue(pair[1]);
+    renamed.push(pair[0] + ' -> ' + pair[1]);
+  });
+
+  return renamed;
+}

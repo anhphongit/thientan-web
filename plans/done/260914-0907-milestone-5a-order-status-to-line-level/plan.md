@@ -1,7 +1,7 @@
 ---
 title: "Milestone 5a — Order Status → Order Line Status"
 description: "Move the business status field from Orders to OrderLines (optional per line); Orders keeps only approveStatus."
-status: pending
+status: completed
 priority: P2
 effort: 26h
 milestone: "5a"
@@ -48,14 +48,14 @@ workflow, flag-gated). This work moves the **business status down to the line le
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [schema-and-migrations](./phase-01-schema-and-migrations.md) | Pending |
-| 2 | [backend-line-status-logic](./phase-02-backend-line-status-logic.md) | Pending |
-| 3 | [stats-and-export-rework](./phase-03-stats-and-export-rework.md) | Pending |
-| 4 | [frontend-line-status-ui](./phase-04-frontend-line-status-ui.md) | Pending |
-| 5 | [adminconfig-statuslist-review](./phase-05-adminconfig-statuslist-review.md) | Pending |
-| 6 | [tests-update](./phase-06-tests-update.md) | Pending |
-| 7 | [docs-sync](./phase-07-docs-sync.md) | Pending |
-| 8 | [live-verification-and-signoff](./phase-08-live-verification-and-signoff.md) | Pending |
+| 1 | [schema-and-migrations](./phase-01-schema-and-migrations.md) | Completed |
+| 2 | [backend-line-status-logic](./phase-02-backend-line-status-logic.md) | Completed |
+| 3 | [stats-and-export-rework](./phase-03-stats-and-export-rework.md) | Completed |
+| 4 | [frontend-line-status-ui](./phase-04-frontend-line-status-ui.md) | Completed |
+| 5 | [adminconfig-statuslist-review](./phase-05-adminconfig-statuslist-review.md) | Completed |
+| 6 | [tests-update](./phase-06-tests-update.md) | Completed |
+| 7 | [docs-sync](./phase-07-docs-sync.md) | Completed |
+| 8 | [live-verification-and-signoff](./phase-08-live-verification-and-signoff.md) | Completed |
 
 ## Dependencies
 

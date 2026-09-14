@@ -545,10 +545,12 @@
   /* Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): the card is an
      outer, non-interactive .order-card (visual chrome only) holding TWO
      sibling .oc-open buttons (id/lines area, and customer/meta/money area)
-     plus the status pill sitting between them in .oc-top — a <select>
-     cannot legally nest inside a <button>, and the pill is now itself the
-     quick-status control (see .pill-wrap/.pill-select below), so it can
-     never be a child of either button. */
+     in .oc-top. Milestone 5a removed the order-level status pill that used
+     to sit between them (business status moved to the line level,
+     Assumption A10 — no status on the card at all); the approve-status
+     marker (.oc-id-fused, inside .oc-open-id) still needs its own
+     interactive element outside either button when actionable, same
+     "can't nest a control inside a button" reasoning as before. */
   .order-card {
     background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: var(--r); box-shadow: var(--shadow);
@@ -565,7 +567,7 @@
   .oc-id { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
   /* UI request, 2026-08-26 (position pass, moved again after seeing it
      live): line count now sits grouped with the order id on the left of the
-     top row, so "this order, N lines" reads before status or customer. */
+     top row, so "this order, N lines" reads before customer/meta. */
   .oc-top-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .oc-customer {
     font-weight: 600; margin: 4px 0 2px; overflow: hidden;
@@ -598,26 +600,14 @@
     background: currentColor; flex: 0 0 auto;
   }
 
-  /* Milestone 3 / 3.5, style E1 (chosen 2026-08-31) — the status pill
-     itself becomes the quick-status control: .pill-wrap positions a
-     transparent <select> exactly over the pill so the whole pill is
-     clickable/tappable, and .pill-pencil is a small trailing edit glyph
-     tinted via currentColor to match that pill's own status color — a
-     minimal "this is editable" affordance, not a separate heavy control. */
-  .pill-wrap { position: relative; display: inline-flex; }
-  .pill-select {
-    position: absolute; inset: 0; opacity: 0; cursor: pointer;
-    border: none; padding: 0; margin: 0; appearance: none;
-  }
-  .pill-pencil { width: 11px; height: 11px; flex: 0 0 auto; opacity: .85; }
-
-  /* Milestone 3 / 3.5 — while a status change is in flight: the pill shows
-     a small spinning dot instead of the dot::before/pencil, "Đang cập
-     nhật…" replaces the label, and the card's two open-detail buttons are
-     visibly (not just functionally) disabled — a clear "hold on" signal so
-     the user doesn't try to act on this order again before the change is
-     confirmed. */
-  .status-pill--pending { cursor: default; }
+  /* Milestone 5a — .pill-wrap/.pill-select/.pill-pencil/.status-pill--pending
+     (the E1 order-card quick-status overlay: transparent <select> over the
+     pill + trailing pencil glyph + in-flight spinner state) removed:
+     business status moved off the order entirely (Assumption A10 — no
+     status on the card at all), and Assumption A9 confirms there is no
+     replacement quick-change affordance anywhere. .pill-spinner/
+     @keyframes pill-spin stay — still used by the (unrelated) approve-
+     status marker's own pending state (fusedOrderIdHtml). */
   .pill-spinner {
     width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
     border: 1.5px solid currentColor; border-top-color: transparent;
@@ -638,6 +628,38 @@
     background: #fdecea; color: var(--c-danger); border-color: #f3c2bd;
     text-decoration: line-through;
   }
+
+  /* Milestone 5a / Phase 4 — per-line status control (approved mock:
+     Option D, 2026-09-14, "inline select + note as full-width row below").
+     New namespaced classes per Rule 6/UI guidelines — never repurposes
+     .field/.card/.form-linear. .status-pill / STATUS_STYLE above stay
+     untouched and reused verbatim (statusPillClass() still keys off them);
+     these rules only style the SELECT + NOTE control itself, not the pill.
+     See ViewsOrders.html's lineStatusHtml() for the markup this pairs
+     with, and plans/260914-0907-milestone-5a-order-status-to-line-level/
+     mockups/option-d-inline-select-note-below.html for the approved
+     reference (verbatim tokens/classes reused from here). */
+  .line-status-cell { display: flex; align-items: flex-end; gap: 6px; }
+  .line-status-cell .field { flex: 1 1 auto; min-width: 0; }
+  /* A left accent bar (not just the pill's own colour, which only shows
+     once a status IS selected) signals "this select controls status" at a
+     glance, same "colour + shape" reasoning as STATUS_STYLE's dot. */
+  .line-status-select { border-left: 3px solid var(--c-brand); padding-left: 9px !important; }
+  /* Blank status: deliberately NOT the same visual as any real status key —
+     a dashed border + muted text signals "unset", so it can never be
+     mistaken for "draft" (which has its own solid pill/colour) — this is
+     the visual half of the "never coerce blank to the first key" rule the
+     client-side JS also enforces (statusOptionsHtml's real empty-string
+     <option>). */
+  .line-status-select.is-blank { border-left-color: #c6cbd2; border-style: dashed; color: var(--c-muted); }
+  .line-status-note-wrap { grid-column: 1 / -1; margin-top: 10px; }
+  .line-status-note-input::placeholder { color: var(--c-muted); font-style: italic; }
+  .line-status-disabled-tag {
+    font-size: 11px; color: var(--c-muted); margin-top: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .line-status-disabled-tag svg { width: 12px; height: 12px; flex: 0 0 auto; }
+
   /* Milestone 3 / 3.8 — approve-status pill, own modifier classes (see
      approveStatusPillClass() in ViewsOrders.html for why it isn't reusing
      status-pill--*). Deliberately its own small palette so it never looks
@@ -691,10 +713,9 @@
      read-only, or the order is already in the one status an action can't
      target), it stays exactly the plain, non-interactive marker from
      before this revision — no chevron, no cursor change, nothing to notice.
-     Deliberately NOT reusing .pill-wrap/.pill-select (the business-status
-     quick-change control): that one swaps in a native <select>, which only
-     works for "pick one of N destinations" — approve actions are a set of
-     distinct verbs (not one shared list), so a real menu fits better. */
+     Deliberately not a native <select> (which only works for "pick one of
+     N destinations"): approve actions are a set of distinct verbs (not one
+     shared list), so a real menu fits better. */
   .oc-id-fused--actionable .oc-id-stat {
     cursor: pointer; gap: 3px; padding-right: 5px;
   }

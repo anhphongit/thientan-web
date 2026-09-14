@@ -19,24 +19,24 @@ consistent — do not invent new phrasing per screen.
 
 ## Order fields (match the current Excel headers)
 
-| Field | Vietnamese label |
-|-------|-----------------|
-| orderNo | Số đơn |
-| customerPo | Số PO khách |
-| customer | Khách hàng |
-| orderDate | Ngày đặt |
-| description | Chi tiết |
-| unitPrice | Đơn giá bán ra (VND) |
-| qty | SL |
-| uom | ĐVT |
-| vatRate | Thuế VAT |
-| amountExVat | Thành tiền chưa VAT |
-| amountIncVat | Trị giá HĐ |
-| invoiceNo | Hóa đơn ra |
-| invoiceDate | Ngày HĐ |
-| status | Trạng thái |
-| statusNote | Ghi chú |
-| createdBy | Người tạo |
+| Field | Vietnamese label | Notes |
+|-------|-----------------|-------|
+| orderNo | Số đơn | |
+| customerPo | Số PO khách | |
+| customer | Khách hàng | |
+| orderDate | Ngày đặt | |
+| description | Chi tiết | **Line-level field** (Milestone 5a) |
+| unitPrice | Đơn giá bán ra (VND) | **Line-level field** |
+| qty | SL | **Line-level field** |
+| uom | ĐVT | **Line-level field** |
+| vatRate | Thuế VAT | **Line-level field** |
+| amountExVat | Thành tiền chưa VAT | **Line-level field** |
+| amountIncVat | Trị giá HĐ | **Line-level field** |
+| invoiceNo | Hóa đơn ra | **Line-level field** |
+| invoiceDate | Ngày HĐ | **Line-level field** |
+| status | Trạng thái | **Line-level field** (Milestone 5a; was order-level before) |
+| statusNote | Ghi chú | **Line-level field** (Milestone 5a; was order-level before) |
+| createdBy | Người tạo | |
 
 ## Status values
 

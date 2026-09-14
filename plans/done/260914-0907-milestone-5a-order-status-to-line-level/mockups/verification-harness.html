@@ -1,0 +1,2774 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TEMPORARY — Phase 4 step-9 verification harness (NOT a shipped mockup)</title>
+<style>
+  body { margin:0; background:#dfe3e8; font:14px/1.5 -apple-system,sans-serif; padding:24px; }
+  .banner {
+    max-width:1300px; margin:0 auto 16px; padding:14px 16px; border-radius:10px;
+    background:#fdecea; border:2px dashed #b42318; color:#7a160e; font-size:13px;
+  }
+  .banner h1 { font-size:16px; margin:0 0 6px; }
+  .frame-label { max-width:1300px; margin:20px auto 8px; font-weight:700; font-size:13px;
+    text-transform:uppercase; letter-spacing:.4px; color:#5b6470; }
+  .frame-wrap { margin:0 auto; border:2px dashed #9aa3af; border-radius:12px; overflow:hidden; }
+  iframe { display:block; border:0; width:100%; }
+</style>
+</head>
+<body>
+<div class="banner">
+  <h1>TEMPORARY VERIFICATION HARNESS — not a shipped file, not a mockup option</h1>
+  <p>Built from the REAL, already-shipped apps/web/ui/ViewsOrders.html markup (lineHtml/lineStatusHtml
+  output, captured via a node+vm harness driving the actual module against a fixture order) and the
+  REAL apps/web/ui/Styles.html CSS (pasted verbatim into each iframe's own &lt;style&gt;, so real
+  @media breakpoints apply per iframe width — not the mock's faked .frame-360/.frame-1280 overrides).
+  Used once for Phase 4's step-9 screenshot-verification gate (no live GAS app available in this
+  session) and safe to delete — see the phase file's step-9 notes for the comparison outcome.</p>
+</div>
+
+<div class="frame-label">360px — iframe width, real @media (min-width:640px)/(min-width:960px) apply</div>
+<div class="frame-wrap" style="width:376px;">
+  <iframe style="height:1500px;" srcdoc="<!DOCTYPE html>
+<html lang=&quot;vi&quot;><head><meta charset=&quot;UTF-8&quot;>
+<style>
+  :root {
+    --c-bg: #f5f6f8;
+    --c-surface: #ffffff;
+    --c-border: #e2e5ea;
+    --c-text: #1c1f23;
+    --c-muted: #6b7280;
+    --c-brand: #1f5f8b;
+    --c-brand-soft: #e8f1f7;
+    --c-danger: #b42318;
+    --c-ok: #157347;
+    --c-danger-soft: #fdecea;
+    --c-ok-soft: #e7f5ec;
+    --r: 10px;
+    --gap: 16px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--c-bg);
+    color: var(--c-text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto,
+          &quot;Helvetica Neue&quot;, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ---------- Boot / denied ---------- */
+  .boot {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--c-muted);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 28px; height: 28px;
+    border: 3px solid var(--c-border);
+    border-top-color: var(--c-brand);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .denied-card {
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+    max-width: 420px;
+  }
+  .denied-card h1 { font-size: 19px; margin: 0 0 10px; color: var(--c-danger); }
+  .denied-card p  { margin: 0 0 18px; color: var(--c-text); }
+
+  .account-box {
+    background: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    text-align: left;
+  }
+  .account-label { font-size: 12px; color: var(--c-muted); margin-bottom: 3px; }
+  .account-email { font-weight: 600; word-break: break-all; }
+
+  .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  .btn-ghost {
+    background: transparent; color: var(--c-brand);
+    text-decoration: none;
+    display: inline-flex; align-items: center;
+  }
+
+  .slots { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); }
+  .slots-label { font-size: 12px; color: var(--c-muted); margin-bottom: 8px; }
+
+  /* 2026-09-06 — reason: 'scope_missing' card (docs/IDENTITY.md §9). Same
+     top-border/spacing rhythm as .slots (the account-switch block it
+     replaces for this one reason), reusing .opt-steps/.opt-warn/
+     .opt-actions/.hint-lead as-is rather than duplicating their rules. */
+  .scope-help { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); text-align: left; }
+  .howto { margin: 0 0 14px; padding-left: 20px; font-size: 13px; color: var(--c-text); text-align: left; }
+  .howto li { margin-bottom: 4px; }
+
+  .url-label { font-size: 12px; color: var(--c-muted); margin-bottom: 4px; text-align: left; }
+  .url-row { display: flex; gap: 6px; align-items: stretch; }
+  .app-url {
+    flex: 1; min-width: 0;
+    font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; white-space: nowrap; text-align: left;
+  }
+  .btn-mini {
+    border: 1px solid var(--c-border); border-radius: 6px;
+    background: var(--c-surface); color: var(--c-brand);
+    font: inherit; font-size: 13px; padding: 0 12px; cursor: pointer; white-space: nowrap;
+  }
+  .btn-mini:hover { background: var(--c-brand-soft); }
+  a.btn-mini { display: inline-flex; align-items: center; text-decoration: none; }
+  a.btn-mini.disabled { opacity: .45; pointer-events: none; }
+
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; background: var(--c-bg);
+    border: 1px solid var(--c-border); border-radius: 4px; padding: 1px 5px;
+  }
+  .hint-lead { margin-top: 0; margin-bottom: 12px; line-height: 1.55; }
+
+  .link-btn {
+    border: 0; background: none; padding: 0;
+    font: inherit; font-size: 13px; color: var(--c-brand);
+    cursor: pointer; white-space: nowrap;
+  }
+  .link-btn:hover { text-decoration: underline; }
+
+  .opt-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .opt-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid var(--c-border); border-radius: 8px;
+    background: var(--c-surface); padding: 11px 13px;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .opt-row:hover { border-color: var(--c-brand); background: var(--c-brand-soft); }
+  .opt-row-body { flex: 1; min-width: 0; }
+  .opt-row-title { font-size: 14px; font-weight: 600; }
+  .opt-row-desc { font-size: 12px; color: var(--c-muted); margin-top: 1px; }
+  .opt-row-chev { color: var(--c-muted); flex: 0 0 auto; }
+  .opt-tag {
+    font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    white-space: nowrap; margin-left: 6px;
+  }
+
+  .opt-steps { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+  .opt-steps li { margin-bottom: 5px; }
+  .opt-warn {
+    font-size: 12px; color: #8a6d00; background: #fff8e1;
+    border: 1px solid #f0dca0; border-radius: 6px;
+    padding: 8px 10px; margin: 0 0 12px;
+  }
+  .opt-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .modal-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .modal-head h2 { margin: 0; font-size: 17px; }
+
+  .modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(16, 24, 40, .45);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-card {
+    background: var(--c-surface); border-radius: var(--r);
+    box-shadow: 0 12px 32px rgba(16, 24, 40, .22);
+    padding: 22px; max-width: 500px; width: 100%;
+    max-height: 88vh; overflow-y: auto;
+  }
+  .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
+  .modal-card .actions { margin-top: 18px; }
+
+  /* Milestone 3 — TT.confirm() popup (ui/App.html). Reuses .modal/.modal-card
+     (the same fixed, dimmed overlay as #switch-modal above) with its own
+     inner layout: a tinted icon band, an optional mini order-summary card
+     (id / status pill / customer / meta / total — same look as a real
+     order-list card, so the user recognizes the record they're confirming
+     against), the message, then the two action buttons. */
+  .confirm-modal-card { max-width: 340px; padding: 0; overflow: hidden; }
+  .confirm-band {
+    background: linear-gradient(180deg, var(--c-ok-soft), var(--c-surface));
+    padding: 20px 20px 14px; display: flex; flex-direction: column;
+    align-items: center; text-align: center; gap: 10px;
+  }
+  .confirm-band--danger { background: linear-gradient(180deg, var(--c-danger-soft), var(--c-surface)); }
+  .confirm-icon {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--c-surface);
+    color: var(--c-ok); box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .confirm-band--danger .confirm-icon { color: var(--c-danger); }
+  .confirm-icon svg { width: 22px; height: 22px; }
+  .confirm-band h2 { margin: 0; font-size: 15.5px; }
+  .confirm-summary {
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--r);
+    margin: 0 20px 14px; padding: 10px 12px;
+  }
+  .confirm-summary-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .confirm-summary-id { font-weight: 700; color: var(--c-brand); font-size: 13px; }
+  .confirm-summary-customer { font-weight: 600; font-size: 13.5px; margin: 2px 0; }
+  .confirm-summary-meta { color: var(--c-muted); font-size: 12px; }
+  .confirm-summary-money { font-size: 13px; font-weight: 700; margin-top: 6px; }
+  .confirm-message { margin: 0 20px 18px; font-size: 13.5px; color: var(--c-muted); text-align: center; }
+  /* Milestone 3 / 3.8 — optional reject-note textarea inside T.confirm(). */
+  .confirm-note-field { display: block; margin: 0 20px 16px; text-align: left; }
+  .confirm-note-field textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+  .confirm-actions { display: flex; gap: 8px; padding: 0 20px 20px; }
+  .confirm-actions .btn { flex: 1 1 0; }
+
+  /* Milestone 4 / 4.2 revision — export-options dialog (#export-modal,
+     ViewsOrders.html's openExportDialog()). Reuses .confirm-modal-card's
+     band/icon/actions look; the body below the band is bespoke (filter
+     chips, two radio lists, a conditional hint box) since TT.confirm()'s
+     fixed shape has no room for live, interactive content. */
+  /* Bug fix, 2026-09-03 (Phong screenshotted: dialog cut off on a phone
+     layout, &quot;Xuất file&quot; button unreachable) — .confirm-modal-card sets
+     `overflow: hidden` (needed so the rounded band doesn't square off at
+     the corners) which also silently killed .modal-card's own
+     `overflow-y: auto` / `max-height: 88vh` scroll. A tall dialog (this
+     one especially, once the invoice-date hint is showing) has nowhere
+     left to scroll and just gets clipped. Fixed the general way, not just
+     for this one dialog: the card becomes a column with a capped height,
+     keeps its own `overflow: hidden` for the rounded corners, and moves
+     scrolling to an inner wrapper (.export-modal-scroll) that holds
+     everything BUT the pinned action buttons — same &quot;scrollable body,
+     sticky footer&quot; shape any confirm-style dialog needs once its content
+     can outgrow the viewport, not specific to the export dialog's
+     content. */
+  /* Bug fix round 2, 2026-09-03 (Phong: still cut off, still couldn't
+     scroll) — round 1's fix wasn't enough. `.modal` is ALSO a flex
+     container (`align-items: center`), and a flex ITEM without its own
+     `min-height: 0` can refuse to shrink below its content's natural
+     height on WebKit (the engine behind Safari/most phone browsers) — it
+     grows past `max-height` instead of being capped, so the inner
+     `.export-modal-scroll` never gets a constrained box to scroll within
+     in the first place. `min-height: 0` on the card itself is what
+     actually lets `max-height: 88vh` take effect as a real cap on a flex
+     item — `max-height` alone reliably caps a block-level box, but not
+     always a flex item with content taller than that cap. */
+  .export-modal-card {
+    max-width: 380px; max-height: 88vh; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  /* Bug fix round 3, 2026-09-04 (Phong: STILL cut off / couldn't scroll
+     after round 2's min-height:0 fix) — rounds 1-2 both assumed
+     .export-modal-scroll was a direct flex child of .export-modal-card,
+     but it isn't: Index.html's #export-modal markup is
+     `.export-modal-card > #export-modal-body > (.export-modal-scroll +
+     .confirm-actions)` — openExportDialog() (ViewsOrders.html) fills
+     #export-modal-body, it never touches .export-modal-card directly.
+     That extra wrapper div is a plain block box with no flex properties
+     of its own, so `.export-modal-scroll`'s `flex: 1 1 auto` was inert
+     (flex properties only do anything on an element that IS a flex
+     item — #export-modal-body isn't flexed, so its own children aren't
+     flex items either) and the wrapper grew to its full unclamped
+     content height, which the OUTER card then clipped via its `overflow:
+     hidden` (from .confirm-modal-card) instead of scrolling. Verified the
+     failure and the fix against a byte-for-byte repro of this exact
+     three-level structure (card > #export-modal-body > scroll + actions)
+     rendered in a real browser before touching this file, not by
+     reasoning about the CSS alone a third time. Fix: make the wrapper
+     itself the flex column that fills the card, so ITS children
+     (.export-modal-scroll and the actions row) become the real flex
+     items — same idea as rounds 1-2, just applied one level deeper,
+     where the actual DOM nesting requires it. */
+  .export-modal-card > #export-modal-body {
+    display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
+  }
+  .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  .export-section { padding: 0 20px 4px; text-align: left; }
+  .export-section-label {
+    display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--c-muted); margin: 0 0 8px;
+  }
+  .export-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .export-chip {
+    font-size: 11px; background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 999px; padding: 4px 10px; font-weight: 600;
+  }
+  .export-chip--muted { background: var(--c-bg); color: var(--c-muted); }
+  .export-divider { height: 1px; background: var(--c-border); margin: 4px 20px 14px; }
+
+  .export-rlist { border: 1px solid var(--c-border); border-radius: var(--r); overflow: hidden; margin: 0 0 14px; }
+  .export-rrow {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+    font-size: 13px; cursor: pointer;
+  }
+  .export-rrow:not(:last-child) { border-bottom: 1px solid var(--c-border); }
+  .export-rrow input[type=radio] { accent-color: var(--c-brand); width: 16px; height: 16px; margin-top: 1px; flex: none; }
+  .export-rrow .rmain { font-weight: 600; }
+  .export-rrow .rsub { color: var(--c-muted); font-size: 11.5px; display: block; margin-top: 2px; line-height: 1.5; }
+  .export-rrow.is-disabled { opacity: .45; cursor: not-allowed; }
+  .export-rrow-soon {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    background: var(--c-bg); color: var(--c-muted); border-radius: 5px; padding: 1px 5px; margin-left: 6px;
+  }
+  .export-hint {
+    background: var(--c-brand-soft); border-radius: 8px; padding: 8px 10px;
+    font-size: 11.5px; color: var(--c-brand); margin: -6px 0 14px; line-height: 1.5;
+    display: flex; gap: 6px;
+  }
+  /* Bug fix, 2026-09-03 (Phong live-tested: hint showed under BOTH radio
+     choices, never actually hid) — the class's own `display: flex` above
+     out-specifies the `hidden` attribute's UA-stylesheet `display: none`,
+     so toggling the attribute alone did nothing. This rule wins instead. */
+  .export-hint[hidden] { display: none; }
+  .export-hint svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+
+  .switch-input {
+    flex: 1; min-width: 0;
+    font: inherit; font-size: 14px;
+    border: 1px solid var(--c-border); border-radius: 6px;
+    padding: 9px 10px; background: var(--c-surface); color: var(--c-text);
+  }
+  .switch-input:focus { outline: 2px solid var(--c-brand-soft); border-color: var(--c-brand); }
+  .hint { font-size: 12px; color: var(--c-muted); margin: 10px 0 0; text-align: left; }
+
+  .diag { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--c-border); text-align: left; }
+  .diag-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .diag-table td { padding: 4px 6px; border-bottom: 1px solid var(--c-border); vertical-align: top; }
+  .diag-table td:first-child { color: var(--c-muted); white-space: nowrap; width: 38%; }
+  .diag-table td:last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+
+  .who { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
+  .user-email {
+    font-size: 12px; color: var(--c-muted);
+    max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .link-sm { font-size: 13px; color: var(--c-brand); text-decoration: none; white-space: nowrap; }
+  .link-sm:hover { text-decoration: underline; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    background: var(--c-surface);
+    border-bottom: 1px solid var(--c-border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-left  { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+  .brand { font-weight: 700; color: var(--c-brand); letter-spacing: .3px; }
+  .brand-sub { color: var(--c-muted); font-size: 13px; }
+  .user-name {
+    font-size: 14px; max-width: 45vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .badge {
+    background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+
+  /* ---------- Nav ---------- */
+  .nav {
+    display: flex; gap: 4px;
+    padding: 8px 12px;
+    background: var(--c-surface);
+    border-bottom: 1px solid var(--c-border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--c-muted);
+    font: inherit; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .nav button:hover { background: var(--c-bg); }
+  .nav button.active { background: var(--c-brand-soft); color: var(--c-brand); }
+
+  /* ---------- Main ---------- */
+  .main { padding: var(--gap); max-width: 960px; margin: 0 auto; }
+
+  .sec-banner {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 16px; font-size: 13px;
+    background: #fff8e1; color: #8a6d00; border-bottom: 1px solid #f0dca0;
+  }
+  .sec-banner.danger { background: #fdecea; color: #8c1d18; border-bottom-color: #f3c2bd; }
+  .sec-banner span { flex: 1; min-width: 0; }
+
+  .card {
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: var(--gap);
+  }
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; }
+  .kv dt { color: var(--c-muted); font-size: 14px; }
+  .kv dd { margin: 0; word-break: break-word; }
+
+  .perm-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .perm {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--c-border); color: var(--c-muted); background: var(--c-bg);
+  }
+  .perm.on { border-color: #b7e0c8; background: #eaf6ef; color: var(--c-ok); font-weight: 600; }
+
+  .empty { color: var(--c-muted); text-align: center; padding: 32px 12px; }
+
+  .btn {
+    min-height: 44px; padding: 0 18px;
+    border: 1px solid var(--c-brand); border-radius: 8px;
+    background: var(--c-brand); color: #fff;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.06); }
+
+  .footer {
+    padding: 20px 16px 32px; text-align: center;
+    color: var(--c-muted); font-size: 12px;
+    display: flex; flex-direction: column; gap: 4px; align-items: center;
+  }
+  .build-stamp {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--c-muted);
+    background: var(--c-bg); border: 1px solid var(--c-border);
+    border-radius: 999px; padding: 2px 10px;
+  }
+  .build-stamp.drift { border-color: #f0c000; background: #fff8e1; color: #8a6d00; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: #1c1f23; color: #fff;
+    padding: 11px 18px; border-radius: 8px;
+    font-size: 14px; max-width: 90vw; z-index: 50;
+  }
+  .toast.err { background: var(--c-danger); }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 640px) {
+    .main { padding: 12px; }
+    .card { padding: 14px; }
+    .kv { grid-template-columns: 1fr; gap: 2px 0; }
+    .kv dd { margin-bottom: 10px; }
+    .brand-sub { display: none; }
+    .user-name { max-width: 38vw; }
+    .user-email { max-width: 38vw; font-size: 11px; }
+    .topbar { padding: 8px 12px; }
+    .topbar-right { gap: 6px; }
+  }
+
+  /* ---------- Orders (Milestone 2) ----------
+     Mobile-first: one column of cards, inputs at 16px so iOS does not zoom on
+     focus, and 44px tap targets. The two-column grid only appears from 640px. */
+
+  .view-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin: 0 0 12px;
+  }
+  .view-head h2 { font-size: 18px; margin: 0; }
+  .view-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .list-count {
+    color: var(--c-muted); font-size: 13px; margin: -4px 0 10px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .list-count .link-btn { font-size: 13px; }
+  .list-count .link-btn[disabled] { color: var(--c-muted); cursor: default; text-decoration: none; }
+
+  /* Milestone 4 / 4.5.3 — &quot;large export ready&quot; banner. A real <a> link
+     (see ViewsOrders.html's exportDeliveryHtml_ for why: browsers block
+     window.open() called from async poll code, but never block a click
+     on a visible anchor), styled success-toned since it's reporting a
+     completed action, with its own dismiss button so it doesn't linger
+     forever once read. */
+  .export-delivery-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-ok-soft); border: 1px solid var(--c-ok);
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 12px;
+    font-size: 13px; color: var(--c-text);
+  }
+  .export-delivery-banner a { color: var(--c-ok); font-weight: 600; }
+  .export-delivery-banner .link-btn { color: var(--c-muted); }
+
+  /* Milestone 3 / 3.2 — month filter bar above the order list. */
+  /* Milestone 3 / 3.2-3.4 UI — &quot;Bảng lọc thu gọn&quot; + &quot;Thẻ đang áp dụng&quot;:
+     search + toggle always visible, dropdowns hide inside a collapsible
+     panel, applied filters surface as removable chips. */
+  .list-filter { margin: 0 0 12px; }
+  .list-filter-row { display: flex; gap: 8px; }
+  .list-filter-q {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    min-height: 40px; padding: 0 10px; flex: 1 1 auto; min-width: 0;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  }
+  .btn-icon {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 40px; min-width: 40px; flex: 0 0 auto; padding: 0;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
+    color: var(--c-brand);
+  }
+  .btn-icon svg { width: 18px; height: 18px; display: block; }
+  .btn-icon:not(:disabled):hover { border-color: var(--c-brand); }
+  .btn-icon:disabled { color: var(--c-muted); cursor: default; }
+  .filter-toggle {
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font: inherit; font-size: 14px; color: var(--c-text);
+    min-height: 40px; padding: 0 14px; flex: 0 0 auto;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
+  }
+  .filter-toggle.has-active { border-color: var(--c-brand); color: var(--c-brand); }
+  .filter-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--c-brand); }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    font-size: 12.5px; padding: 5px 6px 5px 10px; border-radius: 999px; max-width: 100%;
+  }
+  .chip button {
+    background: none; border: none; color: var(--c-brand); font: inherit;
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 2px; flex: 0 0 auto;
+  }
+
+  .filter-panel {
+    margin-top: 10px; padding: 12px; display: grid; gap: 8px;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px;
+  }
+  .filter-panel-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .filter-panel select {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    min-height: 40px; padding: 0 8px; width: 100%;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  }
+  .filter-panel-actions { display: flex; justify-content: flex-end; align-items: center; gap: 14px; }
+  .filter-panel-actions .btn-filter { min-height: 40px; padding: 0 16px; }
+  .ro-note {
+    background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
+  }
+  .err-text { color: var(--c-danger); }
+
+  .order-list { display: grid; gap: 10px; }
+  /* Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): the card is an
+     outer, non-interactive .order-card (visual chrome only) holding TWO
+     sibling .oc-open buttons (id/lines area, and customer/meta/money area)
+     in .oc-top. Milestone 5a removed the order-level status pill that used
+     to sit between them (business status moved to the line level,
+     Assumption A10 — no status on the card at all); the approve-status
+     marker (.oc-id-fused, inside .oc-open-id) still needs its own
+     interactive element outside either button when actionable, same
+     &quot;can't nest a control inside a button&quot; reasoning as before. */
+  .order-card {
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px;
+  }
+  .order-card:has(.oc-open:hover) { border-color: var(--c-brand); }
+  .oc-open {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; color: inherit;
+  }
+  .oc-open-id { width: auto; flex: 1 1 auto; min-width: 0; }
+  .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .oc-id { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  /* UI request, 2026-08-26 (position pass, moved again after seeing it
+     live): line count now sits grouped with the order id on the left of the
+     top row, so &quot;this order, N lines&quot; reads before customer/meta. */
+  .oc-top-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .oc-customer {
+    font-weight: 600; margin: 4px 0 2px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .oc-meta { color: var(--c-muted); font-size: 13px; }
+
+  /* UI request, 2026-08-26: line count is a key number at a glance — a
+     filled circle counter (chosen over an outlined/muted/no-chip look). */
+  .oc-lines {
+    flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    font-size: 12px; font-weight: 700;
+  }
+
+  /* UI request, 2026-08-26: statuses must be distinguishable without reading
+     the label — colour AND a small dot give a second signal so the state
+     reads &quot;at a glance&quot; (and stay tellable apart for colour-blind users).
+     Unknown status keys (an admin can add one via the Config sheet) fall
+     back to --default, the same neutral look as --draft. */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 2px 10px 2px 8px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .status-pill::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; flex: 0 0 auto;
+  }
+
+  /* Milestone 5a — .pill-wrap/.pill-select/.pill-pencil/.status-pill--pending
+     (the E1 order-card quick-status overlay: transparent <select> over the
+     pill + trailing pencil glyph + in-flight spinner state) removed:
+     business status moved off the order entirely (Assumption A10 — no
+     status on the card at all), and Assumption A9 confirms there is no
+     replacement quick-change affordance anywhere. .pill-spinner/
+     @keyframes pill-spin stay — still used by the (unrelated) approve-
+     status marker's own pending state (fusedOrderIdHtml). */
+  .pill-spinner {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    animation: pill-spin .6s linear infinite;
+  }
+  @keyframes pill-spin { to { transform: rotate(360deg); } }
+  .order-card--updating .oc-open { opacity: .55; cursor: default; }
+  .oc-open:disabled { pointer-events: none; }
+  .status-pill--draft,
+  .status-pill--default { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+  .status-pill--confirmed { background: var(--c-brand-soft); color: var(--c-brand); border-color: #cfe3ee; }
+  .status-pill--waiting   { background: #fff4e0; color: #9a6400; border-color: #f6dfab; }
+  .status-pill--arrived   { background: #e6f6f5; color: #0f7a72; border-color: #bfe8e4; }
+  .status-pill--delivered { background: #f1ecfb; color: #6b3fa0; border-color: #ddd0f2; }
+  .status-pill--invoiced  { background: #fdece0; color: #b1500f; border-color: #f6cba9; }
+  .status-pill--paid      { background: #e8f5ee; color: var(--c-ok); border-color: #c3e6d2; }
+  .status-pill--cancelled {
+    background: #fdecea; color: var(--c-danger); border-color: #f3c2bd;
+    text-decoration: line-through;
+  }
+
+  /* Milestone 5a / Phase 4 — per-line status control (approved mock:
+     Option D, 2026-09-14, &quot;inline select + note as full-width row below&quot;).
+     New namespaced classes per Rule 6/UI guidelines — never repurposes
+     .field/.card/.form-linear. .status-pill / STATUS_STYLE above stay
+     untouched and reused verbatim (statusPillClass() still keys off them);
+     these rules only style the SELECT + NOTE control itself, not the pill.
+     See ViewsOrders.html's lineStatusHtml() for the markup this pairs
+     with, and plans/260914-0907-milestone-5a-order-status-to-line-level/
+     mockups/option-d-inline-select-note-below.html for the approved
+     reference (verbatim tokens/classes reused from here). */
+  .line-status-cell { display: flex; align-items: flex-end; gap: 6px; }
+  .line-status-cell .field { flex: 1 1 auto; min-width: 0; }
+  /* A left accent bar (not just the pill's own colour, which only shows
+     once a status IS selected) signals &quot;this select controls status&quot; at a
+     glance, same &quot;colour + shape&quot; reasoning as STATUS_STYLE's dot. */
+  .line-status-select { border-left: 3px solid var(--c-brand); padding-left: 9px !important; }
+  /* Blank status: deliberately NOT the same visual as any real status key —
+     a dashed border + muted text signals &quot;unset&quot;, so it can never be
+     mistaken for &quot;draft&quot; (which has its own solid pill/colour) — this is
+     the visual half of the &quot;never coerce blank to the first key&quot; rule the
+     client-side JS also enforces (statusOptionsHtml's real empty-string
+     <option>). */
+  .line-status-select.is-blank { border-left-color: #c6cbd2; border-style: dashed; color: var(--c-muted); }
+  .line-status-note-wrap { grid-column: 1 / -1; margin-top: 10px; }
+  .line-status-note-input::placeholder { color: var(--c-muted); font-style: italic; }
+  .line-status-disabled-tag {
+    font-size: 11px; color: var(--c-muted); margin-top: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .line-status-disabled-tag svg { width: 12px; height: 12px; flex: 0 0 auto; }
+
+  /* Milestone 3 / 3.8 — approve-status pill, own modifier classes (see
+     approveStatusPillClass() in ViewsOrders.html for why it isn't reusing
+     status-pill--*). Deliberately its own small palette so it never looks
+     like a business-status pill even sitting right next to one. Still used
+     for the labelled badge in the detail banner (approveStatusBannerHtml) —
+     the list card no longer uses this pill (see .oc-id-fused below). */
+  .approve-status-pill--draft   { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+  .approve-status-pill--waiting { background: #fff4e0; color: #9a6400; border-color: #f6dfab; }
+  .approve-status-pill--approved { background: #e8f5ee; color: var(--c-ok); border-color: #c3e6d2; }
+  .approve-status-pill--rejected { background: #fdecea; color: var(--c-danger); border-color: #f3c2bd; }
+  .approve-status-pill--default { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+
+  /* Milestone 3 / 3.8 UI revision (2026-09-02) — approve status moved to sit
+     directly next to the order id (&quot;Option N&quot; from the mockup round: two
+     flush halves, each with its own border, reading as one fused object —
+     not floating loose in its own row like the old .oc-approve-row pill).
+     List cards show colour + icon only (no text — spec requirement); the
+     detail title fuses the same marker onto &quot;Mã đơn {id}&quot;, and the full
+     text label still lives in the .approve-status-banner pill below it.
+     Deliberately its own small palette (mirrors approve-status-pill--*
+     above) so it never reads as a business status. */
+  .oc-id-fused { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+  .oc-id-fused .oc-id {
+    display: flex; align-items: center;
+    border: 1px solid var(--c-border); border-right: none;
+    border-radius: 6px 0 0 6px; padding: 1px 6px 1px 8px;
+    background: var(--c-brand-soft);
+  }
+  .oc-id-fused .oc-id-stat {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 1px 7px 1px 6px; border: 1px solid; border-radius: 0 6px 6px 0;
+  }
+  .oc-id-fused .oc-id-stat svg { width: 11px; height: 11px; display: block; }
+  .oc-id-fused--draft   .oc-id-stat { background: #eef0f2; border-color: #dfe3e8; color: #5b6470; }
+  .oc-id-fused--waiting .oc-id-stat { background: #fff4e0; border-color: #f6dfab; color: #9a6400; }
+  .oc-id-fused--approved .oc-id-stat { background: #e8f5ee; border-color: #c3e6d2; color: var(--c-ok); }
+  .oc-id-fused--rejected .oc-id-stat { background: #fdecea; border-color: #f3c2bd; color: var(--c-danger); }
+  .oc-id-fused--default .oc-id-stat { background: #eef0f2; border-color: #dfe3e8; color: #5b6470; }
+  /* Detail title uses the same fused marker at a slightly larger size. */
+  .view-head .oc-id-fused .oc-id { font-size: inherit; font-weight: 700; color: var(--c-brand); background: var(--c-brand-soft); padding: 2px 8px 2px 10px; }
+  .view-head .oc-id-fused .oc-id-stat { padding: 2px 9px 2px 7px; }
+  .view-head .oc-id-fused .oc-id-stat svg { width: 13px; height: 13px; }
+
+  /* UI revision (2026-09-03) — the fused marker doubles as the trigger for
+     the approve actions (Gửi duyệt/Duyệt/Từ chối/Về Nháp), replacing the
+     separate button row that used to sit in actionsHtml(). Picked from a
+     mockup round (&quot;Option A&quot;): when at least one action is available, the
+     status half grows a small chevron and becomes clickable, opening a
+     dropdown right below it — same component, same behaviour, on both the
+     list card and the detail title. When there is nothing to do (flow off,
+     read-only, or the order is already in the one status an action can't
+     target), it stays exactly the plain, non-interactive marker from
+     before this revision — no chevron, no cursor change, nothing to notice.
+     Deliberately not a native <select> (which only works for &quot;pick one of
+     N destinations&quot;): approve actions are a set of distinct verbs (not one
+     shared list), so a real menu fits better. */
+  .oc-id-fused--actionable .oc-id-stat {
+    cursor: pointer; gap: 3px; padding-right: 5px;
+  }
+  .oc-id-fused--actionable .oc-id-stat:hover { filter: brightness(0.96); }
+  .oc-approve-chev { width: 8px; height: 8px; flex: 0 0 auto; }
+  .view-head .oc-id-fused--actionable .oc-id-stat { gap: 4px; padding-right: 7px; }
+  .view-head .oc-approve-chev { width: 10px; height: 10px; }
+
+  .oc-approve-menu-wrap { position: relative; display: inline-flex; }
+  .oc-approve-menu {
+    position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 20;
+    background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 10px;
+    box-shadow: 0 10px 26px rgba(20, 18, 12, .15), 0 2px 6px rgba(20, 18, 12, .08);
+    padding: 5px; min-width: 150px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .oc-approve-menu::before {
+    content: ''; position: absolute; top: -5px; left: 16px; width: 9px; height: 9px;
+    background: var(--c-surface); border-left: 1px solid var(--c-border);
+    border-top: 1px solid var(--c-border); transform: rotate(45deg);
+  }
+  .oc-approve-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 7px 9px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    font-family: inherit; cursor: pointer; color: var(--c-text); white-space: nowrap;
+    background: none; border: none;
+  }
+  .oc-approve-menu-item:hover { background: var(--c-bg); }
+  .oc-approve-menu-item svg { width: 13px; height: 13px; flex: 0 0 auto; }
+  .oc-approve-menu-item--ok { color: var(--c-ok); }
+  .oc-approve-menu-item--danger { color: var(--c-danger); }
+
+  .oc-money {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; font-weight: 600;
+  }
+  .oc-money em { font-style: normal; font-weight: 400; color: var(--c-muted); }
+
+  /* Milestone 2.5 / P3 — skeleton cards for a genuine first load, so it reads
+     as &quot;loading&quot; instead of a frozen blank screen. Milestone 3 / 3.5: cursor
+     now lives on .oc-open, and a skeleton card has no .oc-open at all, so
+     there's nothing left here to override. */
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 8px 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-line:first-child { margin-top: 0; }
+  .sk-w40 { width: 40%; }
+  .sk-w50 { width: 50%; }
+  .sk-w70 { width: 70%; }
+  @keyframes sk-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-line { animation: none; background: var(--c-border); }
+  }
+
+  /* Milestone 2.5 / P4 — &quot;Xem thêm&quot;, full width under the last card. */
+  .btn-block { display: block; width: 100%; margin-top: 4px; text-align: center; }
+
+  /* ---------- form ---------- */
+
+  .card h3 { font-size: 15px; margin: 0 0 12px; }
+  .form-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-wide { grid-column: 1 / -1; margin-top: 12px; }
+  .field-label { font-size: 12px; color: var(--c-muted); }
+
+  .field input, .field select, .field textarea {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 12px; min-height: 44px; width: 100%;
+  }
+  .field textarea { min-height: 66px; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .field input:disabled, .field select:disabled, .field textarea:disabled {
+    background: var(--c-bg); color: var(--c-muted);
+  }
+  .field input.money { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .lines-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .add-bottom { margin-top: 12px; }
+
+  .line-card {
+    border: 1px solid var(--c-border); border-radius: var(--r);
+    padding: 12px; margin-top: 12px; background: var(--c-bg);
+  }
+  .line-top { display: flex; align-items: center; justify-content: space-between; }
+  .line-no { font-weight: 600; font-size: 13px; color: var(--c-muted); }
+  .line-amount {
+    margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; color: var(--c-muted); text-align: right;
+  }
+  .danger-link { color: var(--c-danger); }
+
+  .totals { display: grid; gap: 8px; }
+  .totals div { display: flex; justify-content: space-between; align-items: baseline; }
+  .totals span { color: var(--c-muted); font-size: 13px; }
+  .totals strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+  .form-actions {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin: 4px 0 28px;
+  }
+  .btn-primary { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .btn-danger { background: transparent; color: var(--c-danger); border-color: var(--c-danger); }
+  /* Milestone 3 / 3.6 — approve is a positive, one-way action: same outline
+     shape as .btn-danger but in --c-ok, not red, so it doesn't read as
+     destructive next to &quot;Xoá đơn hàng&quot;. */
+  .btn-ok { background: transparent; color: var(--c-ok); border-color: var(--c-ok); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  /* Milestone 3 — .confirm-box (inline confirm rows) removed: every confirm
+     in this app now goes through the shared T.confirm() popup (see the
+     .confirm-modal-card / .confirm-band / .confirm-summary rules near
+     .modal-card above). */
+  /* Milestone 3 / 3.8 — REPLACES .approved-note (3.6's one-shot banner). */
+  .approve-status-banner { margin: 0 0 8px; }
+
+  /* Revision 2026-09-03b — &quot;B2&quot; compact reject-reason line, one row: icon +
+     quoted reason + who/when. Reuses the same palette as
+     .approve-status-pill--rejected (#fdecea / #f3c2bd / --c-danger) so it
+     matches the rejected pill/badge already on screen. */
+  .reject-reason-line {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin: 0 0 8px; padding: 10px 12px;
+    border: 1px solid #f3c2bd;
+    background: #fdecea;
+    border-radius: 10px;
+    font-size: 13px; color: var(--c-danger);
+  }
+  .reject-reason-line svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+  .reject-reason-who {
+    margin-left: 6px; font-size: 11.5px; color: var(--c-danger);
+    opacity: .75; white-space: nowrap;
+  }
+
+  .updated-note {
+    color: var(--c-muted); font-size: 12.5px; margin: 0 0 12px;
+  }
+
+  @media (min-width: 640px) {
+    .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 960px) {
+    .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .order-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  /* Milestone 4 / 4.7.1 — statistics screen (ViewsStats.html), revised
+     after live feedback on the first draft: pure-CSS bars (no Chart.js —
+     see ViewsStats.html's file doc comment for why), a chart-type switch,
+     and a skeleton loading state reusing the .sk-line shimmer classes
+     already established for the order list (Styles.html's earlier
+     Milestone 2.5 / P3 section).
+
+     Live-feedback revision (2026-09-04), three fixes:
+     1. The basis toggle (theo ngày hoá đơn/đặt hàng) and the period pills
+        (tuần/tháng/quý/năm) sat right on top of each other with the same
+        10px margin, reading as one control cluster instead of two
+        separate decisions. Wrapped both in a `.stats-controls` block:
+        a bit more breathing room between them, and a small caption above
+        each (&quot;Cơ sở tính&quot; / &quot;Xem theo&quot;) so it's unambiguous which control
+        does what at a glance — same idea as Option B's sidebar labels
+        from the earlier mockup round, just inline instead of in a
+        sidebar since Option A's layout was the one picked.
+     2. The stacked chart's bars were vertically centered instead of
+        sitting on a shared baseline, which makes stacked bars unreadable
+        (the whole point of a stacked bar is that segments start from a
+        common bottom edge). Root cause: `.stats-bar-stack`'s
+        `align-items: stretch` fought the shared `.stats-bar-pair,
+        .stats-bar-stack` rule's `align-items: flex-end`, and neither
+        rule pinned the stack's own box to the bottom of `.stats-bar-
+        group` — `column-reverse` reverses paint ORDER, not alignment.
+        Fixed by giving `.stats-bar-stack` its own rule (not sharing
+        `.stats-bar-pair`'s), explicitly `align-self: flex-end` so the
+        whole stack — not just its child bars — anchors to the bottom of
+        its group, with `width` instead of `max-width`+`margin:auto` so
+        it doesn't collapse to content width and drift.
+     3. No responsive rules existed for this screen at all: the fixed
+        70px/1fr/110px rank-row grid and generous chart gaps overflowed
+        and clipped on narrow screens. Mobile rules added at the bottom of
+        this section, inside the existing `@media (max-width: 640px)`
+        block below.
+  */
+  .stats-controls { display: flex; flex-direction: column; gap: 14px; margin: 0 0 16px; }
+  .stats-control-group { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .stats-control-label {
+    font-size: 11px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .stats-segmented {
+    display: inline-flex; background: var(--c-bg); border: 1px solid var(--c-border);
+    border-radius: 8px; padding: 3px;
+  }
+  .stats-segmented button {
+    border: 0; background: none; padding: 7px 14px; font: inherit; font-size: 13px;
+    border-radius: 6px; cursor: pointer; color: var(--c-muted);
+  }
+  .stats-segmented button.active {
+    background: var(--c-surface); color: var(--c-brand); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .stats-segmented button[disabled] { opacity: .5; cursor: default; }
+  .stats-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .stats-pill {
+    border: 1px solid var(--c-border); background: var(--c-surface); padding: 6px 12px;
+    border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--c-muted); font: inherit;
+  }
+  .stats-pill.active { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .stats-pill[disabled] { opacity: .5; cursor: default; }
+
+  .stats-chart-card { padding: 16px; }
+  .stats-chart-type { display: flex; gap: 4px; justify-content: flex-end; margin: 0 0 12px; flex-wrap: wrap; }
+  .stats-chart-type-btn {
+    border: 0; background: none; font: inherit; font-size: 12px; color: var(--c-muted);
+    padding: 4px 9px; border-radius: 999px; cursor: pointer;
+  }
+  .stats-chart-type-btn.active { background: var(--c-brand-soft); color: var(--c-brand); font-weight: 600; }
+
+  .stats-chart-wrap { height: 200px; overflow-x: auto; overflow-y: hidden; }
+  .stats-barchart { display: flex; align-items: flex-end; gap: 18px; height: 100%; padding: 0 4px; min-width: min-content; }
+  .stats-bar-group {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    height: 100%; justify-content: flex-end; min-width: 28px;
+  }
+  .stats-bar-pair {
+    display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center;
+  }
+  /* Fix #2: own rule (not shared with .stats-bar-pair) so nothing else
+     can override align-self, and the stack itself — not just its bars —
+     is bottom-anchored within .stats-bar-group. */
+  .stats-bar-stack {
+    display: flex; flex-direction: column-reverse; align-items: stretch;
+    align-self: flex-end; justify-content: flex-start;
+    width: 32px; height: 100%;
+  }
+  .stats-bar { width: 22px; border-radius: 3px 3px 0 0; }
+  .stats-bar.ex, .stats-bar-seg.ex { background: #8fb8d6; }
+  .stats-bar.inc { background: var(--c-brand); }
+  .stats-bar-seg.vat { background: var(--c-brand); border-radius: 3px 3px 0 0; }
+  .stats-bar-seg.ex { border-radius: 0; }
+  .stats-bar-label { font-size: 11px; color: var(--c-muted); white-space: nowrap; }
+  .stats-chart-legend {
+    display: flex; gap: 16px; justify-content: center; margin-top: 10px;
+    font-size: 12px; color: var(--c-muted);
+  }
+  .stats-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .stats-chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .stats-chart-legend i.ex { background: #8fb8d6; }
+  .stats-chart-legend i.inc { background: var(--c-brand); }
+
+  .stats-rank-list { display: flex; flex-direction: column; gap: 10px; }
+  .stats-rank-row { display: grid; grid-template-columns: 70px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+  .stats-rank-label { color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-rank-track { background: var(--c-bg); border-radius: 5px; height: 22px; overflow: hidden; }
+  .stats-rank-fill { height: 100%; background: var(--c-brand); border-radius: 5px; }
+  .stats-rank-fill.light { background: #8fb8d6; }
+  .stats-rank-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .stats-table-card { padding: 0; overflow-x: auto; }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+  .stats-table th, .stats-table td { padding: 10px 14px; text-align: left; }
+  .stats-table th { color: var(--c-muted); font-weight: 600; border-bottom: 1px solid var(--c-border); }
+  .stats-table td { border-bottom: 1px solid var(--c-border); }
+  .stats-table tfoot td { font-weight: 700; border-top: 2px solid var(--c-border); border-bottom: 0; }
+  .stats-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .stats-noinvoice-card {
+    background: var(--c-brand-soft); border: 1px solid var(--c-brand);
+  }
+  .stats-noinvoice-label { margin: 0 0 4px; font-size: 13px; color: var(--c-muted); }
+  .stats-noinvoice-figures { margin: 0; font-size: 14px; }
+
+  /* Skeleton loading (ViewsStats.html's skeletonHtml()) — reuses the
+     .sk-line shimmer animation already defined above for the order list,
+     plus a chart-shaped variant (uneven bar heights, same gradient/
+     animation) so the loading state reads as &quot;a chart is coming&quot;, not a
+     generic gray box. */
+  .sk-chart { display: flex; align-items: flex-end; gap: 14px; height: 160px; padding: 0 4px; }
+  .sk-bar {
+    flex: 1; border-radius: 4px 4px 0 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-bar-1 { height: 45%; } .sk-bar-2 { height: 70%; } .sk-bar-3 { height: 55%; }
+  .sk-bar-4 { height: 90%; } .sk-bar-5 { height: 65%; }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-bar { animation: none; background: var(--c-border); }
+  }
+
+  /* Fix #3: stats screen on narrow screens — no rules existed for this
+     screen before, so everything below is new. */
+  @media (max-width: 640px) {
+    .stats-chart-wrap { height: 170px; }
+    .stats-barchart { gap: 10px; }
+    .stats-bar-group { min-width: 22px; }
+    .stats-bar, .stats-bar-stack { width: 18px; }
+    .stats-bar-label { font-size: 10px; }
+    .stats-rank-row { grid-template-columns: 56px 1fr 84px; gap: 6px; font-size: 12px; }
+    .stats-rank-val { font-size: 12px; }
+    .stats-chart-type { justify-content: flex-start; }
+  }
+
+  /* Milestone 4 / 4.7.2 (2026-09-04) — by-customer/by-status breakdown
+     views, filters, polish. Reuses the order list's own filter-panel
+     component (.list-filter/.filter-panel/.chip-row/… from the &quot;Orders&quot;
+     section above) unmodified — ViewsStats.html's filterBarHtml() emits
+     the exact same markup/classes wired to its own state.filters, so no
+     new filter CSS is needed here at all; only what's genuinely new to
+     this screen follows.
+
+     The 3-way view switch (Theo thời gian/khách hàng/trạng thái) reuses
+     .stats-segmented as-is (same look as the basis toggle) — .stats-view-
+     switch only adds the spacing that positions it above the filter bar,
+     which now sits between the view switch and the basis/period controls. */
+  .stats-view-switch { margin: 0 0 14px; }
+
+  /* &quot;Khác&quot; (top-N + other) bar/row — same base colors as every other
+     bar/row, but with a lighter/dashed tone so it visually reads as &quot;the
+     rest, lumped together&quot; rather than one more real customer/status/
+     period next to the top N. Kept intentionally subtle (border style,
+     not a loud new color) since it is real revenue, just aggregated —
+     nothing about it should look like an error or a warning. */
+  .stats-bar-group--other .stats-bar,
+  .stats-bar-group--other .stats-bar-seg { opacity: .6; }
+  .stats-bar-group--other .stats-bar-pair,
+  .stats-bar-group--other .stats-bar-stack { outline: 1px dashed var(--c-border); outline-offset: 2px; }
+  .stats-bar-group--other .stats-bar-label { font-style: italic; }
+  .stats-rank-row--other .stats-rank-label { font-style: italic; color: var(--c-muted); }
+  .stats-rank-row--other .stats-rank-fill { opacity: .6; }
+
+  @media (max-width: 640px) {
+    .stats-view-switch button { padding: 6px 10px; font-size: 12px; }
+  }
+
+  /* Milestone 4 / 4.7.3 (2026-09-04) — &quot;stat by order&quot; revision replaced
+     the old order-date/invoice-date basis toggle (.stats-segmented, now
+     unused on this screen) with a single global &quot;Bao gồm đơn chưa xuất
+     hoá đơn&quot; (include orders without invoice) checkbox-style switch. A
+     genuine on/off setting reads more naturally as a toggle switch than
+     as two segmented buttons where one side is always the redundant-
+     looking &quot;off&quot; option — same visual language as a typical settings
+     screen. Built from a real <input type=&quot;checkbox&quot;> (native semantics,
+     keyboard/label support) with the box itself visually hidden and a
+     CSS-drawn track+thumb taking its place, animated via the checked
+     state's sibling selector — no JS needed to move the thumb. */
+  .stats-toggle-switch {
+    display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+  }
+  .stats-toggle-switch.disabled { opacity: .5; cursor: default; }
+  .stats-toggle-switch input {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .stats-toggle-track {
+    width: 38px; height: 22px; border-radius: 999px; background: var(--c-border);
+    position: relative; flex: 0 0 auto; transition: background .15s ease;
+  }
+  .stats-toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s ease;
+  }
+  .stats-toggle-switch input:checked + .stats-toggle-track { background: var(--c-brand); }
+  .stats-toggle-switch input:checked + .stats-toggle-track .stats-toggle-thumb { left: 18px; }
+  .stats-toggle-switch input:focus-visible + .stats-toggle-track { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+  .stats-toggle-label { font-size: 13px; color: var(--c-text); }
+
+  /* 4.7.3 follow-up (2026-09-04) — Phong picked from mocked options
+     (published as Artifacts for side-by-side comparison):
+
+     1. &quot;Option B&quot; placement — the toggle above moved out of
+        .stats-controls into its own full-width shaded strip directly
+        under the title, above the view switch (ViewsStats.html's
+        includeNoInvoiceBarHtml()). Distinct from .stats-controls'
+        look (which pairs a small uppercase label with pills/segmented
+        buttons) so it doesn't read as &quot;one more of those&quot; — a settings
+        bar, not another data-view control.
+     2. &quot;Option 9&quot; for showing order/line counts — rather than touching
+        the VAT chart types at all, a 4th chart-type (&quot;Số lượng&quot;) draws
+        a completely separate two-bar-per-group chart scaled to
+        orderCount/lineCount. Reuses .stats-bar's shape/radius via the
+        new .count-order/.count-line color modifiers (kept visually
+        distinct from .ex/.inc — a muted amber pair, not blue/brand, so
+        a &quot;Số lượng&quot; screenshot is never mistaken for a VAT chart at a
+        glance) and the existing legend/tooltip/chart-wrap layout
+        wholesale — only the two bar colors and the legend swatches are
+        new here. */
+  .stats-toggle-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; flex-wrap: wrap;
+  }
+  .stats-bar.count-order { background: #d68f4a; }
+  .stats-bar.count-line { background: #e8c497; }
+  .stats-chart-legend i.count-order { background: #d68f4a; }
+  .stats-chart-legend i.count-line { background: #e8c497; }
+
+  /* Milestone 5 / 5.1 (2026-09-06) — inventory screen (ViewsInventory.html).
+     The card list reuses .order-list's grid + .order-card's chrome/shadow
+     rather than duplicating them: a product card is simpler than an order
+     card (no split id/lines vs customer/money buttons, no quick-status
+     select overlaid on a pill), so it's a SINGLE <button class=&quot;product-
+     card&quot;> — .oc-open already supplies the &quot;look like a card, behave like
+     a button&quot; reset this needs, applied directly to .product-card instead
+     of composed with a separate wrapper. */
+  .product-list { display: grid; gap: 10px; }
+  @media (min-width: 960px) {
+    .product-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .product-card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px; font: inherit; color: inherit;
+  }
+  .product-card:hover { border-color: var(--c-brand); }
+  .pc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pc-code { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  .pc-name {
+    font-weight: 600; margin: 4px 0 2px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pc-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; color: var(--c-muted); font-size: 13px;
+  }
+  .pc-price { color: var(--c-text); font-weight: 600; white-space: nowrap; }
+
+  /* Same &quot;colour + never just colour alone&quot; reasoning as STATUS_STYLE's
+     dot in ViewsOrders.html, reusing the exact amber palette already
+     established there for a &quot;needs attention, not an error&quot; state
+     (.oc-id-fused--waiting / .approve-status-pill--waiting). A plain text
+     badge (no icon) is enough here: unlike the order-id marker this is
+     never a click target, just a glance-able flag. */
+  .pc-lowstock {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #fff4e0; color: #9a6400; border: 1px solid #f6dfab;
+  }
+  .lowstock-summary {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 12px; font-size: 13px; color: var(--c-text);
+  }
+
+  /* Compact filter bar (search + two checkboxes, no collapsible panel —
+     see ViewsInventory.html's filterBarHtml doc comment for why three
+     filters don't need Orders' &quot;Bộ lọc&quot; panel treatment). Reuses
+     .list-filter/.list-filter-row/.list-filter-q/.btn-icon as-is. */
+  .filter-checks {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .filter-check {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--c-text); cursor: pointer;
+  }
+  .filter-check input { width: 16px; height: 16px; }
+
+  /* A checkbox field inside .form-grid reads oddly with the stacked
+     field-label-above-control layout every OTHER field here uses (money/
+     text/select) — this lays the checkbox and its own label out inline
+     instead, same row height as its siblings so the grid still lines up. */
+  .field-check {
+    flex-direction: row; align-items: center; gap: 8px;
+    justify-content: flex-start;
+  }
+  .field-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  /* Milestone 5 / 5.2 — user management (ViewsAdmin.html). One card per
+     user, same card-list shape as .pc-card (ViewsInventory.html) rather
+     than a table — PERMISSIONS.md's exit criteria calls for this to be
+     usable on a phone, one card per user. */
+  .user-list {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .user-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .user-card-main {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .user-card-name {
+    font-weight: 600; color: var(--c-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-card-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12px; color: var(--c-text-dim);
+  }
+  /* Same &quot;never colour alone&quot; reasoning as .pc-lowstock above — a small
+     labelled badge, not just a coloured dot, next to the acting admin's
+     own card so it reads correctly even to someone colour-blind. */
+  .user-self-badge {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #e7f0ff; color: #29538a; border: 1px solid #c6dbfb;
+  }
+
+  /* Milestone 5 / 5.3 — user detail linear form + grouped permission matrix (2026-09-10).
+     Separate from .form-grid (which is 1→2→3 cols at responsive breakpoints) because
+     the user detail screen reads as a short linear sequence, not a scattered
+     multi-column form. A 4-field row at ≥960px (inherited from .form-grid's 3-col
+     rule) would break readability here. These classes are new; zero changes to
+     existing selectors → zero impact on Orders/Inventory/Stats screens. */
+
+  .form-linear {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .form-section {
+    display: flex; flex-direction: column; gap: 12px;
+    padding-top: 14px;
+  }
+  .form-section:first-child { padding-top: 0; }
+
+  .form-section-label {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0;
+  }
+
+  .user-head-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--c-muted);
+  }
+
+  .perm-groups {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .perm-group {
+    border: 1px solid var(--c-border); border-radius: 10px;
+    padding: 10px 12px; background: var(--c-bg);
+  }
+
+  .perm-group-title {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px;
+  }
+
+  .perm-group-items {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .perm-note {
+    font-size: 12.5px; color: var(--c-muted); margin: 8px 0 0;
+  }
+
+  @media (min-width: 640px) {
+    .perm-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  /* M5.3b — permission disclosure (Option B: badge style). */
+  .perm-disclosure {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    width: 100%; padding: 12px; min-height: 44px;
+    font: inherit; font-size: 13px; font-weight: 500; text-align: left; color: var(--c-text);
+    background: transparent; border: 1px solid var(--c-border);
+    border-radius: 6px; cursor: pointer; transition: all 0.2s;
+  }
+  .perm-disclosure:hover { background: var(--c-surface); border-color: var(--c-border-dark, #ccc); }
+  .perm-disclosure:focus-visible {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .perm-disclosure-content { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .perm-disclosure-label { display: flex; align-items: center; gap: 6px; }
+  .perm-disclosure-label strong { font-weight: 600; }
+  .perm-disclosure-badge {
+    display: inline-block; padding: 2px 8px;
+    background: #fef3c7; color: #92400e;
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .perm-disclosure-badge.hidden { display: none; }
+  .perm-disclosure-toggle { color: var(--c-muted); font-size: 12px; transition: transform 0.2s; }
+  .perm-disclosure[aria-expanded=&quot;true&quot;] .perm-disclosure-toggle { transform: rotate(180deg); color: var(--c-brand); }
+  .perm-disclosure[disabled] { background: var(--c-bg); color: var(--c-muted); cursor: default; }
+  .perm-body { margin-top: 12px; }
+  .perm-body--collapsed { display: none; }
+  /* Milestone 5 / 5.4 (2026-09-11) — system config screen (ViewsAdmin.html).
+     Option C: Stacked sections with inline controls. Reuses .card / .field / .btn-mini / .btn-icon
+     / .form-actions as-is; only the repeating-row shapes and .btn-secondary below are new.
+     Zero existing selectors touched. */
+  .btn-secondary {
+    background: var(--c-surface);
+    color: var(--c-brand);
+    border-color: var(--c-border);
+  }
+  .config-desc {
+    font-size: 12.5px;
+    color: var(--c-muted);
+    margin: 4px 0 8px;
+  }
+  .config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .config-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .config-row-fields {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    flex: 1;
+  }
+  .config-row .btn-icon {
+    flex-shrink: 0;
+  }
+  .config-empty {
+    padding: 12px;
+    background: var(--c-bg);
+    border: 1px dashed var(--c-border);
+    border-radius: var(--r);
+    text-align: center;
+    color: var(--c-muted);
+    font-size: 13px;
+  }
+  @media (min-width: 480px) {
+    .config-row-fields {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    }
+    .config-row-fields--single {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<style>body{padding:16px;}</style>
+</head><body>
+<section class=&quot;card&quot;><h3>Verification harness — NOT a mockup, temporary only</h3></section>
+<section class=&quot;card&quot;><div class=&quot;lines-head&quot;><h3>Dòng hàng</h3><button type=&quot;button&quot; class=&quot;btn-mini&quot; data-act=&quot;add-line&quot;>+ Thêm dòng</button></div><div id=&quot;lines&quot;><div class=&quot;line-card&quot; data-index=&quot;0&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 1</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Ong nuoc PVC O90 dai 4m</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-0&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-0&quot; data-loader-id=&quot;product-loader-0&quot; data-results-id=&quot;product-results-0&quot; data-line-index=&quot;0&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-0&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-0&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-0&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;20&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-0&quot; value=&quot;cay&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;85.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;98&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select&quot;><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot; selected>Đã xác nhận</option><option value=&quot;waiting_stock&quot;>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;Khach xac nhan qua dien thoai luc 9h&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot;></label></div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div><div class=&quot;line-card&quot; data-index=&quot;1&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 2</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Son lot chong tham 18L</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-1&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-1&quot; data-loader-id=&quot;product-loader-1&quot; data-results-id=&quot;product-results-1&quot; data-line-index=&quot;1&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-1&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-1&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-1&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;5&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-1&quot; value=&quot;thung&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;620.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select is-blank&quot;><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot;>Đã xác nhận</option><option value=&quot;waiting_stock&quot;>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot;></label></div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div><div class=&quot;line-card&quot; data-index=&quot;2&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 3</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Xi mang PCB40</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-2&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-2&quot; data-loader-id=&quot;product-loader-2&quot; data-results-id=&quot;product-results-2&quot; data-line-index=&quot;2&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-2&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-2&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-2&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;50&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-2&quot; value=&quot;bao&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;95.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select&quot; disabled><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot;>Đã xác nhận</option><option value=&quot;waiting_stock&quot; selected>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;Da bao gia cho khach luc 14h&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot; disabled></label></div><div class=&quot;line-status-disabled-tag&quot;><svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; aria-hidden=&quot;true&quot;><rect x=&quot;4&quot; y=&quot;10&quot; width=&quot;16&quot; height=&quot;10&quot; rx=&quot;2&quot;></rect><path d=&quot;M8 10V7a4 4 0 0 1 8 0v3&quot;></path></svg>Không có quyền đổi trạng thái</div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div></div><button type=&quot;button&quot; class=&quot;btn-mini add-bottom&quot; data-act=&quot;add-line&quot;>+ Thêm dòng</button></section>
+</body></html>"></iframe>
+</div>
+
+<div class="frame-label">1280px — iframe width</div>
+<div class="frame-wrap" style="width:1296px;">
+  <iframe style="height:900px;" srcdoc="<!DOCTYPE html>
+<html lang=&quot;vi&quot;><head><meta charset=&quot;UTF-8&quot;>
+<style>
+  :root {
+    --c-bg: #f5f6f8;
+    --c-surface: #ffffff;
+    --c-border: #e2e5ea;
+    --c-text: #1c1f23;
+    --c-muted: #6b7280;
+    --c-brand: #1f5f8b;
+    --c-brand-soft: #e8f1f7;
+    --c-danger: #b42318;
+    --c-ok: #157347;
+    --c-danger-soft: #fdecea;
+    --c-ok-soft: #e7f5ec;
+    --r: 10px;
+    --gap: 16px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--c-bg);
+    color: var(--c-text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto,
+          &quot;Helvetica Neue&quot;, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ---------- Boot / denied ---------- */
+  .boot {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--c-muted);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 28px; height: 28px;
+    border: 3px solid var(--c-border);
+    border-top-color: var(--c-brand);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .denied-card {
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+    max-width: 420px;
+  }
+  .denied-card h1 { font-size: 19px; margin: 0 0 10px; color: var(--c-danger); }
+  .denied-card p  { margin: 0 0 18px; color: var(--c-text); }
+
+  .account-box {
+    background: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    text-align: left;
+  }
+  .account-label { font-size: 12px; color: var(--c-muted); margin-bottom: 3px; }
+  .account-email { font-weight: 600; word-break: break-all; }
+
+  .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  .btn-ghost {
+    background: transparent; color: var(--c-brand);
+    text-decoration: none;
+    display: inline-flex; align-items: center;
+  }
+
+  .slots { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); }
+  .slots-label { font-size: 12px; color: var(--c-muted); margin-bottom: 8px; }
+
+  /* 2026-09-06 — reason: 'scope_missing' card (docs/IDENTITY.md §9). Same
+     top-border/spacing rhythm as .slots (the account-switch block it
+     replaces for this one reason), reusing .opt-steps/.opt-warn/
+     .opt-actions/.hint-lead as-is rather than duplicating their rules. */
+  .scope-help { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--c-border); text-align: left; }
+  .howto { margin: 0 0 14px; padding-left: 20px; font-size: 13px; color: var(--c-text); text-align: left; }
+  .howto li { margin-bottom: 4px; }
+
+  .url-label { font-size: 12px; color: var(--c-muted); margin-bottom: 4px; text-align: left; }
+  .url-row { display: flex; gap: 6px; align-items: stretch; }
+  .app-url {
+    flex: 1; min-width: 0;
+    font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; white-space: nowrap; text-align: left;
+  }
+  .btn-mini {
+    border: 1px solid var(--c-border); border-radius: 6px;
+    background: var(--c-surface); color: var(--c-brand);
+    font: inherit; font-size: 13px; padding: 0 12px; cursor: pointer; white-space: nowrap;
+  }
+  .btn-mini:hover { background: var(--c-brand-soft); }
+  a.btn-mini { display: inline-flex; align-items: center; text-decoration: none; }
+  a.btn-mini.disabled { opacity: .45; pointer-events: none; }
+
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; background: var(--c-bg);
+    border: 1px solid var(--c-border); border-radius: 4px; padding: 1px 5px;
+  }
+  .hint-lead { margin-top: 0; margin-bottom: 12px; line-height: 1.55; }
+
+  .link-btn {
+    border: 0; background: none; padding: 0;
+    font: inherit; font-size: 13px; color: var(--c-brand);
+    cursor: pointer; white-space: nowrap;
+  }
+  .link-btn:hover { text-decoration: underline; }
+
+  .opt-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .opt-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid var(--c-border); border-radius: 8px;
+    background: var(--c-surface); padding: 11px 13px;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .opt-row:hover { border-color: var(--c-brand); background: var(--c-brand-soft); }
+  .opt-row-body { flex: 1; min-width: 0; }
+  .opt-row-title { font-size: 14px; font-weight: 600; }
+  .opt-row-desc { font-size: 12px; color: var(--c-muted); margin-top: 1px; }
+  .opt-row-chev { color: var(--c-muted); flex: 0 0 auto; }
+  .opt-tag {
+    font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    white-space: nowrap; margin-left: 6px;
+  }
+
+  .opt-steps { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+  .opt-steps li { margin-bottom: 5px; }
+  .opt-warn {
+    font-size: 12px; color: #8a6d00; background: #fff8e1;
+    border: 1px solid #f0dca0; border-radius: 6px;
+    padding: 8px 10px; margin: 0 0 12px;
+  }
+  .opt-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .modal-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .modal-head h2 { margin: 0; font-size: 17px; }
+
+  .modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(16, 24, 40, .45);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-card {
+    background: var(--c-surface); border-radius: var(--r);
+    box-shadow: 0 12px 32px rgba(16, 24, 40, .22);
+    padding: 22px; max-width: 500px; width: 100%;
+    max-height: 88vh; overflow-y: auto;
+  }
+  .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
+  .modal-card .actions { margin-top: 18px; }
+
+  /* Milestone 3 — TT.confirm() popup (ui/App.html). Reuses .modal/.modal-card
+     (the same fixed, dimmed overlay as #switch-modal above) with its own
+     inner layout: a tinted icon band, an optional mini order-summary card
+     (id / status pill / customer / meta / total — same look as a real
+     order-list card, so the user recognizes the record they're confirming
+     against), the message, then the two action buttons. */
+  .confirm-modal-card { max-width: 340px; padding: 0; overflow: hidden; }
+  .confirm-band {
+    background: linear-gradient(180deg, var(--c-ok-soft), var(--c-surface));
+    padding: 20px 20px 14px; display: flex; flex-direction: column;
+    align-items: center; text-align: center; gap: 10px;
+  }
+  .confirm-band--danger { background: linear-gradient(180deg, var(--c-danger-soft), var(--c-surface)); }
+  .confirm-icon {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--c-surface);
+    color: var(--c-ok); box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .confirm-band--danger .confirm-icon { color: var(--c-danger); }
+  .confirm-icon svg { width: 22px; height: 22px; }
+  .confirm-band h2 { margin: 0; font-size: 15.5px; }
+  .confirm-summary {
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--r);
+    margin: 0 20px 14px; padding: 10px 12px;
+  }
+  .confirm-summary-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .confirm-summary-id { font-weight: 700; color: var(--c-brand); font-size: 13px; }
+  .confirm-summary-customer { font-weight: 600; font-size: 13.5px; margin: 2px 0; }
+  .confirm-summary-meta { color: var(--c-muted); font-size: 12px; }
+  .confirm-summary-money { font-size: 13px; font-weight: 700; margin-top: 6px; }
+  .confirm-message { margin: 0 20px 18px; font-size: 13.5px; color: var(--c-muted); text-align: center; }
+  /* Milestone 3 / 3.8 — optional reject-note textarea inside T.confirm(). */
+  .confirm-note-field { display: block; margin: 0 20px 16px; text-align: left; }
+  .confirm-note-field textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+  .confirm-actions { display: flex; gap: 8px; padding: 0 20px 20px; }
+  .confirm-actions .btn { flex: 1 1 0; }
+
+  /* Milestone 4 / 4.2 revision — export-options dialog (#export-modal,
+     ViewsOrders.html's openExportDialog()). Reuses .confirm-modal-card's
+     band/icon/actions look; the body below the band is bespoke (filter
+     chips, two radio lists, a conditional hint box) since TT.confirm()'s
+     fixed shape has no room for live, interactive content. */
+  /* Bug fix, 2026-09-03 (Phong screenshotted: dialog cut off on a phone
+     layout, &quot;Xuất file&quot; button unreachable) — .confirm-modal-card sets
+     `overflow: hidden` (needed so the rounded band doesn't square off at
+     the corners) which also silently killed .modal-card's own
+     `overflow-y: auto` / `max-height: 88vh` scroll. A tall dialog (this
+     one especially, once the invoice-date hint is showing) has nowhere
+     left to scroll and just gets clipped. Fixed the general way, not just
+     for this one dialog: the card becomes a column with a capped height,
+     keeps its own `overflow: hidden` for the rounded corners, and moves
+     scrolling to an inner wrapper (.export-modal-scroll) that holds
+     everything BUT the pinned action buttons — same &quot;scrollable body,
+     sticky footer&quot; shape any confirm-style dialog needs once its content
+     can outgrow the viewport, not specific to the export dialog's
+     content. */
+  /* Bug fix round 2, 2026-09-03 (Phong: still cut off, still couldn't
+     scroll) — round 1's fix wasn't enough. `.modal` is ALSO a flex
+     container (`align-items: center`), and a flex ITEM without its own
+     `min-height: 0` can refuse to shrink below its content's natural
+     height on WebKit (the engine behind Safari/most phone browsers) — it
+     grows past `max-height` instead of being capped, so the inner
+     `.export-modal-scroll` never gets a constrained box to scroll within
+     in the first place. `min-height: 0` on the card itself is what
+     actually lets `max-height: 88vh` take effect as a real cap on a flex
+     item — `max-height` alone reliably caps a block-level box, but not
+     always a flex item with content taller than that cap. */
+  .export-modal-card {
+    max-width: 380px; max-height: 88vh; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  /* Bug fix round 3, 2026-09-04 (Phong: STILL cut off / couldn't scroll
+     after round 2's min-height:0 fix) — rounds 1-2 both assumed
+     .export-modal-scroll was a direct flex child of .export-modal-card,
+     but it isn't: Index.html's #export-modal markup is
+     `.export-modal-card > #export-modal-body > (.export-modal-scroll +
+     .confirm-actions)` — openExportDialog() (ViewsOrders.html) fills
+     #export-modal-body, it never touches .export-modal-card directly.
+     That extra wrapper div is a plain block box with no flex properties
+     of its own, so `.export-modal-scroll`'s `flex: 1 1 auto` was inert
+     (flex properties only do anything on an element that IS a flex
+     item — #export-modal-body isn't flexed, so its own children aren't
+     flex items either) and the wrapper grew to its full unclamped
+     content height, which the OUTER card then clipped via its `overflow:
+     hidden` (from .confirm-modal-card) instead of scrolling. Verified the
+     failure and the fix against a byte-for-byte repro of this exact
+     three-level structure (card > #export-modal-body > scroll + actions)
+     rendered in a real browser before touching this file, not by
+     reasoning about the CSS alone a third time. Fix: make the wrapper
+     itself the flex column that fills the card, so ITS children
+     (.export-modal-scroll and the actions row) become the real flex
+     items — same idea as rounds 1-2, just applied one level deeper,
+     where the actual DOM nesting requires it. */
+  .export-modal-card > #export-modal-body {
+    display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
+  }
+  .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  .export-section { padding: 0 20px 4px; text-align: left; }
+  .export-section-label {
+    display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--c-muted); margin: 0 0 8px;
+  }
+  .export-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .export-chip {
+    font-size: 11px; background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 999px; padding: 4px 10px; font-weight: 600;
+  }
+  .export-chip--muted { background: var(--c-bg); color: var(--c-muted); }
+  .export-divider { height: 1px; background: var(--c-border); margin: 4px 20px 14px; }
+
+  .export-rlist { border: 1px solid var(--c-border); border-radius: var(--r); overflow: hidden; margin: 0 0 14px; }
+  .export-rrow {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+    font-size: 13px; cursor: pointer;
+  }
+  .export-rrow:not(:last-child) { border-bottom: 1px solid var(--c-border); }
+  .export-rrow input[type=radio] { accent-color: var(--c-brand); width: 16px; height: 16px; margin-top: 1px; flex: none; }
+  .export-rrow .rmain { font-weight: 600; }
+  .export-rrow .rsub { color: var(--c-muted); font-size: 11.5px; display: block; margin-top: 2px; line-height: 1.5; }
+  .export-rrow.is-disabled { opacity: .45; cursor: not-allowed; }
+  .export-rrow-soon {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+    background: var(--c-bg); color: var(--c-muted); border-radius: 5px; padding: 1px 5px; margin-left: 6px;
+  }
+  .export-hint {
+    background: var(--c-brand-soft); border-radius: 8px; padding: 8px 10px;
+    font-size: 11.5px; color: var(--c-brand); margin: -6px 0 14px; line-height: 1.5;
+    display: flex; gap: 6px;
+  }
+  /* Bug fix, 2026-09-03 (Phong live-tested: hint showed under BOTH radio
+     choices, never actually hid) — the class's own `display: flex` above
+     out-specifies the `hidden` attribute's UA-stylesheet `display: none`,
+     so toggling the attribute alone did nothing. This rule wins instead. */
+  .export-hint[hidden] { display: none; }
+  .export-hint svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+
+  .switch-input {
+    flex: 1; min-width: 0;
+    font: inherit; font-size: 14px;
+    border: 1px solid var(--c-border); border-radius: 6px;
+    padding: 9px 10px; background: var(--c-surface); color: var(--c-text);
+  }
+  .switch-input:focus { outline: 2px solid var(--c-brand-soft); border-color: var(--c-brand); }
+  .hint { font-size: 12px; color: var(--c-muted); margin: 10px 0 0; text-align: left; }
+
+  .diag { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--c-border); text-align: left; }
+  .diag-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .diag-table td { padding: 4px 6px; border-bottom: 1px solid var(--c-border); vertical-align: top; }
+  .diag-table td:first-child { color: var(--c-muted); white-space: nowrap; width: 38%; }
+  .diag-table td:last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+
+  .who { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
+  .user-email {
+    font-size: 12px; color: var(--c-muted);
+    max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .link-sm { font-size: 13px; color: var(--c-brand); text-decoration: none; white-space: nowrap; }
+  .link-sm:hover { text-decoration: underline; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    background: var(--c-surface);
+    border-bottom: 1px solid var(--c-border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-left  { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+  .brand { font-weight: 700; color: var(--c-brand); letter-spacing: .3px; }
+  .brand-sub { color: var(--c-muted); font-size: 13px; }
+  .user-name {
+    font-size: 14px; max-width: 45vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .badge {
+    background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+
+  /* ---------- Nav ---------- */
+  .nav {
+    display: flex; gap: 4px;
+    padding: 8px 12px;
+    background: var(--c-surface);
+    border-bottom: 1px solid var(--c-border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--c-muted);
+    font: inherit; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+  }
+  .nav button:hover { background: var(--c-bg); }
+  .nav button.active { background: var(--c-brand-soft); color: var(--c-brand); }
+
+  /* ---------- Main ---------- */
+  .main { padding: var(--gap); max-width: 960px; margin: 0 auto; }
+
+  .sec-banner {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 16px; font-size: 13px;
+    background: #fff8e1; color: #8a6d00; border-bottom: 1px solid #f0dca0;
+  }
+  .sec-banner.danger { background: #fdecea; color: #8c1d18; border-bottom-color: #f3c2bd; }
+  .sec-banner span { flex: 1; min-width: 0; }
+
+  .card {
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: var(--gap);
+  }
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; }
+  .kv dt { color: var(--c-muted); font-size: 14px; }
+  .kv dd { margin: 0; word-break: break-word; }
+
+  .perm-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .perm {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--c-border); color: var(--c-muted); background: var(--c-bg);
+  }
+  .perm.on { border-color: #b7e0c8; background: #eaf6ef; color: var(--c-ok); font-weight: 600; }
+
+  .empty { color: var(--c-muted); text-align: center; padding: 32px 12px; }
+
+  .btn {
+    min-height: 44px; padding: 0 18px;
+    border: 1px solid var(--c-brand); border-radius: 8px;
+    background: var(--c-brand); color: #fff;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.06); }
+
+  .footer {
+    padding: 20px 16px 32px; text-align: center;
+    color: var(--c-muted); font-size: 12px;
+    display: flex; flex-direction: column; gap: 4px; align-items: center;
+  }
+  .build-stamp {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--c-muted);
+    background: var(--c-bg); border: 1px solid var(--c-border);
+    border-radius: 999px; padding: 2px 10px;
+  }
+  .build-stamp.drift { border-color: #f0c000; background: #fff8e1; color: #8a6d00; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: #1c1f23; color: #fff;
+    padding: 11px 18px; border-radius: 8px;
+    font-size: 14px; max-width: 90vw; z-index: 50;
+  }
+  .toast.err { background: var(--c-danger); }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 640px) {
+    .main { padding: 12px; }
+    .card { padding: 14px; }
+    .kv { grid-template-columns: 1fr; gap: 2px 0; }
+    .kv dd { margin-bottom: 10px; }
+    .brand-sub { display: none; }
+    .user-name { max-width: 38vw; }
+    .user-email { max-width: 38vw; font-size: 11px; }
+    .topbar { padding: 8px 12px; }
+    .topbar-right { gap: 6px; }
+  }
+
+  /* ---------- Orders (Milestone 2) ----------
+     Mobile-first: one column of cards, inputs at 16px so iOS does not zoom on
+     focus, and 44px tap targets. The two-column grid only appears from 640px. */
+
+  .view-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin: 0 0 12px;
+  }
+  .view-head h2 { font-size: 18px; margin: 0; }
+  .view-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .list-count {
+    color: var(--c-muted); font-size: 13px; margin: -4px 0 10px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .list-count .link-btn { font-size: 13px; }
+  .list-count .link-btn[disabled] { color: var(--c-muted); cursor: default; text-decoration: none; }
+
+  /* Milestone 4 / 4.5.3 — &quot;large export ready&quot; banner. A real <a> link
+     (see ViewsOrders.html's exportDeliveryHtml_ for why: browsers block
+     window.open() called from async poll code, but never block a click
+     on a visible anchor), styled success-toned since it's reporting a
+     completed action, with its own dismiss button so it doesn't linger
+     forever once read. */
+  .export-delivery-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-ok-soft); border: 1px solid var(--c-ok);
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 12px;
+    font-size: 13px; color: var(--c-text);
+  }
+  .export-delivery-banner a { color: var(--c-ok); font-weight: 600; }
+  .export-delivery-banner .link-btn { color: var(--c-muted); }
+
+  /* Milestone 3 / 3.2 — month filter bar above the order list. */
+  /* Milestone 3 / 3.2-3.4 UI — &quot;Bảng lọc thu gọn&quot; + &quot;Thẻ đang áp dụng&quot;:
+     search + toggle always visible, dropdowns hide inside a collapsible
+     panel, applied filters surface as removable chips. */
+  .list-filter { margin: 0 0 12px; }
+  .list-filter-row { display: flex; gap: 8px; }
+  .list-filter-q {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    min-height: 40px; padding: 0 10px; flex: 1 1 auto; min-width: 0;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  }
+  .btn-icon {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 40px; min-width: 40px; flex: 0 0 auto; padding: 0;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
+    color: var(--c-brand);
+  }
+  .btn-icon svg { width: 18px; height: 18px; display: block; }
+  .btn-icon:not(:disabled):hover { border-color: var(--c-brand); }
+  .btn-icon:disabled { color: var(--c-muted); cursor: default; }
+  .filter-toggle {
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font: inherit; font-size: 14px; color: var(--c-text);
+    min-height: 40px; padding: 0 14px; flex: 0 0 auto;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
+  }
+  .filter-toggle.has-active { border-color: var(--c-brand); color: var(--c-brand); }
+  .filter-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--c-brand); }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    font-size: 12.5px; padding: 5px 6px 5px 10px; border-radius: 999px; max-width: 100%;
+  }
+  .chip button {
+    background: none; border: none; color: var(--c-brand); font: inherit;
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 2px; flex: 0 0 auto;
+  }
+
+  .filter-panel {
+    margin-top: 10px; padding: 12px; display: grid; gap: 8px;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px;
+  }
+  .filter-panel-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .filter-panel select {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    min-height: 40px; padding: 0 8px; width: 100%;
+    border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  }
+  .filter-panel-actions { display: flex; justify-content: flex-end; align-items: center; gap: 14px; }
+  .filter-panel-actions .btn-filter { min-height: 40px; padding: 0 16px; }
+  .ro-note {
+    background: var(--c-brand-soft); color: var(--c-brand);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
+  }
+  .err-text { color: var(--c-danger); }
+
+  .order-list { display: grid; gap: 10px; }
+  /* Milestone 3 / 3.5, redesigned 2026-08-31 (style E1): the card is an
+     outer, non-interactive .order-card (visual chrome only) holding TWO
+     sibling .oc-open buttons (id/lines area, and customer/meta/money area)
+     in .oc-top. Milestone 5a removed the order-level status pill that used
+     to sit between them (business status moved to the line level,
+     Assumption A10 — no status on the card at all); the approve-status
+     marker (.oc-id-fused, inside .oc-open-id) still needs its own
+     interactive element outside either button when actionable, same
+     &quot;can't nest a control inside a button&quot; reasoning as before. */
+  .order-card {
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px;
+  }
+  .order-card:has(.oc-open:hover) { border-color: var(--c-brand); }
+  .oc-open {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; color: inherit;
+  }
+  .oc-open-id { width: auto; flex: 1 1 auto; min-width: 0; }
+  .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .oc-id { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  /* UI request, 2026-08-26 (position pass, moved again after seeing it
+     live): line count now sits grouped with the order id on the left of the
+     top row, so &quot;this order, N lines&quot; reads before customer/meta. */
+  .oc-top-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .oc-customer {
+    font-weight: 600; margin: 4px 0 2px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .oc-meta { color: var(--c-muted); font-size: 13px; }
+
+  /* UI request, 2026-08-26: line count is a key number at a glance — a
+     filled circle counter (chosen over an outlined/muted/no-chip look). */
+  .oc-lines {
+    flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+    background: var(--c-brand-soft); color: var(--c-brand);
+    font-size: 12px; font-weight: 700;
+  }
+
+  /* UI request, 2026-08-26: statuses must be distinguishable without reading
+     the label — colour AND a small dot give a second signal so the state
+     reads &quot;at a glance&quot; (and stay tellable apart for colour-blind users).
+     Unknown status keys (an admin can add one via the Config sheet) fall
+     back to --default, the same neutral look as --draft. */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 2px 10px 2px 8px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .status-pill::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; flex: 0 0 auto;
+  }
+
+  /* Milestone 5a — .pill-wrap/.pill-select/.pill-pencil/.status-pill--pending
+     (the E1 order-card quick-status overlay: transparent <select> over the
+     pill + trailing pencil glyph + in-flight spinner state) removed:
+     business status moved off the order entirely (Assumption A10 — no
+     status on the card at all), and Assumption A9 confirms there is no
+     replacement quick-change affordance anywhere. .pill-spinner/
+     @keyframes pill-spin stay — still used by the (unrelated) approve-
+     status marker's own pending state (fusedOrderIdHtml). */
+  .pill-spinner {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    animation: pill-spin .6s linear infinite;
+  }
+  @keyframes pill-spin { to { transform: rotate(360deg); } }
+  .order-card--updating .oc-open { opacity: .55; cursor: default; }
+  .oc-open:disabled { pointer-events: none; }
+  .status-pill--draft,
+  .status-pill--default { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+  .status-pill--confirmed { background: var(--c-brand-soft); color: var(--c-brand); border-color: #cfe3ee; }
+  .status-pill--waiting   { background: #fff4e0; color: #9a6400; border-color: #f6dfab; }
+  .status-pill--arrived   { background: #e6f6f5; color: #0f7a72; border-color: #bfe8e4; }
+  .status-pill--delivered { background: #f1ecfb; color: #6b3fa0; border-color: #ddd0f2; }
+  .status-pill--invoiced  { background: #fdece0; color: #b1500f; border-color: #f6cba9; }
+  .status-pill--paid      { background: #e8f5ee; color: var(--c-ok); border-color: #c3e6d2; }
+  .status-pill--cancelled {
+    background: #fdecea; color: var(--c-danger); border-color: #f3c2bd;
+    text-decoration: line-through;
+  }
+
+  /* Milestone 5a / Phase 4 — per-line status control (approved mock:
+     Option D, 2026-09-14, &quot;inline select + note as full-width row below&quot;).
+     New namespaced classes per Rule 6/UI guidelines — never repurposes
+     .field/.card/.form-linear. .status-pill / STATUS_STYLE above stay
+     untouched and reused verbatim (statusPillClass() still keys off them);
+     these rules only style the SELECT + NOTE control itself, not the pill.
+     See ViewsOrders.html's lineStatusHtml() for the markup this pairs
+     with, and plans/260914-0907-milestone-5a-order-status-to-line-level/
+     mockups/option-d-inline-select-note-below.html for the approved
+     reference (verbatim tokens/classes reused from here). */
+  .line-status-cell { display: flex; align-items: flex-end; gap: 6px; }
+  .line-status-cell .field { flex: 1 1 auto; min-width: 0; }
+  /* A left accent bar (not just the pill's own colour, which only shows
+     once a status IS selected) signals &quot;this select controls status&quot; at a
+     glance, same &quot;colour + shape&quot; reasoning as STATUS_STYLE's dot. */
+  .line-status-select { border-left: 3px solid var(--c-brand); padding-left: 9px !important; }
+  /* Blank status: deliberately NOT the same visual as any real status key —
+     a dashed border + muted text signals &quot;unset&quot;, so it can never be
+     mistaken for &quot;draft&quot; (which has its own solid pill/colour) — this is
+     the visual half of the &quot;never coerce blank to the first key&quot; rule the
+     client-side JS also enforces (statusOptionsHtml's real empty-string
+     <option>). */
+  .line-status-select.is-blank { border-left-color: #c6cbd2; border-style: dashed; color: var(--c-muted); }
+  .line-status-note-wrap { grid-column: 1 / -1; margin-top: 10px; }
+  .line-status-note-input::placeholder { color: var(--c-muted); font-style: italic; }
+  .line-status-disabled-tag {
+    font-size: 11px; color: var(--c-muted); margin-top: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .line-status-disabled-tag svg { width: 12px; height: 12px; flex: 0 0 auto; }
+
+  /* Milestone 3 / 3.8 — approve-status pill, own modifier classes (see
+     approveStatusPillClass() in ViewsOrders.html for why it isn't reusing
+     status-pill--*). Deliberately its own small palette so it never looks
+     like a business-status pill even sitting right next to one. Still used
+     for the labelled badge in the detail banner (approveStatusBannerHtml) —
+     the list card no longer uses this pill (see .oc-id-fused below). */
+  .approve-status-pill--draft   { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+  .approve-status-pill--waiting { background: #fff4e0; color: #9a6400; border-color: #f6dfab; }
+  .approve-status-pill--approved { background: #e8f5ee; color: var(--c-ok); border-color: #c3e6d2; }
+  .approve-status-pill--rejected { background: #fdecea; color: var(--c-danger); border-color: #f3c2bd; }
+  .approve-status-pill--default { background: #eef0f2; color: #5b6470; border-color: #dfe3e8; }
+
+  /* Milestone 3 / 3.8 UI revision (2026-09-02) — approve status moved to sit
+     directly next to the order id (&quot;Option N&quot; from the mockup round: two
+     flush halves, each with its own border, reading as one fused object —
+     not floating loose in its own row like the old .oc-approve-row pill).
+     List cards show colour + icon only (no text — spec requirement); the
+     detail title fuses the same marker onto &quot;Mã đơn {id}&quot;, and the full
+     text label still lives in the .approve-status-banner pill below it.
+     Deliberately its own small palette (mirrors approve-status-pill--*
+     above) so it never reads as a business status. */
+  .oc-id-fused { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+  .oc-id-fused .oc-id {
+    display: flex; align-items: center;
+    border: 1px solid var(--c-border); border-right: none;
+    border-radius: 6px 0 0 6px; padding: 1px 6px 1px 8px;
+    background: var(--c-brand-soft);
+  }
+  .oc-id-fused .oc-id-stat {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 1px 7px 1px 6px; border: 1px solid; border-radius: 0 6px 6px 0;
+  }
+  .oc-id-fused .oc-id-stat svg { width: 11px; height: 11px; display: block; }
+  .oc-id-fused--draft   .oc-id-stat { background: #eef0f2; border-color: #dfe3e8; color: #5b6470; }
+  .oc-id-fused--waiting .oc-id-stat { background: #fff4e0; border-color: #f6dfab; color: #9a6400; }
+  .oc-id-fused--approved .oc-id-stat { background: #e8f5ee; border-color: #c3e6d2; color: var(--c-ok); }
+  .oc-id-fused--rejected .oc-id-stat { background: #fdecea; border-color: #f3c2bd; color: var(--c-danger); }
+  .oc-id-fused--default .oc-id-stat { background: #eef0f2; border-color: #dfe3e8; color: #5b6470; }
+  /* Detail title uses the same fused marker at a slightly larger size. */
+  .view-head .oc-id-fused .oc-id { font-size: inherit; font-weight: 700; color: var(--c-brand); background: var(--c-brand-soft); padding: 2px 8px 2px 10px; }
+  .view-head .oc-id-fused .oc-id-stat { padding: 2px 9px 2px 7px; }
+  .view-head .oc-id-fused .oc-id-stat svg { width: 13px; height: 13px; }
+
+  /* UI revision (2026-09-03) — the fused marker doubles as the trigger for
+     the approve actions (Gửi duyệt/Duyệt/Từ chối/Về Nháp), replacing the
+     separate button row that used to sit in actionsHtml(). Picked from a
+     mockup round (&quot;Option A&quot;): when at least one action is available, the
+     status half grows a small chevron and becomes clickable, opening a
+     dropdown right below it — same component, same behaviour, on both the
+     list card and the detail title. When there is nothing to do (flow off,
+     read-only, or the order is already in the one status an action can't
+     target), it stays exactly the plain, non-interactive marker from
+     before this revision — no chevron, no cursor change, nothing to notice.
+     Deliberately not a native <select> (which only works for &quot;pick one of
+     N destinations&quot;): approve actions are a set of distinct verbs (not one
+     shared list), so a real menu fits better. */
+  .oc-id-fused--actionable .oc-id-stat {
+    cursor: pointer; gap: 3px; padding-right: 5px;
+  }
+  .oc-id-fused--actionable .oc-id-stat:hover { filter: brightness(0.96); }
+  .oc-approve-chev { width: 8px; height: 8px; flex: 0 0 auto; }
+  .view-head .oc-id-fused--actionable .oc-id-stat { gap: 4px; padding-right: 7px; }
+  .view-head .oc-approve-chev { width: 10px; height: 10px; }
+
+  .oc-approve-menu-wrap { position: relative; display: inline-flex; }
+  .oc-approve-menu {
+    position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 20;
+    background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 10px;
+    box-shadow: 0 10px 26px rgba(20, 18, 12, .15), 0 2px 6px rgba(20, 18, 12, .08);
+    padding: 5px; min-width: 150px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .oc-approve-menu::before {
+    content: ''; position: absolute; top: -5px; left: 16px; width: 9px; height: 9px;
+    background: var(--c-surface); border-left: 1px solid var(--c-border);
+    border-top: 1px solid var(--c-border); transform: rotate(45deg);
+  }
+  .oc-approve-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 7px 9px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    font-family: inherit; cursor: pointer; color: var(--c-text); white-space: nowrap;
+    background: none; border: none;
+  }
+  .oc-approve-menu-item:hover { background: var(--c-bg); }
+  .oc-approve-menu-item svg { width: 13px; height: 13px; flex: 0 0 auto; }
+  .oc-approve-menu-item--ok { color: var(--c-ok); }
+  .oc-approve-menu-item--danger { color: var(--c-danger); }
+
+  .oc-money {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; font-weight: 600;
+  }
+  .oc-money em { font-style: normal; font-weight: 400; color: var(--c-muted); }
+
+  /* Milestone 2.5 / P3 — skeleton cards for a genuine first load, so it reads
+     as &quot;loading&quot; instead of a frozen blank screen. Milestone 3 / 3.5: cursor
+     now lives on .oc-open, and a skeleton card has no .oc-open at all, so
+     there's nothing left here to override. */
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 8px 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-line:first-child { margin-top: 0; }
+  .sk-w40 { width: 40%; }
+  .sk-w50 { width: 50%; }
+  .sk-w70 { width: 70%; }
+  @keyframes sk-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-line { animation: none; background: var(--c-border); }
+  }
+
+  /* Milestone 2.5 / P4 — &quot;Xem thêm&quot;, full width under the last card. */
+  .btn-block { display: block; width: 100%; margin-top: 4px; text-align: center; }
+
+  /* ---------- form ---------- */
+
+  .card h3 { font-size: 15px; margin: 0 0 12px; }
+  .form-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-wide { grid-column: 1 / -1; margin-top: 12px; }
+  .field-label { font-size: 12px; color: var(--c-muted); }
+
+  .field input, .field select, .field textarea {
+    font: inherit; font-size: 16px; color: var(--c-text);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 12px; min-height: 44px; width: 100%;
+  }
+  .field textarea { min-height: 66px; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .field input:disabled, .field select:disabled, .field textarea:disabled {
+    background: var(--c-bg); color: var(--c-muted);
+  }
+  .field input.money { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .lines-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .add-bottom { margin-top: 12px; }
+
+  .line-card {
+    border: 1px solid var(--c-border); border-radius: var(--r);
+    padding: 12px; margin-top: 12px; background: var(--c-bg);
+  }
+  .line-top { display: flex; align-items: center; justify-content: space-between; }
+  .line-no { font-weight: 600; font-size: 13px; color: var(--c-muted); }
+  .line-amount {
+    margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--c-border);
+    font-size: 13px; color: var(--c-muted); text-align: right;
+  }
+  .danger-link { color: var(--c-danger); }
+
+  .totals { display: grid; gap: 8px; }
+  .totals div { display: flex; justify-content: space-between; align-items: baseline; }
+  .totals span { color: var(--c-muted); font-size: 13px; }
+  .totals strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+  .form-actions {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin: 4px 0 28px;
+  }
+  .btn-primary { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .btn-danger { background: transparent; color: var(--c-danger); border-color: var(--c-danger); }
+  /* Milestone 3 / 3.6 — approve is a positive, one-way action: same outline
+     shape as .btn-danger but in --c-ok, not red, so it doesn't read as
+     destructive next to &quot;Xoá đơn hàng&quot;. */
+  .btn-ok { background: transparent; color: var(--c-ok); border-color: var(--c-ok); }
+  .btn:disabled { opacity: .6; cursor: default; }
+  /* Milestone 3 — .confirm-box (inline confirm rows) removed: every confirm
+     in this app now goes through the shared T.confirm() popup (see the
+     .confirm-modal-card / .confirm-band / .confirm-summary rules near
+     .modal-card above). */
+  /* Milestone 3 / 3.8 — REPLACES .approved-note (3.6's one-shot banner). */
+  .approve-status-banner { margin: 0 0 8px; }
+
+  /* Revision 2026-09-03b — &quot;B2&quot; compact reject-reason line, one row: icon +
+     quoted reason + who/when. Reuses the same palette as
+     .approve-status-pill--rejected (#fdecea / #f3c2bd / --c-danger) so it
+     matches the rejected pill/badge already on screen. */
+  .reject-reason-line {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin: 0 0 8px; padding: 10px 12px;
+    border: 1px solid #f3c2bd;
+    background: #fdecea;
+    border-radius: 10px;
+    font-size: 13px; color: var(--c-danger);
+  }
+  .reject-reason-line svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+  .reject-reason-who {
+    margin-left: 6px; font-size: 11.5px; color: var(--c-danger);
+    opacity: .75; white-space: nowrap;
+  }
+
+  .updated-note {
+    color: var(--c-muted); font-size: 12.5px; margin: 0 0 12px;
+  }
+
+  @media (min-width: 640px) {
+    .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 960px) {
+    .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .order-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  /* Milestone 4 / 4.7.1 — statistics screen (ViewsStats.html), revised
+     after live feedback on the first draft: pure-CSS bars (no Chart.js —
+     see ViewsStats.html's file doc comment for why), a chart-type switch,
+     and a skeleton loading state reusing the .sk-line shimmer classes
+     already established for the order list (Styles.html's earlier
+     Milestone 2.5 / P3 section).
+
+     Live-feedback revision (2026-09-04), three fixes:
+     1. The basis toggle (theo ngày hoá đơn/đặt hàng) and the period pills
+        (tuần/tháng/quý/năm) sat right on top of each other with the same
+        10px margin, reading as one control cluster instead of two
+        separate decisions. Wrapped both in a `.stats-controls` block:
+        a bit more breathing room between them, and a small caption above
+        each (&quot;Cơ sở tính&quot; / &quot;Xem theo&quot;) so it's unambiguous which control
+        does what at a glance — same idea as Option B's sidebar labels
+        from the earlier mockup round, just inline instead of in a
+        sidebar since Option A's layout was the one picked.
+     2. The stacked chart's bars were vertically centered instead of
+        sitting on a shared baseline, which makes stacked bars unreadable
+        (the whole point of a stacked bar is that segments start from a
+        common bottom edge). Root cause: `.stats-bar-stack`'s
+        `align-items: stretch` fought the shared `.stats-bar-pair,
+        .stats-bar-stack` rule's `align-items: flex-end`, and neither
+        rule pinned the stack's own box to the bottom of `.stats-bar-
+        group` — `column-reverse` reverses paint ORDER, not alignment.
+        Fixed by giving `.stats-bar-stack` its own rule (not sharing
+        `.stats-bar-pair`'s), explicitly `align-self: flex-end` so the
+        whole stack — not just its child bars — anchors to the bottom of
+        its group, with `width` instead of `max-width`+`margin:auto` so
+        it doesn't collapse to content width and drift.
+     3. No responsive rules existed for this screen at all: the fixed
+        70px/1fr/110px rank-row grid and generous chart gaps overflowed
+        and clipped on narrow screens. Mobile rules added at the bottom of
+        this section, inside the existing `@media (max-width: 640px)`
+        block below.
+  */
+  .stats-controls { display: flex; flex-direction: column; gap: 14px; margin: 0 0 16px; }
+  .stats-control-group { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .stats-control-label {
+    font-size: 11px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .stats-segmented {
+    display: inline-flex; background: var(--c-bg); border: 1px solid var(--c-border);
+    border-radius: 8px; padding: 3px;
+  }
+  .stats-segmented button {
+    border: 0; background: none; padding: 7px 14px; font: inherit; font-size: 13px;
+    border-radius: 6px; cursor: pointer; color: var(--c-muted);
+  }
+  .stats-segmented button.active {
+    background: var(--c-surface); color: var(--c-brand); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .stats-segmented button[disabled] { opacity: .5; cursor: default; }
+  .stats-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .stats-pill {
+    border: 1px solid var(--c-border); background: var(--c-surface); padding: 6px 12px;
+    border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--c-muted); font: inherit;
+  }
+  .stats-pill.active { background: var(--c-brand); color: #fff; border-color: var(--c-brand); }
+  .stats-pill[disabled] { opacity: .5; cursor: default; }
+
+  .stats-chart-card { padding: 16px; }
+  .stats-chart-type { display: flex; gap: 4px; justify-content: flex-end; margin: 0 0 12px; flex-wrap: wrap; }
+  .stats-chart-type-btn {
+    border: 0; background: none; font: inherit; font-size: 12px; color: var(--c-muted);
+    padding: 4px 9px; border-radius: 999px; cursor: pointer;
+  }
+  .stats-chart-type-btn.active { background: var(--c-brand-soft); color: var(--c-brand); font-weight: 600; }
+
+  .stats-chart-wrap { height: 200px; overflow-x: auto; overflow-y: hidden; }
+  .stats-barchart { display: flex; align-items: flex-end; gap: 18px; height: 100%; padding: 0 4px; min-width: min-content; }
+  .stats-bar-group {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    height: 100%; justify-content: flex-end; min-width: 28px;
+  }
+  .stats-bar-pair {
+    display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center;
+  }
+  /* Fix #2: own rule (not shared with .stats-bar-pair) so nothing else
+     can override align-self, and the stack itself — not just its bars —
+     is bottom-anchored within .stats-bar-group. */
+  .stats-bar-stack {
+    display: flex; flex-direction: column-reverse; align-items: stretch;
+    align-self: flex-end; justify-content: flex-start;
+    width: 32px; height: 100%;
+  }
+  .stats-bar { width: 22px; border-radius: 3px 3px 0 0; }
+  .stats-bar.ex, .stats-bar-seg.ex { background: #8fb8d6; }
+  .stats-bar.inc { background: var(--c-brand); }
+  .stats-bar-seg.vat { background: var(--c-brand); border-radius: 3px 3px 0 0; }
+  .stats-bar-seg.ex { border-radius: 0; }
+  .stats-bar-label { font-size: 11px; color: var(--c-muted); white-space: nowrap; }
+  .stats-chart-legend {
+    display: flex; gap: 16px; justify-content: center; margin-top: 10px;
+    font-size: 12px; color: var(--c-muted);
+  }
+  .stats-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .stats-chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .stats-chart-legend i.ex { background: #8fb8d6; }
+  .stats-chart-legend i.inc { background: var(--c-brand); }
+
+  .stats-rank-list { display: flex; flex-direction: column; gap: 10px; }
+  .stats-rank-row { display: grid; grid-template-columns: 70px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+  .stats-rank-label { color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-rank-track { background: var(--c-bg); border-radius: 5px; height: 22px; overflow: hidden; }
+  .stats-rank-fill { height: 100%; background: var(--c-brand); border-radius: 5px; }
+  .stats-rank-fill.light { background: #8fb8d6; }
+  .stats-rank-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .stats-table-card { padding: 0; overflow-x: auto; }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+  .stats-table th, .stats-table td { padding: 10px 14px; text-align: left; }
+  .stats-table th { color: var(--c-muted); font-weight: 600; border-bottom: 1px solid var(--c-border); }
+  .stats-table td { border-bottom: 1px solid var(--c-border); }
+  .stats-table tfoot td { font-weight: 700; border-top: 2px solid var(--c-border); border-bottom: 0; }
+  .stats-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .stats-noinvoice-card {
+    background: var(--c-brand-soft); border: 1px solid var(--c-brand);
+  }
+  .stats-noinvoice-label { margin: 0 0 4px; font-size: 13px; color: var(--c-muted); }
+  .stats-noinvoice-figures { margin: 0; font-size: 14px; }
+
+  /* Skeleton loading (ViewsStats.html's skeletonHtml()) — reuses the
+     .sk-line shimmer animation already defined above for the order list,
+     plus a chart-shaped variant (uneven bar heights, same gradient/
+     animation) so the loading state reads as &quot;a chart is coming&quot;, not a
+     generic gray box. */
+  .sk-chart { display: flex; align-items: flex-end; gap: 14px; height: 160px; padding: 0 4px; }
+  .sk-bar {
+    flex: 1; border-radius: 4px 4px 0 0;
+    background: linear-gradient(90deg, var(--c-border) 25%, var(--c-bg) 50%, var(--c-border) 75%);
+    background-size: 200% 100%;
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-bar-1 { height: 45%; } .sk-bar-2 { height: 70%; } .sk-bar-3 { height: 55%; }
+  .sk-bar-4 { height: 90%; } .sk-bar-5 { height: 65%; }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-bar { animation: none; background: var(--c-border); }
+  }
+
+  /* Fix #3: stats screen on narrow screens — no rules existed for this
+     screen before, so everything below is new. */
+  @media (max-width: 640px) {
+    .stats-chart-wrap { height: 170px; }
+    .stats-barchart { gap: 10px; }
+    .stats-bar-group { min-width: 22px; }
+    .stats-bar, .stats-bar-stack { width: 18px; }
+    .stats-bar-label { font-size: 10px; }
+    .stats-rank-row { grid-template-columns: 56px 1fr 84px; gap: 6px; font-size: 12px; }
+    .stats-rank-val { font-size: 12px; }
+    .stats-chart-type { justify-content: flex-start; }
+  }
+
+  /* Milestone 4 / 4.7.2 (2026-09-04) — by-customer/by-status breakdown
+     views, filters, polish. Reuses the order list's own filter-panel
+     component (.list-filter/.filter-panel/.chip-row/… from the &quot;Orders&quot;
+     section above) unmodified — ViewsStats.html's filterBarHtml() emits
+     the exact same markup/classes wired to its own state.filters, so no
+     new filter CSS is needed here at all; only what's genuinely new to
+     this screen follows.
+
+     The 3-way view switch (Theo thời gian/khách hàng/trạng thái) reuses
+     .stats-segmented as-is (same look as the basis toggle) — .stats-view-
+     switch only adds the spacing that positions it above the filter bar,
+     which now sits between the view switch and the basis/period controls. */
+  .stats-view-switch { margin: 0 0 14px; }
+
+  /* &quot;Khác&quot; (top-N + other) bar/row — same base colors as every other
+     bar/row, but with a lighter/dashed tone so it visually reads as &quot;the
+     rest, lumped together&quot; rather than one more real customer/status/
+     period next to the top N. Kept intentionally subtle (border style,
+     not a loud new color) since it is real revenue, just aggregated —
+     nothing about it should look like an error or a warning. */
+  .stats-bar-group--other .stats-bar,
+  .stats-bar-group--other .stats-bar-seg { opacity: .6; }
+  .stats-bar-group--other .stats-bar-pair,
+  .stats-bar-group--other .stats-bar-stack { outline: 1px dashed var(--c-border); outline-offset: 2px; }
+  .stats-bar-group--other .stats-bar-label { font-style: italic; }
+  .stats-rank-row--other .stats-rank-label { font-style: italic; color: var(--c-muted); }
+  .stats-rank-row--other .stats-rank-fill { opacity: .6; }
+
+  @media (max-width: 640px) {
+    .stats-view-switch button { padding: 6px 10px; font-size: 12px; }
+  }
+
+  /* Milestone 4 / 4.7.3 (2026-09-04) — &quot;stat by order&quot; revision replaced
+     the old order-date/invoice-date basis toggle (.stats-segmented, now
+     unused on this screen) with a single global &quot;Bao gồm đơn chưa xuất
+     hoá đơn&quot; (include orders without invoice) checkbox-style switch. A
+     genuine on/off setting reads more naturally as a toggle switch than
+     as two segmented buttons where one side is always the redundant-
+     looking &quot;off&quot; option — same visual language as a typical settings
+     screen. Built from a real <input type=&quot;checkbox&quot;> (native semantics,
+     keyboard/label support) with the box itself visually hidden and a
+     CSS-drawn track+thumb taking its place, animated via the checked
+     state's sibling selector — no JS needed to move the thumb. */
+  .stats-toggle-switch {
+    display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+  }
+  .stats-toggle-switch.disabled { opacity: .5; cursor: default; }
+  .stats-toggle-switch input {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .stats-toggle-track {
+    width: 38px; height: 22px; border-radius: 999px; background: var(--c-border);
+    position: relative; flex: 0 0 auto; transition: background .15s ease;
+  }
+  .stats-toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s ease;
+  }
+  .stats-toggle-switch input:checked + .stats-toggle-track { background: var(--c-brand); }
+  .stats-toggle-switch input:checked + .stats-toggle-track .stats-toggle-thumb { left: 18px; }
+  .stats-toggle-switch input:focus-visible + .stats-toggle-track { outline: 2px solid var(--c-brand); outline-offset: 2px; }
+  .stats-toggle-label { font-size: 13px; color: var(--c-text); }
+
+  /* 4.7.3 follow-up (2026-09-04) — Phong picked from mocked options
+     (published as Artifacts for side-by-side comparison):
+
+     1. &quot;Option B&quot; placement — the toggle above moved out of
+        .stats-controls into its own full-width shaded strip directly
+        under the title, above the view switch (ViewsStats.html's
+        includeNoInvoiceBarHtml()). Distinct from .stats-controls'
+        look (which pairs a small uppercase label with pills/segmented
+        buttons) so it doesn't read as &quot;one more of those&quot; — a settings
+        bar, not another data-view control.
+     2. &quot;Option 9&quot; for showing order/line counts — rather than touching
+        the VAT chart types at all, a 4th chart-type (&quot;Số lượng&quot;) draws
+        a completely separate two-bar-per-group chart scaled to
+        orderCount/lineCount. Reuses .stats-bar's shape/radius via the
+        new .count-order/.count-line color modifiers (kept visually
+        distinct from .ex/.inc — a muted amber pair, not blue/brand, so
+        a &quot;Số lượng&quot; screenshot is never mistaken for a VAT chart at a
+        glance) and the existing legend/tooltip/chart-wrap layout
+        wholesale — only the two bar colors and the legend swatches are
+        new here. */
+  .stats-toggle-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; flex-wrap: wrap;
+  }
+  .stats-bar.count-order { background: #d68f4a; }
+  .stats-bar.count-line { background: #e8c497; }
+  .stats-chart-legend i.count-order { background: #d68f4a; }
+  .stats-chart-legend i.count-line { background: #e8c497; }
+
+  /* Milestone 5 / 5.1 (2026-09-06) — inventory screen (ViewsInventory.html).
+     The card list reuses .order-list's grid + .order-card's chrome/shadow
+     rather than duplicating them: a product card is simpler than an order
+     card (no split id/lines vs customer/money buttons, no quick-status
+     select overlaid on a pill), so it's a SINGLE <button class=&quot;product-
+     card&quot;> — .oc-open already supplies the &quot;look like a card, behave like
+     a button&quot; reset this needs, applied directly to .product-card instead
+     of composed with a separate wrapper. */
+  .product-list { display: grid; gap: 10px; }
+  @media (min-width: 960px) {
+    .product-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .product-card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: var(--r); box-shadow: var(--shadow);
+    padding: 12px 14px; font: inherit; color: inherit;
+  }
+  .product-card:hover { border-color: var(--c-brand); }
+  .pc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pc-code { font-weight: 700; color: var(--c-brand); letter-spacing: .2px; }
+  .pc-name {
+    font-weight: 600; margin: 4px 0 2px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pc-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; color: var(--c-muted); font-size: 13px;
+  }
+  .pc-price { color: var(--c-text); font-weight: 600; white-space: nowrap; }
+
+  /* Same &quot;colour + never just colour alone&quot; reasoning as STATUS_STYLE's
+     dot in ViewsOrders.html, reusing the exact amber palette already
+     established there for a &quot;needs attention, not an error&quot; state
+     (.oc-id-fused--waiting / .approve-status-pill--waiting). A plain text
+     badge (no icon) is enough here: unlike the order-id marker this is
+     never a click target, just a glance-able flag. */
+  .pc-lowstock {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #fff4e0; color: #9a6400; border: 1px solid #f6dfab;
+  }
+  .lowstock-summary {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 12px; font-size: 13px; color: var(--c-text);
+  }
+
+  /* Compact filter bar (search + two checkboxes, no collapsible panel —
+     see ViewsInventory.html's filterBarHtml doc comment for why three
+     filters don't need Orders' &quot;Bộ lọc&quot; panel treatment). Reuses
+     .list-filter/.list-filter-row/.list-filter-q/.btn-icon as-is. */
+  .filter-checks {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .filter-check {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--c-text); cursor: pointer;
+  }
+  .filter-check input { width: 16px; height: 16px; }
+
+  /* A checkbox field inside .form-grid reads oddly with the stacked
+     field-label-above-control layout every OTHER field here uses (money/
+     text/select) — this lays the checkbox and its own label out inline
+     instead, same row height as its siblings so the grid still lines up. */
+  .field-check {
+    flex-direction: row; align-items: center; gap: 8px;
+    justify-content: flex-start;
+  }
+  .field-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+  /* Milestone 5 / 5.2 — user management (ViewsAdmin.html). One card per
+     user, same card-list shape as .pc-card (ViewsInventory.html) rather
+     than a table — PERMISSIONS.md's exit criteria calls for this to be
+     usable on a phone, one card per user. */
+  .user-list {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .user-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .user-card-main {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .user-card-name {
+    font-weight: 600; color: var(--c-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-card-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12px; color: var(--c-text-dim);
+  }
+  /* Same &quot;never colour alone&quot; reasoning as .pc-lowstock above — a small
+     labelled badge, not just a coloured dot, next to the acting admin's
+     own card so it reads correctly even to someone colour-blind. */
+  .user-self-badge {
+    display: inline-flex; align-items: center; flex: 0 0 auto;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600;
+    background: #e7f0ff; color: #29538a; border: 1px solid #c6dbfb;
+  }
+
+  /* Milestone 5 / 5.3 — user detail linear form + grouped permission matrix (2026-09-10).
+     Separate from .form-grid (which is 1→2→3 cols at responsive breakpoints) because
+     the user detail screen reads as a short linear sequence, not a scattered
+     multi-column form. A 4-field row at ≥960px (inherited from .form-grid's 3-col
+     rule) would break readability here. These classes are new; zero changes to
+     existing selectors → zero impact on Orders/Inventory/Stats screens. */
+
+  .form-linear {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .form-section {
+    display: flex; flex-direction: column; gap: 12px;
+    padding-top: 14px;
+  }
+  .form-section:first-child { padding-top: 0; }
+
+  .form-section-label {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0;
+  }
+
+  .user-head-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--c-muted);
+  }
+
+  .perm-groups {
+    display: grid; gap: 14px; grid-template-columns: 1fr;
+  }
+
+  .perm-group {
+    border: 1px solid var(--c-border); border-radius: 10px;
+    padding: 10px 12px; background: var(--c-bg);
+  }
+
+  .perm-group-title {
+    font-size: 11.5px; font-weight: 600; color: var(--c-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px;
+  }
+
+  .perm-group-items {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .perm-note {
+    font-size: 12.5px; color: var(--c-muted); margin: 8px 0 0;
+  }
+
+  @media (min-width: 640px) {
+    .perm-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  /* M5.3b — permission disclosure (Option B: badge style). */
+  .perm-disclosure {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    width: 100%; padding: 12px; min-height: 44px;
+    font: inherit; font-size: 13px; font-weight: 500; text-align: left; color: var(--c-text);
+    background: transparent; border: 1px solid var(--c-border);
+    border-radius: 6px; cursor: pointer; transition: all 0.2s;
+  }
+  .perm-disclosure:hover { background: var(--c-surface); border-color: var(--c-border-dark, #ccc); }
+  .perm-disclosure:focus-visible {
+    outline: none; border-color: var(--c-brand);
+    box-shadow: 0 0 0 3px var(--c-brand-soft);
+  }
+  .perm-disclosure-content { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .perm-disclosure-label { display: flex; align-items: center; gap: 6px; }
+  .perm-disclosure-label strong { font-weight: 600; }
+  .perm-disclosure-badge {
+    display: inline-block; padding: 2px 8px;
+    background: #fef3c7; color: #92400e;
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .perm-disclosure-badge.hidden { display: none; }
+  .perm-disclosure-toggle { color: var(--c-muted); font-size: 12px; transition: transform 0.2s; }
+  .perm-disclosure[aria-expanded=&quot;true&quot;] .perm-disclosure-toggle { transform: rotate(180deg); color: var(--c-brand); }
+  .perm-disclosure[disabled] { background: var(--c-bg); color: var(--c-muted); cursor: default; }
+  .perm-body { margin-top: 12px; }
+  .perm-body--collapsed { display: none; }
+  /* Milestone 5 / 5.4 (2026-09-11) — system config screen (ViewsAdmin.html).
+     Option C: Stacked sections with inline controls. Reuses .card / .field / .btn-mini / .btn-icon
+     / .form-actions as-is; only the repeating-row shapes and .btn-secondary below are new.
+     Zero existing selectors touched. */
+  .btn-secondary {
+    background: var(--c-surface);
+    color: var(--c-brand);
+    border-color: var(--c-border);
+  }
+  .config-desc {
+    font-size: 12.5px;
+    color: var(--c-muted);
+    margin: 4px 0 8px;
+  }
+  .config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .config-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .config-row-fields {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    flex: 1;
+  }
+  .config-row .btn-icon {
+    flex-shrink: 0;
+  }
+  .config-empty {
+    padding: 12px;
+    background: var(--c-bg);
+    border: 1px dashed var(--c-border);
+    border-radius: var(--r);
+    text-align: center;
+    color: var(--c-muted);
+    font-size: 13px;
+  }
+  @media (min-width: 480px) {
+    .config-row-fields {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    }
+    .config-row-fields--single {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<style>body{padding:16px;}</style>
+</head><body>
+<section class=&quot;card&quot;><h3>Verification harness — NOT a mockup, temporary only</h3></section>
+<section class=&quot;card&quot;><div class=&quot;lines-head&quot;><h3>Dòng hàng</h3><button type=&quot;button&quot; class=&quot;btn-mini&quot; data-act=&quot;add-line&quot;>+ Thêm dòng</button></div><div id=&quot;lines&quot;><div class=&quot;line-card&quot; data-index=&quot;0&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 1</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Ong nuoc PVC O90 dai 4m</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-0&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-0&quot; data-loader-id=&quot;product-loader-0&quot; data-results-id=&quot;product-results-0&quot; data-line-index=&quot;0&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-0&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-0&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-0&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;20&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-0&quot; value=&quot;cay&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;85.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;98&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select&quot;><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot; selected>Đã xác nhận</option><option value=&quot;waiting_stock&quot;>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;Khach xac nhan qua dien thoai luc 9h&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot;></label></div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div><div class=&quot;line-card&quot; data-index=&quot;1&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 2</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Son lot chong tham 18L</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-1&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-1&quot; data-loader-id=&quot;product-loader-1&quot; data-results-id=&quot;product-results-1&quot; data-line-index=&quot;1&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-1&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-1&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-1&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;5&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-1&quot; value=&quot;thung&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;620.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select is-blank&quot;><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot;>Đã xác nhận</option><option value=&quot;waiting_stock&quot;>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot;></label></div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div><div class=&quot;line-card&quot; data-index=&quot;2&quot;><div class=&quot;line-top&quot;><span class=&quot;line-no&quot;>Dòng 3</span><button type=&quot;button&quot; class=&quot;link-btn danger-link&quot; data-act=&quot;del-line&quot;>Xoá dòng</button></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Nội dung hàng hoá *</span><textarea class=&quot;l-description&quot; rows=&quot;2&quot;>Xi mang PCB40</textarea></label><div class=&quot;form-grid&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Mã hàng</span><div class=&quot;product-picker-wrapper&quot; style=&quot;position: relative;&quot;><input class=&quot;l-productCode&quot; id=&quot;product-picker-2&quot; value=&quot;&quot; data-dropdown-id=&quot;product-dropdown-2&quot; data-loader-id=&quot;product-loader-2&quot; data-results-id=&quot;product-results-2&quot; data-line-index=&quot;2&quot; placeholder=&quot;Gõ để tìm sản phẩm&quot; ><div id=&quot;product-dropdown-2&quot; class=&quot;product-dropdown&quot; style=&quot;display: none; position: absolute; z-index: 10; background: white; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.15);&quot;><div id=&quot;product-loader-2&quot; style=&quot;display: none; padding: 8px 12px; color: #999; border-bottom: 1px solid #f0f0f0;&quot;>Đang tìm sản phẩm...</div><div id=&quot;product-results-2&quot;></div></div></div></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số lượng *</span><input class=&quot;l-qty&quot; inputmode=&quot;decimal&quot; value=&quot;50&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>ĐVT</span><input class=&quot;l-uom&quot; id=&quot;uom-input-2&quot; value=&quot;bao&quot; list=&quot;uom-options&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Đơn giá (VNĐ)</span><input class=&quot;money l-unitPrice&quot; inputmode=&quot;numeric&quot; value=&quot;95.000&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>VAT</span><select class=&quot;l-vatRate&quot;><option value=&quot;0.08&quot; selected>8%</option><option value=&quot;0.1&quot;>10%</option></select></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Số hoá đơn</span><input class=&quot;l-invoiceNo&quot; value=&quot;&quot; placeholder=&quot;98&quot;></label><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ngày hoá đơn</span><input class=&quot;l-invoiceDate&quot; type=&quot;date&quot; value=&quot;&quot;></label><div class=&quot;line-status-cell&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Trạng thái dòng</span><select class=&quot;l-status line-status-select&quot; disabled><option value=&quot;&quot;>— Chưa có —</option><option value=&quot;draft&quot;>Nháp</option><option value=&quot;confirmed&quot;>Đã xác nhận</option><option value=&quot;waiting_stock&quot; selected>Chờ hàng về</option></select></label></div><div class=&quot;line-status-note-wrap&quot;><label class=&quot;field&quot;><span class=&quot;field-label&quot;>Ghi chú trạng thái</span><input class=&quot;l-statusNote line-status-note-input&quot; value=&quot;Da bao gia cho khach luc 14h&quot; placeholder=&quot;Chưa có ghi chú trạng thái&quot; disabled></label></div><div class=&quot;line-status-disabled-tag&quot;><svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; aria-hidden=&quot;true&quot;><rect x=&quot;4&quot; y=&quot;10&quot; width=&quot;16&quot; height=&quot;10&quot; rx=&quot;2&quot;></rect><path d=&quot;M8 10V7a4 4 0 0 1 8 0v3&quot;></path></svg>Không có quyền đổi trạng thái</div></div><label class=&quot;field field-wide&quot;><span class=&quot;field-label&quot;>Ghi chú dòng</span><input class=&quot;l-note&quot; value=&quot;&quot;></label><div class=&quot;line-amount&quot; data-role=&quot;amount&quot;></div></div></div><button type=&quot;button&quot; class=&quot;btn-mini add-bottom&quot; data-act=&quot;add-line&quot;>+ Thêm dòng</button></section>
+</body></html>"></iframe>
+</div>
+
+</body>
+</html>

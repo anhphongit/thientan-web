@@ -44,8 +44,6 @@ Rules:
 | `poNote` | string | Remark *about the PO*: "PO tạm", "PO chưa đúng", "chờ PO thật"… |
 | `customer` | string | Customer name — autocomplete from `Config.customerList` (Q6) |
 | `orderDate` | date | |
-| `status` | string | a `key` from `Config.statusList` |
-| `statusNote` | string | free text: delivery promises, remarks, anything without a field |
 | `customerDeposit` | number | VND the customer has paid up front (Q1). 0 or blank = none |
 | `supplierName` | string | who the goods are bought from (Q1) |
 | `supplierPaid` | number | VND already paid to that supplier (Q1) |
@@ -69,6 +67,7 @@ Notes:
 - `orderId` is ASCII (`DH-`, not `ĐH-`) on purpose — it is typed into search boxes
   and phone keyboards. Display it verbatim.
 - There is **no** `invoiceNo` / `invoiceDate` here. See Q4 and §4 below.
+- **Business status moved to OrderLines** (Milestone 5a): `status` and `statusNote` columns are **no longer used** on Orders. The live sheet has `status_deprecated` and `statusNote_deprecated` (renamed by the migration, not deleted, so historical values remain readable). Every read must check OrderLines for per-line status instead. `approveStatus` is the only workflow status that remains on the order level (M3.8 approval flow).
 - Totals are stored for fast list/statistics reads, but always recalculated from
   the lines on every write. Client-supplied totals are ignored.
 
@@ -80,6 +79,7 @@ Notes:
 | `migrateAddApproveStatus()` | M3.8 | Add `approveStatus` column to Orders and `field` column to StatusHistory; backfill from existing `approvedBy` and blank status history | ✅ Yes (CHECKLIST_M3_VI.md:14 requires run before M3 approval flow testing) |
 | `migrateAddRejectReasonColumns()` | M5 (2026-09-03d) | Add `rejectReason`, `rejectedBy`, `rejectedAt` columns to Orders | ✅ Yes (live-verified per CHECKLIST_M5_VI.md, full M5 sign-off 2026-09-13) |
 | `migrateFixDatetimeColumns()` | M5 (2026-09-03f) | Fix datetime format on `approvedAt`/`rejectedAt` columns (cosmetic; logic unaffected) | ✅ Yes (live-verified per CHECKLIST_M5_VI.md, full M5 sign-off 2026-09-13) |
+| `migrateOrderLineStatus()` | M5a (2026-09-14) | Add `status`/`statusNote` columns to OrderLines, `lineId` column to StatusHistory, rename Orders' `status`/`statusNote` to `status_deprecated`/`statusNote_deprecated`; no backfill | ⏳ Not yet run (Phase 8 pending) |
 
 ---
 
@@ -100,6 +100,8 @@ Notes:
 | `amountIncVat` | number | computed = `amountExVat × (1 + vatRate)`, rounded to whole VND |
 | `invoiceId` | string | FK → `Invoices.invoiceId`. **Blank until this line is invoiced** (Q4) |
 | `note` | string | optional |
+| `status` | string | **optional**; a `key` from `Config.statusList`. A line may be saved blank — no default (Milestone 5a) |
+| `statusNote` | string | free text: delivery promises, remarks, anything without a field. **optional** |
 
 Rules:
 - One order has **at least one** line. Multi-line is the normal case, not an edge case.
@@ -159,15 +161,17 @@ Created in Milestone 5.
 
 ## 6. `StatusHistory` — audit trail
 
-| Column | Type |
-|--------|------|
-| `historyId` | string |
-| `orderId` | string |
-| `oldStatus` | string |
-| `newStatus` | string |
-| `note` | string |
-| `changedBy` | string (email) |
-| `changedAt` | datetime |
+| Column | Type | Notes |
+|--------|------|-------|
+| `historyId` | string | |
+| `orderId` | string | FK → `Orders.orderId` |
+| `oldStatus` | string | |
+| `newStatus` | string | |
+| `note` | string | |
+| `changedBy` | string (email) | |
+| `changedAt` | datetime | |
+| `field` | string | which workflow field changed: `status` (business line status, Milestone 5a+) or `approveStatus` (order approval, Milestone 3.8+) |
+| `lineId` | string | **nullable** (Milestone 5a); set for line-level status changes, blank for order-level `approveStatus` changes and for all pre-migration rows |
 
 Append-only. Never edited, never deleted. Written from Milestone 3 onwards; the
 tab is created in Milestone 2 so the schema is fixed.
@@ -186,13 +190,13 @@ Key/value sheet so the Admin can change business vocabulary without touching cod
 
 Expected keys:
 
-| Key | Example value |
-|-----|---------------|
-| `statusList` | `[{"key":"draft","label":"Nháp"}, …]` |
-| `uomList` | `["Cái","Cuộn","Bịch","Bộ","m","Hộp","SET","Xấp"]` |
-| `vatRates` | `[0.08,0.10]` |
-| `customerList` | `["Nhựa Duy Tân","Duy Tân Long An",…]` — self-filling, see Q6 |
-| `currency` | `VND` |
+| Key | Example value | Notes |
+|-----|---|---|
+| `statusList` | `[{"key":"draft","label":"Nháp"}, …]` | Referenced by `OrderLines` (Milestone 5a+). No longer on order-level. |
+| `uomList` | `["Cái","Cuộn","Bịch","Bộ","m","Hộp","SET","Xấp"]` | |
+| `vatRates` | `[0.08,0.10]` | |
+| `customerList` | `["Nhựa Duy Tân","Duy Tân Long An",…]` | self-filling, see Q6 |
+| `currency` | `VND` | |
 
 `orderNoPrefix` is gone — there is no business order number to prefix (Q3).
 
