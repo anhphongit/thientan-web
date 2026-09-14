@@ -8,7 +8,13 @@
  * 2026-09-06 bug (a brand-new user's typed email flipped isNew to false
  * inside collect(), so "Thêm người dùng" silently called apiUpdateUser and
  * failed with "Không tìm thấy người dùng") lived exactly in that gap, so
- * this harness now stubs just enough DOM to reproduce it.
+ * this harness now stubs just enough DOM to reproduce it. A 2026-09-14
+ * follow-up (Group M) found the same class of bug still reachable via TWO
+ * other pre-save collect() callers — the #f-preset `change` handler and the
+ * toggle-perms click handler — which the 09-06 fix didn't cover. The real
+ * fix replaced the `!email` "is this new?" derivation with a dedicated
+ * `isNewUser` flag that collect() never writes, and made collect()'s email
+ * read live (not one-shot) so a typo fixed after either trigger still saves.
  *
  * Phase 05 (permission dropdown refinements) extends the stub surface to
  * cover the M5.3b/5.4 disclosure UI and base-extension logic:
@@ -561,6 +567,58 @@ async function main() {
     ok('round-trip[' + key + ']: save carries NO "permissions" key', !('permissions' in lastCall.arg));
     clearFields(['#f-preset'].concat(PERM_KEYS.map(function (k) { return '#f-perm-' + k; })));
   }
+
+  // ---- Group M: 2026-09-14 regression — collect() calls BEFORE save() (preset
+  // change, matrix toggle) must never flip a create form to edit mode. ----
+  // Every create-path group above (D/G/H/I/L) stubs #f-preset but never
+  // #f-email, so state.user.email stayed '' and isNew stayed true by
+  // accident — the bug was invisible to this suite. This group stubs the
+  // email too, exactly like the real "Thêm người dùng" flow, and drives both
+  // known pre-save collect() triggers (preset change, matrix toggle).
+  console.log('\nGroup M — preset change / matrix toggle before save must not flip create→edit');
+  sandbox.window.TTAdmin.render(root);
+  await tick();
+  clickDataAct('new');
+  fieldValues['#f-email'] = 'typo@x.com';
+  fieldValues['#f-displayName'] = 'Người mới';
+  fieldValues['#f-note'] = '';
+  fieldValues['#f-active'] = 'active';
+  fieldValues['#f-preset'] = 'sales';
+  captured.change({ target: { id: 'f-preset', value: 'sales' } }); // triggers onPresetChange_ -> collect()
+  await tick();
+  const afterPresetChange = painted;
+  ok('M1: after a pre-save preset change, header still reads "Thêm người dùng"',
+     /<h2>Thêm người dùng<\/h2>/.test(afterPresetChange));
+  ok('M1: email input is still the editable create field (not disabled)',
+     /id="f-email" type="email" value="typo@x\.com">/.test(afterPresetChange));
+  ok('M1: no .user-head-meta (that only renders in edit mode)',
+     !/user-head-meta/.test(afterPresetChange));
+
+  clickDataAct('toggle-perms'); // second known trigger — collect() again before flipping the matrix
+  await tick();
+  const afterToggle = painted;
+  ok('M2: after toggling the matrix, header still reads "Thêm người dùng"',
+     /<h2>Thêm người dùng<\/h2>/.test(afterToggle));
+  ok('M2: email input is still editable', /id="f-email" type="email" value="typo@x\.com">/.test(afterToggle));
+  ok('M2: disclosure reports aria-expanded="true"', /data-act="toggle-perms" aria-expanded="true"/.test(afterToggle));
+
+  // M4 (collect()'s create-form email read must stay live, not one-shot): fix
+  // the typo AFTER both pre-save collect() calls already ran once.
+  fieldValues['#f-email'] = 'corrected@x.com';
+  const createCallsBeforeM = callCounts.apiCreateUser || 0;
+  const updateCallsBeforeM = callCounts.apiUpdateUser || 0;
+  clickDataAct('save');
+  await tick();
+  ok('M3: save calls apiCreateUser, not apiUpdateUser',
+     (callCounts.apiCreateUser || 0) === createCallsBeforeM + 1 &&
+     (callCounts.apiUpdateUser || 0) === updateCallsBeforeM);
+  ok('M4: the create payload carries the CORRECTED email, not the first-typed one',
+     lastCall.fn === 'apiCreateUser' && lastCall.arg.user.email === 'corrected@x.com');
+
+  ok('M5: after a successful create, the form flips to edit mode (server response has no isNewUser)',
+     /user-head-meta/.test(painted) && / disabled>/.test(painted));
+
+  clearFields(['#f-email', '#f-displayName', '#f-note', '#f-active', '#f-preset']);
 
   assertNoLeakedFieldValues('at end of suite');
 

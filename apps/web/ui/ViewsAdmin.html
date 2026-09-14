@@ -558,8 +558,11 @@
   }
 
   function blankUser() {
+    // isNewUser: true is the ONLY source of truth for "is this a create form?" —
+    // see the invariant note at save()'s isNew line. Never derive it from email
+    // presence again; collect() and other handlers may run long before save().
     return { email: '', displayName: '', note: '', active: true, presetKey: '',
-             isSelf: false, isLastAdmin: false, showPermissionMatrix: false };
+             isSelf: false, isLastAdmin: false, showPermissionMatrix: false, isNewUser: true };
   }
 
   /**
@@ -622,7 +625,7 @@
 
   function paintForm() {
     var u = state.user;
-    var isNew = !u.email;
+    var isNew = !!u.isNewUser;
     var busy = isBusy();
 
     wrapper.innerHTML = '' +
@@ -840,7 +843,13 @@
     var u = state.user;
     var get = function (sel) { var n = root.querySelector(sel); return n ? n.value : ''; };
 
-    if (!u.email) u.email = get('#f-email'); // only present on the create form
+    // #f-email exists only on the create form (the edit form's email input has
+    // no id — see formCardHtml). Re-read it every time, not just once: with
+    // isNewUser now owning the "is this new?" question, the field stays editable
+    // across every repaint, so a typo fixed after toggling the matrix or the
+    // preset must still make it into the saved payload.
+    var emailEl = root.querySelector('#f-email');
+    if (emailEl) u.email = emailEl.value;
     u.displayName = get('#f-displayName');
     u.note = get('#f-note');
     u.presetKeyToSave = get('#f-preset'); // '' means "keep current" on edit
@@ -897,19 +906,19 @@
 
   function save() {
     if (isBusy()) return;
-    // isNew MUST be captured before collect() — collect() fills
-    // state.user.email in FROM the create form's #f-email input (the only
-    // way a brand-new user's email ever gets into state), which means
-    // `!state.user.email` is only a valid "is this new?" test right up
-    // until that line runs. Reading it after collect() (as doSave() used
-    // to) meant a create-with-a-real-email-typed always looked exactly
-    // like an edit — apiUpdateUser instead of apiCreateUser — and Admin.gs
-    // correctly rejected it with "Không tìm thấy người dùng" since the
-    // email doesn't exist yet. Existing-user opens never hit this because
-    // openForm() always pre-fills email for them, so `!u.email` was
-    // already false before collect() too — only the create path was
-    // affected.
-    var isNew = !state.user.email;
+    // isNew comes from state.user.isNewUser, set once by blankUser() and never
+    // touched by collect() — NOT from email presence. `!state.user.email` used
+    // to be the test (fixed 2026-09-07 by capturing it before collect() ran
+    // inside save()), but that only guarded collect() calls made BY save()
+    // itself. toggle-perms (:1407-ish) and onPresetChange_ (:1528-ish) both
+    // call collect() long before save() runs — picking a preset or opening the
+    // permission matrix on a brand-new user's form permanently set
+    // state.user.email from #f-email, silently flipping the form to edit mode
+    // and making Save call apiUpdateUser for an email that doesn't exist yet
+    // (Admin.gs correctly rejected it with "Không tìm thấy người dùng"). The
+    // isNewUser flag can't be corrupted this way since only blankUser() writes
+    // it and only replacing state.user with a server response clears it.
+    var isNew = !!state.user.isNewUser;
     collect();
     doSave(isNew);
   }
