@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "User guide + checklist assembly"
-status: pending
+status: complete
 priority: P2
 effort: "3h"
 dependencies: [1, 2, 4, 5]

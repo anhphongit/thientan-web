@@ -9,7 +9,12 @@
 function doGet() {
   return HtmlService.createTemplateFromFile('ui/Index').evaluate()
     .setTitle('THIÊN TÂN — Quản lý đơn hàng')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
+    // Milestone 6 / Phase 4 — `interactive-widget=resizes-content` tells iOS/
+    // Android to shrink the layout viewport when the virtual keyboard opens
+    // (instead of overlaying it), so a focused input stays visible above the
+    // keyboard without extra JS. Extends the existing string; a second
+    // `<meta name="viewport">` tag would conflict with this one, not add to it.
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -24,7 +29,11 @@ function handle_(name, fn) {
     return { ok: true, data: fn() };
   } catch (err) {
     console.error(name + ' failed: ' + (err && err.stack ? err.stack : err));
-    return { ok: false, error: (err && err.message) ? err.message : MSG.GENERIC };
+    // Milestone 6 / Phase 2 — safeErrorMessage_ (Config.gs) only forwards
+    // err.message verbatim when it exactly matches one of this project's own
+    // known MSG.* values (already-reviewed, safe to show); anything else is
+    // an unexpected exception, logged above and replaced with MSG.GENERIC.
+    return { ok: false, error: safeErrorMessage_(err) };
   }
 }
 
@@ -66,6 +75,11 @@ function apiGetSession() {
       return merge_(base, {
         authorized: false,
         reason: scopeMissing ? 'scope_missing' : 'denied',
+        // Milestone 6 / Phase 2 — deliberately NOT routed through
+        // safeErrorMessage_: this message is a prefix match (MSG.SCOPE_NOT_GRANTED
+        // + appended detail), a self-constructed message from this project's own
+        // security gate above, not a raw pass-through of an internal exception —
+        // an exact-match safety check would incorrectly genericize it.
         message: err.message,
         email: email,
         build: buildStamp_(lastApiBuild_)
@@ -392,10 +406,31 @@ function apiUpdateConfig(payload) {
   });
 }
 
+/** Milestone 6 / Phase 1 — "Sao lưu ngay" admin button: copies the live
+ *  spreadsheet to a timestamped Drive folder. manage_users is re-checked on
+ *  the API side (BackupJob.gs's actionBackupNow_), nothing here decides
+ *  anything. Returns {folderUrl, fileUrl, createdAt} on success. */
+function apiBackupNow() {
+  return handle_('apiBackupNow', function () {
+    return apiCall_('backupNow', {});
+  });
+}
+
 /** Write a line to the API DevLog sheet. Works regardless of DEV_MODE — see ApiClient.gs devNote_. */
 function apiDevLog(payload) {
   return handle_('apiDevLog', function () {
     return apiCall_('logDev', payload || {});
+  });
+}
+
+/** Milestone 6 / Phase 3 (stretch) — admin system-health panel: last backup
+ *  status (Phase 1) + recent unexpected-error counts (DevLog, combined
+ *  web+api since 260912-1110's devNote_ change). manage_users is re-checked
+ *  on the API side (SystemHealth.gs's actionSystemHealth_), nothing here
+ *  decides anything. */
+function apiSystemHealth() {
+  return handle_('apiSystemHealth', function () {
+    return apiCall_('systemHealth', {});
   });
 }
 

@@ -92,9 +92,31 @@ function doPost(e) {
     }
     return json_({ ok: true, data: data, build: BUILD });
   } catch (err) {
+    // Milestone 6 / Phase 2 — safeErrorMessage_ (Config.gs) only forwards
+    // err.message verbatim when it's exactly one of the ~88 already-reviewed
+    // MSG.* values; any other exception (which can embed sheet/range names,
+    // formula text, or Drive file ids) is logged here in full and replaced
+    // with MSG.GENERIC before it ever reaches the browser. This is also the
+    // safety net for SheetsRepo.gs's getSpreadsheet_ rethrow (an unmatched
+    // permission-error case) — that function never sanitizes its own
+    // rethrow; it relies on landing here.
     console.error(req.action + ' failed for ' + req.actor + ': ' +
                   (err && err.stack ? err.stack : err));
-    return json_({ ok: false, error: (err && err.message) || MSG.GENERIC, build: BUILD });
+    var safeMsg = safeErrorMessage_(err);
+    // Milestone 6 / Phase 3 — safeErrorMessage_ only returns MSG.GENERIC on
+    // its unexpected-error branch (Config.gs), so this is the same
+    // "unexpected, not one of the ~88 reviewed MSG.* values" classification
+    // it already makes internally, reused here rather than re-derived.
+    // logDevEvent_ never throws (Security.gs — its own try/catch returns a
+    // boolean), so this call needs no extra isolation of its own.
+    // Latent edge case (harmless today, grep-verified nothing does this):
+    // isKnownMessage_ treats MSG.GENERIC as a "known" value too, so a future
+    // `throw new Error(MSG.GENERIC)` would be misclassified as unexpected
+    // by this equality check and get logged here.
+    if (safeMsg === MSG.GENERIC) {
+      logDevEvent_('error', req.action, 'unexpected error', '', req.actor);
+    }
+    return json_({ ok: false, error: safeMsg, build: BUILD });
   }
 }
 
@@ -224,6 +246,17 @@ function getActions_() {
        See AdminConfig.gs. */
     listConfig: actionListConfig_,
     updateConfig: actionUpdateConfig_,
+
+    /* Milestone 6 / Phase 1 — manual "Sao lưu ngay" backup-to-Drive button,
+       gated on manage_users. See BackupJob.gs. runScheduledBackup_/
+       cleanupOldBackups_/installBackupTrigger are trigger/editor-only and
+       deliberately absent from this map — see BackupJob.gs's file doc
+       comment. */
+    backupNow: actionBackupNow_,
+
+    /* Milestone 6 / Phase 3 (stretch) — admin system-health panel: last
+       backup status + recent unexpected-error counts. See SystemHealth.gs. */
+    systemHealth: actionSystemHealth_,
 
     logDev: actionLogDev_
   };

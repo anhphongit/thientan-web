@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Backup to Drive (manual+scheduled+retention)"
-status: pending
+status: complete
 priority: P1
 effort: "5h"
 dependencies: []

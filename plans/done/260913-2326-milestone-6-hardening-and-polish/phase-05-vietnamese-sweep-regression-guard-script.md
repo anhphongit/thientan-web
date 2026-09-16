@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Vietnamese sweep + regression guard script"
-status: pending
+status: complete
 priority: P2
 effort: "2h"
 dependencies: [1]

@@ -30,8 +30,26 @@
   .hidden { display: none !important; }
 
   /* ---------- Boot / denied ---------- */
+  /* Milestone 6 / Phase 4 — this app runs inside Google's sandboxed Apps
+     Script iframe (Main.gs doGet, XFrameOptionsMode.ALLOWALL); on iOS
+     Safari the iframe's own box can lag the visual viewport while Safari's
+     chrome (URL bar/toolbar) shows/hides on scroll, so a bare `100vh` can
+     be measured too tall or too short. Three-line progressive enhancement,
+     each line only overriding the previous when supported/available:
+       1) `100vh` — universal fallback.
+       2) `100dvh` — dynamic viewport height, correct almost everywhere
+          modern iOS Safari runs; dropped by the engine if `dvh` is
+          unsupported, leaving line 1 in effect.
+       3) `var(--app-vh, 100dvh)` — `--app-vh` is set by App.html's
+          syncViewportHeight() to `window.innerHeight`, re-measured on
+          resize/orientationchange. `visualViewport` is blocked inside this
+          sandbox, so `innerHeight` is the only reliable live signal; this
+          is the authoritative value once JS has run, and falls back to
+          `100dvh` (the token inside var()'s fallback) until it has. */
   .boot {
     min-height: 100vh;
+    min-height: 100dvh;
+    min-height: var(--app-vh, 100dvh);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -156,13 +174,32 @@
   .modal {
     position: fixed; inset: 0; z-index: 100;
     background: rgba(16, 24, 40, .45);
-    display: flex; align-items: center; justify-content: center; padding: 20px;
+    display: flex; align-items: center; justify-content: center;
+    /* Milestone 6 / Phase 4 — `viewport-fit=cover` (Main.gs doGet) draws this
+       fixed overlay edge-to-edge, so on a notched/home-indicator device the
+       20px buffer alone isn't guaranteed to clear the unsafe area (most
+       visible in landscape, where the notch sits on a LEFT/RIGHT edge —
+       env(safe-area-inset-*) is 0 on devices without a notch, so max()
+       just keeps the original 20px there). Plain 20px declared first as a
+       fallback for browsers that can't parse env()/max() at all — an
+       unsupported value invalidates the whole declaration, not just the
+       unsupported part, so without this line those browsers would fall
+       back to no padding rather than the old 20px. */
+    padding: 20px;
+    padding: max(20px, env(safe-area-inset-top))
+             max(20px, env(safe-area-inset-right))
+             max(20px, env(safe-area-inset-bottom))
+             max(20px, env(safe-area-inset-left));
   }
   .modal-card {
     background: var(--c-surface); border-radius: var(--r);
     box-shadow: 0 12px 32px rgba(16, 24, 40, .22);
     padding: 22px; max-width: 500px; width: 100%;
     max-height: 88vh; overflow-y: auto;
+    /* Milestone 6 / Phase 4 — internally-scrolling dialog: contain the
+       scroll so reaching the top/bottom of the card doesn't chain into the
+       dimmed page behind it (see .nav above for the same fix). */
+    overscroll-behavior: contain;
   }
   .modal-card h2 { margin: 0 0 12px; font-size: 17px; }
   .modal-card .actions { margin-top: 18px; }
@@ -263,7 +300,10 @@
   .export-modal-card > #export-modal-body {
     display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
   }
-  .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  /* Milestone 6 / Phase 4 — same scroll-containment reasoning as
+     .modal-card above; this inner wrapper is the one that actually scrolls
+     for the export dialog (see the three bug-fix comments above). */
+  .export-modal-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
   .export-section { padding: 0 20px 4px; text-align: left; }
   .export-section-label {
     display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
@@ -360,7 +400,13 @@
     background: var(--c-surface);
     border-bottom: 1px solid var(--c-border);
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    /* Milestone 6 / Phase 4 — `-webkit-overflow-scrolling: touch` is a
+       deprecated no-op on current iOS Safari (momentum scroll is native to
+       any `overflow: auto/scroll` box now); `overscroll-behavior: contain`
+       is the modern replacement and does something this one doesn't —
+       stops this bar's own scroll from chaining into a page-level bounce
+       once it hits either end. */
+    overscroll-behavior: contain;
   }
   .nav button {
     flex: 0 0 auto;
@@ -430,10 +476,21 @@
   .build-stamp.drift { border-color: #f0c000; background: #fff8e1; color: #8a6d00; }
 
   .toast {
-    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    position: fixed; left: 50%; z-index: 50;
+    /* Milestone 6 / Phase 4 — adds the home-indicator safe area on top of
+       the original 20px gap so this fixed bar can't sit under/behind it
+       (viewport-fit=cover draws this overlay edge-to-edge; env() resolves
+       to 0 on devices without a home indicator, so this is a no-op there).
+       Plain 20px declared first as a fallback for browsers that can't
+       parse env() at all — an unsupported calc() invalidates the whole
+       declaration, so without this line those browsers get no `bottom`
+       rather than the old 20px. */
+    bottom: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
     background: #1c1f23; color: #fff;
     padding: 11px 18px; border-radius: 8px;
-    font-size: 14px; max-width: 90vw; z-index: 50;
+    font-size: 14px; max-width: 90vw;
   }
   .toast.err { background: var(--c-danger); }
 
@@ -494,9 +551,15 @@
     min-height: 40px; padding: 0 10px; flex: 1 1 auto; min-width: 0;
     border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
   }
+  /* Milestone 6 / Phase 4 — bumped 40px -> 44px (Apple HIG tap-target
+     floor); the visible icon stays 18px (.btn-icon svg below), only the
+     button's own hit box grows. `.list-filter-row` is an unset-align-items
+     flex row (defaults to `stretch`), so its sibling `.list-filter-q`
+     input and `.filter-toggle` button already stretch to match — no
+     separate change needed there to keep the row's controls same height. */
   .btn-icon {
     display: flex; align-items: center; justify-content: center;
-    min-height: 40px; min-width: 40px; flex: 0 0 auto; padding: 0;
+    min-height: 44px; min-width: 44px; flex: 0 0 auto; padding: 0;
     border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
     color: var(--c-brand);
   }
@@ -506,7 +569,7 @@
   .filter-toggle {
     display: flex; align-items: center; gap: 6px; white-space: nowrap;
     font: inherit; font-size: 14px; color: var(--c-text);
-    min-height: 40px; padding: 0 14px; flex: 0 0 auto;
+    min-height: 44px; padding: 0 14px; flex: 0 0 auto;
     border: 1px solid var(--c-border); border-radius: 8px; background: #fff; cursor: pointer;
   }
   .filter-toggle.has-active { border-color: var(--c-brand); color: var(--c-brand); }
@@ -521,6 +584,21 @@
   .chip button {
     background: none; border: none; color: var(--c-brand); font: inherit;
     font-size: 14px; line-height: 1; cursor: pointer; padding: 2px; flex: 0 0 auto;
+    position: relative;
+  }
+  /* Milestone 6 / Phase 4 — invisible hit-area, same technique as
+     .oc-id-stat above. Deliberately NOT the full 44x44: chips wrap in a
+     row with only a 6px gap (.chip-row), so a full-size box risks
+     overlapping the next chip's own close button when several are shown
+     at once — 36px is the largest expansion that stays clear of a
+     same-size neighbor at that gap in the common (2-3 active filter
+     chips) case. Re-check live on a phone in Phase 7 if chips ever appear
+     denser than that. */
+  .chip button::after {
+    content: '';
+    position: absolute; top: 50%; left: 50%;
+    width: 36px; height: 36px;
+    transform: translate(-50%, -50%);
   }
 
   .filter-panel {
@@ -534,7 +612,9 @@
     border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
   }
   .filter-panel-actions { display: flex; justify-content: flex-end; align-items: center; gap: 14px; }
-  .filter-panel-actions .btn-filter { min-height: 40px; padding: 0 16px; }
+  /* Milestone 6 / Phase 4 — bumped 40px -> 44px, back in line with .btn's
+     own 44px baseline (this rule was the one place overriding it down). */
+  .filter-panel-actions .btn-filter { min-height: 44px; padding: 0 16px; }
   .ro-note {
     background: var(--c-brand-soft); color: var(--c-brand);
     border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px;
@@ -718,8 +798,22 @@
      shared list), so a real menu fits better. */
   .oc-id-fused--actionable .oc-id-stat {
     cursor: pointer; gap: 3px; padding-right: 5px;
+    position: relative;
   }
   .oc-id-fused--actionable .oc-id-stat:hover { filter: brightness(0.96); }
+  /* Milestone 6 / Phase 4 — this button is the right half of a two-tone
+     "fused pill" flush against `.oc-id` (same height, shared border) —
+     growing its own box via padding would break that fused look (visible
+     height mismatch). Instead, an invisible 44x44 hit area centered via
+     `::after` (not a real DOM node, so a tap inside it lands on this
+     button, its nearest real ancestor) reaches the HIG tap-target floor
+     with zero visual change to the pill itself. */
+  .oc-id-fused--actionable .oc-id-stat::after {
+    content: '';
+    position: absolute; top: 50%; left: 50%;
+    width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
   .oc-approve-chev { width: 8px; height: 8px; flex: 0 0 auto; }
   .view-head .oc-id-fused--actionable .oc-id-stat { gap: 4px; padding-right: 7px; }
   .view-head .oc-approve-chev { width: 10px; height: 10px; }
@@ -738,7 +832,11 @@
   }
   .oc-approve-menu-item {
     display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-    padding: 7px 9px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    /* Milestone 6 / Phase 4 — min-height: 44px (padding alone left this
+       ~33px tall); a stacked dropdown row can grow without any visual-
+       rhythm risk (unlike .oc-id-stat above, nothing else has to match
+       its height). */
+    padding: 7px 9px; min-height: 44px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
     font-family: inherit; cursor: pointer; color: var(--c-text); white-space: nowrap;
     background: none; border: none;
   }
@@ -1069,8 +1167,13 @@
      keyboard/label support) with the box itself visually hidden and a
      CSS-drawn track+thumb taking its place, animated via the checked
      state's sibling selector — no JS needed to move the thumb. */
+  /* Milestone 6 / Phase 4 — min-height: 44px so the whole <label> (the real
+     tap target — clicking anywhere on it toggles the hidden input, not just
+     the 38x22 track) clears the HIG floor; the track/thumb visual stays the
+     same size, `align-items: center` just centers it in the taller box. */
   .stats-toggle-switch {
     display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+    min-height: 44px;
   }
   .stats-toggle-switch.disabled { opacity: .5; cursor: default; }
   .stats-toggle-switch input {
@@ -1175,18 +1278,25 @@
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
     margin-top: 10px;
   }
+  /* Milestone 6 / Phase 4 — min-height: 44px on the <label> (the real tap
+     target, since clicking the label text toggles the wrapped input same as
+     clicking the box) — the 16px checkbox visual is untouched. */
   .filter-check {
     display: inline-flex; align-items: center; gap: 6px;
     font-size: 13px; color: var(--c-text); cursor: pointer;
+    min-height: 44px;
   }
   .filter-check input { width: 16px; height: 16px; }
 
   /* A checkbox field inside .form-grid reads oddly with the stacked
      field-label-above-control layout every OTHER field here uses (money/
      text/select) — this lays the checkbox and its own label out inline
-     instead, same row height as its siblings so the grid still lines up. */
+     instead, same row height as its siblings so the grid still lines up.
+     Milestone 6 / Phase 4 — min-height: 44px added here too, same "the
+     label is the real tap target" reasoning as .filter-check above; the
+     18px checkbox visual is untouched. */
   .field-check {
-    flex-direction: row; align-items: center; gap: 8px;
+    flex-direction: row; align-items: center; gap: 8px; min-height: 44px;
     justify-content: flex-start;
   }
   .field-check input { width: 18px; height: 18px; flex: 0 0 auto; }
@@ -1329,7 +1439,15 @@
     box-shadow: 0 0 0 3px var(--c-brand-soft);
   }
   .field-groups { display: flex; flex-direction: column; gap: 10px; }
-  .field-group > summary { cursor: pointer; list-style: none; }
+  /* Milestone 6 / Phase 4 — min-height: 44px + flex centering so this
+     disclosure trigger (the chevron in ::before below) meets the HIG
+     tap-target floor, same convention as .perm-disclosure's own
+     min-height: 44px (Styles.html above) which this reuses `.perm-group`
+     chrome alongside. */
+  .field-group > summary {
+    cursor: pointer; list-style: none;
+    display: flex; align-items: center; min-height: 44px;
+  }
   .field-group > summary::-webkit-details-marker { display: none; }
   .field-group > summary::before {
     content: '▸'; display: inline-block; margin-right: 6px;

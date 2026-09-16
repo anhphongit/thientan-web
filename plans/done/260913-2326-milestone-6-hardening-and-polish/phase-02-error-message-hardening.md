@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Error message hardening"
-status: pending
+status: complete
 priority: P1
 effort: "4h"
 dependencies: [1]

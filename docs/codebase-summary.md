@@ -24,6 +24,7 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 | `ExportSheet.gs` | 324 | M4 | Spreadsheet export layout and styling |
 | `Migrations.gs` | 328 | M2–M5 | One-time schema migrations (add columns, backfill data) |
 | `Security.gs` | 322 | M3 | Audit logging, security event recording, access control |
+| `SystemHealth.gs` | 68 | M6 | Admin-only system health panel: last backup status, error counts (24h/7d) |
 | `DevSeed.gs` | 204 | M1 | Test data generation (reference file → Orders/OrderLines for development) |
 
 **Notes:**
@@ -43,7 +44,7 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 | `Styles.html` | 1338 | M1–M5 | Global CSS, component classes, theme variables |
 | `ViewsOrders.html` | 3163 | M1–M5 | Order list + detail card UI, search/filter inputs, approval flow, reject modal |
 | `ViewsInventory.html` | 836 | M5 | Product catalog UI: list, detail card, add/edit product form |
-| `ViewsAdmin.html` | 1578 | M1–M3 | User matrix, permission grid, role presets, config editing |
+| `ViewsAdmin.html` | 1578 | M1–M6 | User matrix, permission grid, role presets, config editing, system health panel |
 | `ViewsStats.html` | 615 | M4 | Revenue statistics display: charts, period/filter toggles, CSV export link |
 
 ### AppScript Logic (`apps/web/*.gs`)
@@ -59,7 +60,7 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 
 ## 3. Test Suite (`tools/offline-tests/*.test.js`)
 
-18 test files, **1154 total assertions** across all suites.
+19 test files, **1154+ total assertions** across all suites (updated 2026-09-16).
 
 | File | Assertions | Purpose |
 |------|-----------|---------|
@@ -81,8 +82,9 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 | `products.test.js` | 67 | Product CRUD, low-stock flag, lookup, inactive handling |
 | `products-ui.test.js` | 53 | Product UI: list, detail, add/edit forms, picker |
 | `stats.test.js` | 65 | Revenue stats: bucketing, filtering, customer/status grouping |
+| `system-health.test.js` | — | System health panel: permission gate, error-count windowing, logging isolation |
 
-**How to run:** `for f in tools/offline-tests/*.test.js; do node "$f" || echo "FAIL $f"; done` — all 18 should pass, 0 failures.
+**How to run:** `for f in tools/offline-tests/*.test.js; do node "$f" || echo "FAIL $f"; done` — all 19 should pass, 0 failures (26/26 total with offline helpers).
 
 ---
 
@@ -108,7 +110,9 @@ Quick reference guide to the project's modules, milestones, and test coverage.
 - **M3** — Approval workflow, security audit logging, status history
 - **M4** — Statistics (revenue by period/customer/status), export to multiple formats
 - **M5** — Product catalog, inventory lookup, responsive UI, Vietnamese localization
-- **M6** — Backup, final responsive polish, user guide (in progress)
+- **M5a** — Order status → line status migration (complete, 2026-09-14)
+- **M5b** — Permission labels and per-user visible fields config (complete, 2026-09-14)
+- **M6** — Backup, responsive polish, Vietnamese completeness, user guide (complete and live-verified, 2026-09-16; includes 3 stretch items: scheduled backup+retention, admin health panel, regression-guard script)
 
 ---
 

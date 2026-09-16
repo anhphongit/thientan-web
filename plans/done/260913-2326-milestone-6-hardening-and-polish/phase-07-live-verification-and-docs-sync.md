@@ -1,10 +1,10 @@
 ---
 phase: 7
 title: "Live verification and docs sync"
-status: pending
+status: complete
 priority: P1
 effort: "3h"
-dependencies: [1, 2, 4, 5, 6]
+dependencies: [1, 2, 3, 4, 5, 6]
 ---
 
 # Phase 7: Live verification and docs sync
@@ -20,13 +20,11 @@ M2-M5 as the template for what a signoff entry looks like).
 
 ## Key Insights
 
-- **Corrected (red-team Finding 15): Phase 3 is a soft/optional dependency, not a hard blocker.**
-  Phase 3's own Risk Assessment names it "the first phase to cut if time runs short" — a hard
-  frontmatter dependency on a phase explicitly designed to be droppable had no documented unblock
-  procedure. This phase's `dependencies` frontmatter now lists only `[1, 2, 4, 5, 6]`. If Phase 3
-  shipped, walk its part of the checklist too (system-health panel showing real backup/error data)
-  and record it as delivered. If Phase 3 was cut, this phase proceeds without it — record the cut
-  explicitly in the `docs/MILESTONES.md` signoff entry (step 6 below), it is not silently omitted.
+- **Update (2026-09-16): Phase 3 shipped — un-cancelled at user request, implemented after all.**
+  This phase's `dependencies` frontmatter now lists `[1, 2, 3, 4, 5, 6]`. Walk Phase 3's part of the
+  checklist (system-health panel showing real backup/error data from the live deployment) and
+  record it as delivered in the `docs/MILESTONES.md` signoff entry, alongside the other stretch
+  items.
 - `docs/development-roadmap.md` is already stale relative to `docs/MILESTONES.md` (it still shows
   M5 phases 4-5 "in progress" as of this plan's creation, while `MILESTONES.md`'s progress log
   shows M5 fully signed off 2026-09-13) — this phase's docs-sync step should reconcile
@@ -37,9 +35,8 @@ M2-M5 as the template for what a signoff entry looks like).
   **web**") — apply the same order here: push `apps/api` (includes Phase 1's `BackupJob.gs`, Phase
   2/3's error/health additions), run any new `setupMilestone6()`/`installBackupTrigger()` editor-
   only functions, then push `apps/web`.
-- If Phase 3 (admin health panel, stretch) was cut for time, this phase's docs-sync must record
-  that explicitly as a deliberate scope decision (per Phase 3's own risk note), not silently omit
-  it from the changelog.
+- Phase 3 (admin health panel, stretch) shipped — record it as delivered in the changelog/signoff
+  entry, not as a cut item.
 - Confirm the "restorable copy" reading from plan.md's "Out of scope" note during the actual
   checklist walkthrough — have Phong open one produced backup copy directly in Sheets as the
   concrete proof of "restorable," since that's the literal exit criterion wording.
@@ -62,7 +59,8 @@ M2-M5 as the template for what a signoff entry looks like).
 
 1. Push `apps/api`, publish a new version.
 2. Run Phase 1's setup/trigger-install editor-only functions (`installBackupTrigger()` if the
-   scheduled stretch shipped) and Phase 3's `ErrorLog` sheet setup (if that stretch shipped).
+   scheduled stretch shipped). Phase 3 needs no separate setup function — it extends the existing
+   `DevLog` sheet/`logDevEvent_` mechanism, not a new sheet.
 3. Push `apps/web`, publish.
 4. Walk `docs/CHECKLIST_M6_VI.md` live with Phong: real iPhone Safari + Android Chrome pass
    (Section A), manual backup button + open the resulting copy directly in Sheets, deliberate
@@ -86,15 +84,16 @@ M2-M5 as the template for what a signoff entry looks like).
 
 ## Success Criteria
 
-- [ ] All four `docs/MILESTONES.md` M6 exit criteria confirmed live: backup restorable, iOS
+- [x] All four `docs/MILESTONES.md` M6 exit criteria confirmed live: backup restorable, iOS
       Safari + Android Chrome usable, full `PERMISSIONS.md` checklist passes, an employee completes
       the order lifecycle unaided using `USER_GUIDE_VI.md`
-- [ ] `docs/MILESTONES.md`, `docs/development-roadmap.md`, `docs/codebase-summary.md`,
+- [x] `docs/MILESTONES.md`, `docs/development-roadmap.md`, `docs/codebase-summary.md`,
       `docs/project-changelog.md` all updated and mutually consistent (no stale M5/M6 status left
       in any of them)
-- [ ] Any bugs found during the live pass are fixed and re-verified before this phase is marked done
-- [ ] Any dropped stretch item (Phase 3 and/or Phase 1's scheduled-backup/retention sub-items) is
-      explicitly recorded as a deliberate cut, not silently omitted
+- [x] Any bugs found during the live pass are fixed and re-verified before this phase is marked done
+- [x] Any dropped stretch item (e.g. Phase 1's scheduled-backup/retention sub-items, if not
+      shipped) is explicitly recorded as a deliberate cut, not silently omitted; Phase 3 is recorded
+      as delivered
 
 ## Risk Assessment
 
@@ -110,3 +109,22 @@ M2-M5 as the template for what a signoff entry looks like).
 - Re-run `docs/PERMISSIONS.md`'s full checklist as M6 explicitly requires — this is the first
   milestone to demand the *complete* matrix re-check (prior milestones checked relevant slices),
   catching any drift accumulated across M2-M5's incremental permission changes.
+
+## Live Verification Result
+
+**Date:** 2026-09-16  
+**Status:** All exit criteria confirmed passed
+
+User pushed both apps live (api first, then web per protocol), ran editor-only setup functions
+(`installBackupTrigger()`, no separate Phase 3 setup needed). Full walkthrough of
+`docs/CHECKLIST_M6_VI.md` completed with live deployment:
+
+- ✓ Backup restorable: Manual backup button tested, resulting copy opened directly in Sheets
+- ✓ iOS Safari (iPhone) + Android Chrome (Emulator) responsive pass verified  
+- ✓ Full `docs/PERMISSIONS.md` checklist matrix re-run: all permissions correct
+- ✓ Employee (Phong) order lifecycle: completed unaided using `docs/USER_GUIDE_VI.md`
+- ✓ Admin health panel (Phase 3 stretch): live deployment showing real backup/error data, all 4
+  tracked triggers confirmed installed via health panel status display
+
+No bugs surfaced during live testing. All Milestone 6 stretch items delivered (Phase 1: scheduled
+backup + retention, Phase 3: admin health panel, Phase 5: regression-guard script).

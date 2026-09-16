@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Mobile responsive hardening"
-status: pending
+status: complete
 priority: P1
 effort: "3h"
 dependencies: []

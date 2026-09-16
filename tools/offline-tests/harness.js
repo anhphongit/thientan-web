@@ -14,6 +14,59 @@ function makeEnv(configOverrides) {
                   Config: [] };  // Will be populated below after publicConfig is set
   const props = {};
   let uuid = 0;
+
+  /**
+   * Milestone 6 / Phase 1 — builds the Drive-folder API surface BackupJob.gs
+   * needs (nested subfolders, getFolders() iteration, getDateCreated() for
+   * retention-cutoff sorting, setTrashed()) on top of the id-keyed record in
+   * `sandbox.fakeDriveFolderRecords`. Every call re-reads the record live
+   * (rather than closing over a stale copy), so a test can mutate
+   * `env.fakeDriveFolderRecords[id].dateCreated` directly to backdate a
+   * backup folder — the same "edit the record, no real clock needed"
+   * technique exportjob.test.js already uses for job.updatedAt. Declared
+   * here (not as a plain sandbox property) because it also needs `uuid` for
+   * fresh child-folder/file ids, which — unlike `sandbox` — is a closed-over
+   * local, not something reachable from inside the sandbox object itself.
+   */
+  function makeFakeFolder(id) {
+    const rec = sandbox.fakeDriveFolderRecords[id];
+    const folder = {
+      getId: () => id,
+      getName: () => rec.name,
+      getUrl: () => 'https://drive.example/folder/' + id,
+      getDateCreated: () => rec.dateCreated,
+      setTrashed(v) { rec.trashed = v; return folder; },
+      isTrashed: () => rec.trashed,
+      createFolder(name) {
+        const childId = 'folder-' + (++uuid);
+        sandbox.fakeDriveFolderRecords[childId] = {
+          id: childId, name, dateCreated: new Date(), trashed: false, childFolderIds: []
+        };
+        rec.childFolderIds.push(childId);
+        return makeFakeFolder(childId);
+      },
+      createFile(blob) {
+        const fileId = 'file-' + (++uuid);
+        const file = {
+          getId: () => fileId,
+          getName: () => blob.getName(),
+          getUrl: () => 'https://drive.example/file/' + fileId,
+          setTrashed(v) { sandbox.fakeDriveFiles[fileId].trashed = v; return file; }
+        };
+        sandbox.fakeDriveFiles[fileId] = { id: fileId, blob, folderId: id, trashed: false };
+        return file;
+      },
+      getFolders() {
+        const ids = rec.childFolderIds.slice();
+        let i = 0;
+        return {
+          hasNext: () => i < ids.length,
+          next: () => makeFakeFolder(ids[i++])
+        };
+      }
+    };
+    return folder;
+  }
   // Milestone 3 / 3.8 — approvalFlowEnabled defaults to false, same as a
   // real freshly-seeded deployment (CONFIG_DEFAULTS in Config.gs). Tests
   // that exercise the approve-status workflow pass { approvalFlowEnabled: true }.
@@ -111,6 +164,17 @@ function makeEnv(configOverrides) {
     fakeDriveFolders: {},
     fakeDriveFiles: {},
     fakeEmails: [],
+    // Milestone 6 / Phase 1 — BackupJob.gs needs richer fake Drive folders
+    // than exportsFolder_()'s flat/name-only ones: a parent backups folder
+    // that can hold nested timestamped subfolders, be looked up by id
+    // (DriveApp.getFolderById — Finding 13's collision-safe path), and be
+    // trashed (retention cleanup). `fakeDriveFolders` above stays a
+    // name->id index (unchanged shape/semantics — existing exportjob.test.js
+    // does `'name' in env.fakeDriveFolders`); `fakeDriveFolderRecords` is the
+    // real id-keyed store every folder object reads/writes through, so a
+    // test can freely backdate `getDateCreated()` the same way exportjob
+    // tests backdate `job.updatedAt` directly, without a real clock.
+    fakeDriveFolderRecords: {},
     UrlFetchApp: {
       // fetchSpreadsheetExportBase64_'s only use of UrlFetchApp: fetching
       // a spreadsheet's own xlsx/pdf export URL. The harness has no real
@@ -128,40 +192,69 @@ function makeEnv(configOverrides) {
     },
     DriveApp: {
       getFoldersByName(name) {
-        const folder = sandbox.fakeDriveFolders[name];
-        let done = !folder;
+        const id = sandbox.fakeDriveFolders[name];
+        let done = !id;
         return {
           hasNext: () => !done,
-          next() { done = true; return folder; }
+          next() { done = true; return makeFakeFolder(id); }
         };
       },
       createFolder(name) {
         const id = 'folder-' + (++uuid);
-        const folder = {
-          getId: () => id,
-          getName: () => name,
-          createFile(blob) {
-            const fileId = 'file-' + (++uuid);
-            const file = {
-              getId: () => fileId,
-              getName: () => blob.getName(),
-              getUrl: () => 'https://drive.example/file/' + fileId,
-              setTrashed(v) { sandbox.fakeDriveFiles[fileId].trashed = v; return file; }
-            };
-            sandbox.fakeDriveFiles[fileId] = { id: fileId, blob, folderId: id, trashed: false };
-            return file;
-          }
+        sandbox.fakeDriveFolderRecords[id] = {
+          id, name, dateCreated: new Date(), trashed: false, childFolderIds: []
         };
-        sandbox.fakeDriveFolders[name] = folder;
-        return folder;
+        sandbox.fakeDriveFolders[name] = id;
+        return makeFakeFolder(id);
+      },
+      /** Milestone 6 / Phase 1 (Finding 13) — the collision-safe lookup path
+       *  backupsParentFolder_() tries first. Throws for a missing/deleted
+       *  id, same as a real 404 would surface as an exception — BackupJob.gs
+       *  wraps this in its own try/catch and falls back to name lookup. */
+      getFolderById(id) {
+        if (!sandbox.fakeDriveFolderRecords[id]) {
+          throw new Error('DriveApp.getFolderById: no fake folder ' + id);
+        }
+        return makeFakeFolder(id);
       },
       getFileById(id) {
         const rec = sandbox.fakeDriveFiles[id];
-        if (!rec) throw new Error('DriveApp.getFileById: no fake file ' + id);
-        return {
-          setTrashed(v) { rec.trashed = v; return this; },
-          getId: () => id
-        };
+        if (rec) {
+          return {
+            setTrashed(v) { rec.trashed = v; return this; },
+            getId: () => id,
+            getUrl: () => 'https://drive.example/file/' + id
+          };
+        }
+        // Milestone 6 / Phase 1 — backupNow_() calls
+        // DriveApp.getFileById(ss.getId()).makeCopy(name, folder) on the
+        // LIVE spreadsheet's own Drive file wrapper. This harness has no
+        // real Drive backend to duplicate bytes/formulas against (that's
+        // exactly what a real deployment's live-verification phase checks
+        // instead — see the phase plan's Success Criteria), so a fake
+        // spreadsheet id just produces a new tracked Drive file record
+        // registered into the given folder, enough to exercise
+        // backupNow_()'s real control flow (folder resolution, copy call,
+        // ScriptProperties writes) offline.
+        if (sandbox.fakeSpreadsheets[id]) {
+          return {
+            getId: () => id,
+            makeCopy(name, folder) {
+              const fileId = 'file-' + (++uuid);
+              const file = {
+                getId: () => fileId,
+                getName: () => name,
+                getUrl: () => 'https://drive.example/file/' + fileId,
+                setTrashed(v) { sandbox.fakeDriveFiles[fileId].trashed = v; return file; }
+              };
+              sandbox.fakeDriveFiles[fileId] = {
+                id: fileId, name, folderId: folder && folder.getId && folder.getId(), trashed: false
+              };
+              return file;
+            }
+          };
+        }
+        throw new Error('DriveApp.getFileById: no fake file ' + id);
       }
     },
     MailApp: {
@@ -229,6 +322,28 @@ function makeEnv(configOverrides) {
     },
 
     /* --- SheetsRepo stand-ins --- */
+    /**
+     * Milestone 6 / Phase 1 — BackupJob.gs is the first harness-loaded file
+     * to call SheetsRepo.gs's getSpreadsheet_() directly (every other
+     * loaded file goes through readAll_/findBy_/etc., which this harness
+     * already stubs on its own, bypassing SheetsRepo.gs entirely). Not a
+     * full port of the real memoized getSpreadsheet_ — just enough of its
+     * contract (an object with getId()/getName()) for backupNow_() to
+     * resolve a "live" spreadsheet and hand its id to
+     * DriveApp.getFileById(...).makeCopy(...). Lazily creates one fake
+     * spreadsheet the first time it's called and returns the same one on
+     * every later call within this env, same singleton behavior as the
+     * real _ssMemo cache.
+     */
+    getSpreadsheet_() {
+      if (!sandbox.fakeLiveSpreadsheetId) {
+        const id = 'live-ss-' + (++uuid);
+        sandbox.fakeSpreadsheets[id] = { id, name: 'THIENTAN (live)', cells: [], sheets: [] };
+        sandbox.fakeLiveSpreadsheetId = id;
+      }
+      const rec = sandbox.fakeSpreadsheets[sandbox.fakeLiveSpreadsheetId];
+      return { getId: () => rec.id, getName: () => rec.name };
+    },
     readAll_(name) {
       return (store[name] || []).map((row, i) => Object.assign({}, row, { _row: i + 2 }));
     },
@@ -280,7 +395,8 @@ function makeEnv(configOverrides) {
   vm.createContext(sandbox);
 
   ['Config.gs', 'Auth.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs',
-   'ExportJob.gs', 'Stats.gs', 'Products.gs', 'Admin.gs', 'AdminConfig.gs'].forEach(f => {
+   'ExportJob.gs', 'Stats.gs', 'Products.gs', 'Admin.gs', 'AdminConfig.gs',
+   'BackupJob.gs', 'SystemHealth.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;

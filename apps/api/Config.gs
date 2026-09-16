@@ -15,7 +15,7 @@
  */
 
 /** Bump on every meaningful API change. Surfaced in the web footer in dev mode. */
-var BUILD = 'api-2026-09-07c-product-lookup';
+var BUILD = 'api-2026-09-15a-m6-hardening';
 
 /** Script Property keys. */
 var PROP = {
@@ -446,7 +446,17 @@ var CONFIG_DEFAULTS = [
   // retention from the Config sheet without a code deploy.
   ['exportRetentionDays', '14',
     'Số ngày giữ lại file xuất lớn (Excel/PDF đã lưu vào Drive) và bản ghi ' +
-    'tác vụ xuất trước khi tự động dọn dẹp. Có thể chỉnh số này nếu thấy chưa phù hợp.']
+    'tác vụ xuất trước khi tự động dọn dẹp. Có thể chỉnh số này nếu thấy chưa phù hợp.'],
+
+  /* ---- Milestone 6 / Phase 1 — backup retention ---- */
+  // How many days a backup Drive subfolder (BackupJob.gs) is kept BEYOND
+  // the unconditional newest-3 floor (MIN_BACKUPS_KEPT) before
+  // cleanupOldBackups_ trashes it. Same config-driven pattern as
+  // exportRetentionDays above — an admin can tune this from the Config
+  // sheet without a code deploy.
+  ['backupRetentionDays', '14',
+    'Số ngày giữ lại các bản sao lưu dữ liệu (Drive) trước khi tự động dọn dẹp, ' +
+    'ngoài 3 bản gần nhất luôn được giữ lại. Có thể chỉnh số này nếu thấy chưa phù hợp.']
 ];
 
 /** Vietnamese messages. These travel to the browser, so keep them user-facing. */
@@ -564,3 +574,36 @@ var MSG = {
   CONFIG_CURRENCY_EMPTY: 'Đơn vị tiền tệ không được để trống.',
   CONFIG_CURRENCY_TOO_LONG: 'Đơn vị tiền tệ quá dài (tối đa 10 ký tự).'
 };
+
+/**
+ * Milestone 6 / Phase 2 — error message hardening.
+ *
+ * Every one of this project's ~88 `throw new Error(MSG.X)` sites already
+ * throws a message that is EXACTLY one of the values enumerated in `MSG`
+ * above — those were already reviewed and are safe to show verbatim. Any
+ * OTHER `.message` reaching a top-level catch is an unexpected runtime
+ * exception (GAS exceptions can embed sheet/range names, formula text, or
+ * Drive file ids — more identifying than a typical stack-trace-scrubbed web
+ * framework), so it must never reach the browser as-is.
+ *
+ * Content-based check, not a marker: this needs zero changes to any
+ * existing throw site — only to the small number of top-level catches that
+ * currently forward raw `err.message` text (see plan
+ * 260913-2326-milestone-6-hardening-and-polish, Phase 2).
+ */
+var KNOWN_MSG_VALUES_ = null;
+function isKnownMessage_(text) {
+  if (!KNOWN_MSG_VALUES_) {
+    KNOWN_MSG_VALUES_ = {};
+    Object.keys(MSG).forEach(function (k) { KNOWN_MSG_VALUES_[MSG[k]] = true; });
+  }
+  return !!KNOWN_MSG_VALUES_[text];
+}
+
+/** Call at every top-level catch that currently forwards err.message to the browser. */
+function safeErrorMessage_(err) {
+  var text = (err && err.message) ? err.message : String(err);
+  if (isKnownMessage_(text)) return text;
+  console.error('unexpected error: ' + (err && err.stack ? err.stack : err));
+  return MSG.GENERIC;
+}

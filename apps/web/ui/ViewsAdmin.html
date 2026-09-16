@@ -59,7 +59,22 @@
 
     // ---- Config tab (Milestone 5 / 5.4) ----
     config: [], configLoadedAt: 0, configRefreshing: false,
-    configEdits: {} // Tracks unsaved changes per key
+    configEdits: {}, // Tracks unsaved changes per key
+
+    // ---- Backup (Milestone 6 / Phase 1) ----
+    // backupResult: {folderUrl, fileUrl, createdAt} from the last successful
+    // apiBackupNow call THIS SESSION — not persisted/reloaded, unlike the
+    // server's own lastBackupAt/lastBackupFolderUrl ScriptProperties (see
+    // BackupJob.gs), which exist for a later, unrelated execution to read
+    // back, not for this screen.
+    backupBusy: false, backupResult: null, backupError: null,
+
+    // ---- System health (Milestone 6 / Phase 3, stretch) ----
+    // health: {lastBackup:{at,folderUrl}, recentErrorCount:{last24h,last7d}}
+    // fetched best-effort alongside config (see fetchHealth) — a fetch
+    // failure only clears this section (healthError), never blocks the
+    // rest of the settings screen.
+    health: null, healthError: null
   };
 
   function isBusy() { return !!state.busyAction; }
@@ -980,6 +995,7 @@
   function showConfigTab() {
     state.activeTab = 'config';
     var seq = ++viewSeq;
+    fetchHealth(seq);
 
     if (state.config.length) {
       paintConfigTab();
@@ -1041,9 +1057,163 @@
           (isSaving ? ' disabled' : '') + '>← Quay lại</button>' +
       '</div>' +
       '<div style="max-width: 700px; margin: 0 auto; padding: 0 16px;">' +
+        backupSectionHtml() +
+        healthSectionHtml() +
         state.config.map(function (item) { return configSectionHtml(item, isSaving); }).join('') +
       '</div>' +
       configSaveBarHtml();
+  }
+
+  /**
+   * Milestone 6 / Phase 1 — "Sao lưu ngay" (backup now) card. Same card
+   * shell as configSectionHtml() below (this is the same settings screen),
+   * not a borrowed/repurposed class from a different context. Server-side
+   * gating is the real boundary (BackupJob.gs's actionBackupNow_ re-checks
+   * manage_users) — this button only ever renders inside the config tab,
+   * which the app shell already gates on manage_users at the nav level
+   * (App.html's NAV_ITEMS), same as every other section of this file.
+   */
+  function backupSectionHtml() {
+    var busy = state.backupBusy;
+    var resultHtml = '';
+    if (state.backupResult) {
+      resultHtml = '<p class="config-desc">Lần sao lưu gần nhất: ' +
+        T.esc(T.formatDate(state.backupResult.createdAt)) + ' — ' +
+        '<a href="' + T.esc(state.backupResult.folderUrl) + '" target="_blank" rel="noopener">' +
+        'Xem thư mục trên Drive</a></p>';
+    } else if (state.backupError) {
+      resultHtml = '<p class="config-desc err-text">' + T.esc(state.backupError) + '</p>';
+    }
+
+    return '' +
+      '<section class="card" style="margin-bottom: 16px; padding: 16px;">' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border);">' +
+          '<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--c-text);">Sao lưu dữ liệu</h3>' +
+        '</div>' +
+        '<p class="config-desc">Tạo một bản sao đầy đủ của toàn bộ dữ liệu vào Google Drive.</p>' +
+        '<button type="button" class="btn btn-primary" data-act="backup-now"' +
+          (busy ? ' disabled' : '') + '>' +
+          (busy ? 'Đang sao lưu...' : 'Sao lưu ngay') +
+        '</button>' +
+        resultHtml +
+      '</section>';
+  }
+
+  /**
+   * Same google.script.run + T.confirm() pattern used by other admin
+   * actions in this view (e.g. onPresetChange_'s confirm before a
+   * destructive-ish change) — confirm first, then call, repainting the
+   * config tab on every state change so the button's busy/disabled state
+   * and the result/error line stay in sync with state.backupBusy/
+   * backupResult/backupError.
+   */
+  function runBackupNow_() {
+    if (state.backupBusy) return;
+    T.confirm('Tạo bản sao lưu dữ liệu vào Google Drive ngay bây giờ?').then(function (confirmed) {
+      if (!confirmed) return;
+      state.backupBusy = true;
+      state.backupError = null;
+      paintConfigTab();
+
+      T.call('apiBackupNow', {}).then(function (data) {
+        state.backupBusy = false;
+        state.backupResult = data;
+        paintConfigTab();
+        T.toast('Đã sao lưu thành công.');
+      }).catch(function (err) {
+        state.backupBusy = false;
+        state.backupError = err.message;
+        paintConfigTab();
+        T.toast(err.message, true);
+      });
+    });
+  }
+
+  /**
+   * Milestone 6 / Phase 3 (stretch) — "Tình trạng hệ thống" card: last
+   * backup timestamp + Drive link (Phase 1's persisted ScriptProperties,
+   * read via actionSystemHealth_) and unexpected-error counts from DevLog.
+   * The count is combined web+api (see SystemHealth.gs's file doc comment
+   * for why this isn't apps/api-only, unlike the original stretch design).
+   * Compact key-value table layout (user-approved, 2026-09-16). Renders
+   * nothing while the best-effort fetch (fetchHealth) hasn't resolved yet —
+   * this is a read-only nice-to-have next to the backup card, not worth a
+   * loading skeleton of its own.
+   *
+   * Phase 7 live-verification addon (2026-09-16): also lists every
+   * persistent trigger this codebase installs (SystemHealth.gs's
+   * TRACKED_TRIGGERS_), each row showing installed/missing — none of
+   * these installers has a web-UI equivalent (deliberately editor-only,
+   * same reasoning as the backup schedule), so this is the only in-app way
+   * an admin can confirm a setup step wasn't missed, short of opening the
+   * Apps Script editor's own Triggers page.
+   */
+  function healthSectionHtml() {
+    if (!state.health && !state.healthError) return '';
+
+    var cellLabel = 'padding: 4px 8px 4px 0; color: var(--c-muted); white-space: nowrap;';
+    var cellValue = 'padding: 4px 0;';
+    var rowsHtml;
+
+    if (state.healthError) {
+      rowsHtml = '<tr><td colspan="2" class="config-desc err-text">' +
+        T.esc(state.healthError) + '</td></tr>';
+    } else {
+      var h = state.health;
+      var backupAt = (h.lastBackup && h.lastBackup.at) ? T.formatDate(h.lastBackup.at) : 'Chưa có';
+      var backupLink = (h.lastBackup && h.lastBackup.folderUrl)
+        ? '<a href="' + T.esc(h.lastBackup.folderUrl) + '" target="_blank" rel="noopener">Mở thư mục Drive</a>'
+        : '—';
+      var c = h.recentErrorCount || {};
+      rowsHtml =
+        '<tr><td style="' + cellLabel + '">Sao lưu gần nhất</td><td style="' + cellValue + '">' +
+          T.esc(backupAt) + '</td></tr>' +
+        '<tr><td style="' + cellLabel + '">Thư mục sao lưu</td><td style="' + cellValue + '">' +
+          backupLink + '</td></tr>' +
+        '<tr><td style="' + cellLabel + '">Lỗi hệ thống (24 giờ qua)</td><td style="' + cellValue + '">' +
+          (c.last24h || 0) + '</td></tr>' +
+        '<tr><td style="' + cellLabel + '">Lỗi hệ thống (7 ngày qua)</td><td style="' + cellValue + '">' +
+          (c.last7d || 0) + '</td></tr>' +
+        (h.triggers || []).map(function (t) {
+          var statusHtml = t.installed
+            ? '<span style="color: var(--c-ok);">✅ Đã cài đặt</span>'
+            : '<span class="err-text">⚠️ Chưa cài đặt — chạy <code>' + T.esc(t.installFn) +
+              '()</code> trong Apps Script</span>';
+          return '<tr><td style="' + cellLabel + '">' + T.esc(t.label) + '</td><td style="' +
+            cellValue + '">' + statusHtml + '</td></tr>';
+        }).join('');
+    }
+
+    return '' +
+      '<section class="card" style="margin-bottom: 16px; padding: 16px;">' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border);">' +
+          '<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--c-text);">Tình trạng hệ thống</h3>' +
+        '</div>' +
+        '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">' +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</section>';
+  }
+
+  /**
+   * Best-effort load of the health panel, independent of fetchConfig()'s
+   * own load/error path (called unconditionally from showConfigTab, both
+   * the cached-config and fresh-fetch branches) — a failure here only
+   * clears the section via state.healthError, never blocks or breaks the
+   * rest of the settings screen.
+   */
+  function fetchHealth(seq) {
+    T.call('apiSystemHealth', {}).then(function (data) {
+      if (staleView_(seq)) return;
+      state.health = data;
+      state.healthError = null;
+      if (state.activeTab === 'config') paintConfigTab();
+    }).catch(function (err) {
+      if (staleView_(seq)) return;
+      state.health = null;
+      state.healthError = err.message;
+      if (state.activeTab === 'config') paintConfigTab();
+    });
   }
 
   function configSaveBarHtml() {
@@ -1341,6 +1511,10 @@
     }
     if (act === 'save-config') {
       saveConfig();
+      return;
+    }
+    if (act === 'backup-now') {
+      runBackupNow_();
       return;
     }
     if (act === 'add-status') {

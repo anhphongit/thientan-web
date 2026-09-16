@@ -99,7 +99,17 @@ function guardSetup_() {
                     // Plan 260912-1110 Phase 4 — keep-warm ping installer,
                     // same editor-only, trigger-only shape as
                     // installExpiryReminder/checkSecretExpiry above.
-                    'installKeepWarmTrigger', 'keepWarmPing'];
+                    'installKeepWarmTrigger', 'keepWarmPing',
+                    // Milestone 6 / Phase 1 — backup-to-Drive daily trigger
+                    // install + its trigger targets (BackupJob.gs). Same
+                    // editor-only, trigger-only shape as
+                    // installExportJobCleanupReminder/cleanupExportJobs
+                    // above — this array entry is documentation/consistency
+                    // only, NOT the actual HTTP-unreachability guarantee
+                    // (that's simply never adding these names to
+                    // getActions_() below — see BackupJob.gs's file doc
+                    // comment).
+                    'installBackupTrigger', 'runScheduledBackup_', 'cleanupOldBackups_'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

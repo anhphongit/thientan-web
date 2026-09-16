@@ -355,7 +355,13 @@ console.log('\n11. deliverExportJob_ — a delivery failure never turns a finish
 
   check('job status stays done even though delivery failed', job.status === 'done');
   check('job.deliveryUrl stays null', job.deliveryUrl == null);
-  check('job.deliveryError captured the failure', job.deliveryError && job.deliveryError.indexOf('Simulated Drive quota error') >= 0);
+  // Milestone 6 / Phase 2 (error message hardening) — deliverExportJob_ now
+  // runs the caught error through safeErrorMessage_ before storing it on the
+  // job record: 'Simulated Drive quota error' is not one of this project's
+  // known MSG.* values, so it degrades to MSG.GENERIC (the real detail still
+  // reaches console.error, just no longer the client-visible deliveryError).
+  check('job.deliveryError degrades to MSG.GENERIC, never the raw internal detail',
+    job.deliveryError === env.MSG.GENERIC);
   check('rows/styling already written are untouched (rowsWritten == totalRows)', job.rowsWritten === job.totalRows);
   check('no email was attempted after the Drive step failed', env.fakeEmails.length === 0);
 

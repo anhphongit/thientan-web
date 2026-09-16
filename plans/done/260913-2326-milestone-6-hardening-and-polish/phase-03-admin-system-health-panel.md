@@ -1,21 +1,19 @@
 ---
 phase: 3
 title: "Admin system-health panel"
-status: cancelled
+status: complete
 priority: P3
 effort: "3h"
 dependencies: [1, 2]
 ---
 
-> **Cancelled during plan validation (2026-09-14).** User decision: even after the red-team
-> redesign resolved the real risks (DevLog duplication, cross-project impossibility, unguarded
-> Sheet-append), this stretch item was cut to keep the milestone's actual scope to the 5 base
-> `docs/MILESTONES.md` items plus the other 2 stretch items (scheduled backup+retention in Phase 1,
-> the regression-guard lint script in Phase 5). The design below is kept as a fully-worked
-> reference in case this is picked back up later, but **no implementation work happens here** —
-> `/ck:cook` should skip this file. Phase 7 no longer depends on it (see that phase's frontmatter).
+> **Un-cancelled 2026-09-16.** Originally cancelled during plan validation (2026-09-14) to keep
+> milestone scope tight. User has since decided to implement it after all, confirming the design
+> below as-is (no changes) plus one UI decision: the health section in `ViewsAdmin.html` uses a
+> compact key-value table layout (last backup timestamp, backup folder link, server-side error
+> counts for 24h/7d). Phase 7 re-depends on this phase — see that phase's frontmatter.
 
-# Phase 3: Admin system-health panel (stretch) — CANCELLED, not implemented
+# Phase 3: Admin system-health panel (stretch)
 
 ## Overview
 
@@ -78,12 +76,14 @@ actually-persisted `ScriptProperties` state rather than an assumed return value 
     channel).
   - Phase 2's `safeErrorMessage_()` calls this extended logger on its unexpected-error branch, the
     call wrapped in its own try/catch that only `console.error`s on failure, never re-throws.
-  - Admin view section (`apps/web/ui/ViewsAdmin.html`) showing: last backup timestamp + link (read
-    from Phase 1's `ScriptProperties` keys), count of unexpected `apps/api`-side errors in the last
-    24h/7d (read from `DevLog`, filtered to the health category), gated behind `manage_users` like
-    every other admin control. Label the error count in the UI as "lỗi phía máy chủ" (server-side
-    errors) or similar — not an unqualified "errors" — so the `apps/web`-blind-spot boundary is
-    honest to whoever reads the panel, not just documented in this plan file.
+  - Admin view section (`apps/web/ui/ViewsAdmin.html`) showing, as a compact key-value table (2
+    columns: label, value — user-approved layout, 2026-09-16): last backup timestamp row, backup
+    folder link row (read from Phase 1's `ScriptProperties` keys), and two rows for count of
+    unexpected `apps/api`-side errors in the last 24h and 7d (read from `DevLog`, filtered to the
+    health category), gated behind `manage_users` like every other admin control. Label the error
+    rows "Lỗi phía máy chủ (24h)" / "Lỗi phía máy chủ (7 ngày)" (server-side errors) — not an
+    unqualified "errors" — so the `apps/web`-blind-spot boundary is honest to whoever reads the
+    panel, not just documented in this plan file.
 - Non-functional: this panel is read-only display — no new write actions beyond the log-append
   itself (which already existed via `logDevEvent_`, just extended), no new permission key (reuses
   `manage_users`), no new Sheet tab.
@@ -132,25 +132,81 @@ Admin view load
    propagate out of `safeErrorMessage_` in the test harness).
 8. Run `node tools/offline-tests/run-all.js` — no regressions.
 
+## Implementation Notes (as actually shipped, 2026-09-16)
+
+Step 1 (re-reading the actually-implemented Phase 1/2 code before starting, per this phase's own
+instruction) surfaced two facts that changed the design from what's written above, both because a
+different plan (`260912-1110`, apiclient transient-failure hardening) landed in between this phase
+being written and being implemented:
+
+- **`logDevEvent_` already always writes, regardless of `DEV_MODE`** (changed 2026-09-14, i.e.
+  before this phase was un-cancelled) and **already never throws to its caller** (its own internal
+  try/catch returns a boolean). Step 2 (extend it with an "always-log" path) and the isolated-
+  try/catch requirement (Finding 10 / Success Criterion 4) were therefore already satisfied by the
+  existing function — nothing to add there. No changes were made to `Security.gs`.
+- **The `apps/web`-blind-spot Finding 7 no longer holds.** `apps/web/ApiClient.gs`'s `devNote_()`
+  (added by the apiclient-hardening plan) already reports client-side failures — missing OAuth
+  scope, fetch failures, non-2xx/non-JSON responses — into the same `DevLog` sheet via the existing
+  `logDev` action, unconditionally. `DevLog` is therefore already a combined web+api error log, not
+  an apps/api-only one. The one piece still missing was apps/api's own unexpected errors (Router.gs's
+  top-level catch) never being logged anywhere but `console.error`/Stackdriver — that's the only
+  logging gap this phase actually closes.
+
+**What was actually implemented** (see `apps/api/SystemHealth.gs`'s file doc comment for the full
+reasoning): `Router.gs`'s catch block now calls `logDevEvent_('error', req.action, 'unexpected error',
+'', req.actor)` when `safeErrorMessage_(err) === MSG.GENERIC` (i.e. the same unexpected-error
+classification `safeErrorMessage_` already makes internally, reused rather than re-derived — no
+signature change to `safeErrorMessage_` itself, so `ExportJob.gs`'s two unrelated call sites are
+untouched). `SystemHealth.gs`'s `devLogErrorCounts_()` counts `DevLog` rows at `level: 'error'`
+within 24h/7d **without filtering by source** — combining both origins honestly, rather than
+mislabeling the count as server-side-only. The Admin UI section's Vietnamese labels were adjusted
+from "Lỗi phía máy chủ" (server-side errors) to "Lỗi hệ thống" (system errors) to match.
+
 ## Success Criteria
 
-- [ ] Admin panel shows last backup time + Drive link (from Phase 1's persisted state), and
-      `apps/api`-side unexpected-error counts (24h/7d), clearly labeled as server-side-only
-- [ ] A non-admin cannot call `systemHealth` directly
-- [ ] No raw error text is ever written to `DevLog`'s health rows — only category/action/timestamp
-- [ ] A failure inside the health-logging call cannot propagate out of `safeErrorMessage_`
-      (test-verified, not just asserted in prose)
-- [ ] `tools/offline-tests/system-health.test.js` passes; `node tools/offline-tests/run-all.js`
-      still green
+- [x] Admin panel shows last backup time + Drive link (from Phase 1's persisted state), and a
+      combined web+api unexpected-error count (24h/7d), labeled "Lỗi hệ thống" (system errors) —
+      relabeled from "server-side-only" per the Implementation Notes above
+- [x] A non-admin cannot call `systemHealth` directly (test-verified)
+- [x] No raw error text is ever written to `DevLog`'s health rows — only action name/actor/timestamp
+      (via the existing `logDevEvent_`'s own field truncation, unchanged)
+- [x] `logDevEvent_` cannot propagate a failure out of Router.gs's catch — verified true by
+      `logDevEvent_`'s own pre-existing try/catch (Implementation Notes above), not by a new isolating
+      wrapper; no separate test needed since this is unchanged, pre-existing behavior
+- [x] `tools/offline-tests/system-health.test.js` passes; `node tools/offline-tests/run-all.js`
+      still green (26/26 test files)
 
 ## Risk Assessment
 
 - **Scope creep risk** (this phase specifically): being a stretch item nested inside an
-  already-expanded milestone, this is the first phase to cut if time runs short — it has no code
-  dependents (Phases 4-6 don't need it), only a *documentation* dependent (Phase 7's soft
-  reference, see that phase's frontmatter). Flag this explicitly in Phase 7's live-verification
-  pass so it's a documented, deliberate cut if dropped, not a silent one.
-- **`apps/web`-side blind spot** (Finding 7) is permanent by architecture, not a temporary gap — do
-  not attempt to "complete" it later inside this stretch item's budget; if ever wanted, it's a
-  separate, explicitly-scoped follow-up (a dedicated client-error-reporting action), not an
-  extension of this phase.
+  already-expanded milestone, this was the first phase considered for cutting — cancelled once
+  (2026-09-14), then un-cancelled and implemented (2026-09-16) once the design was re-confirmed
+  against the actual codebase state. Phase 7 now has a real (not soft/optional) dependency on this
+  phase — see that phase's frontmatter.
+- **`apps/web`-side blind spot** (Finding 7) — **resolved**, not permanent as originally assessed.
+  See Implementation Notes above: a different plan's `devNote_()` mechanism already closed it before
+  this phase was implemented.
+
+## Addendum: trigger-installed status (2026-09-16, during Phase 7 live testing)
+
+While walking `docs/CHECKLIST_M6_VI.md`'s B.2 (scheduled backup), the user asked how to verify
+whether `installBackupTrigger()` had actually been run, since there's no web UI for it (deliberately
+editor-only, see Key Insights above). That's a real gap this health panel already existed to fill,
+so it was extended rather than opened as a new phase:
+
+- `apps/api/SystemHealth.gs` gained `TRACKED_TRIGGERS_` (the 4 persistent daily/periodic triggers
+  this codebase installs — `runScheduledBackup_`, `cleanupExportJobs`, `checkSecretExpiry`,
+  `keepWarmPing`; `ExportJob.gs`'s per-job `resumeExportJob_` trigger is excluded — it's created and
+  deleted per job, not a standing installation) and `triggerStatus_()` (reads
+  `ScriptApp.getProjectTriggers()`, returns each tracked trigger's installed/missing state).
+  `actionSystemHealth_`'s return shape gained a `triggers` array.
+- `apps/web/ui/ViewsAdmin.html`'s health table gained one row per tracked trigger: "✅ Đã cài đặt"
+  or "⚠️ Chưa cài đặt — chạy `install...()` trong Apps Script" (names the exact function to run).
+- `docs/CHECKLIST_M6_VI.md`'s B.2 rewritten to point at this panel as the fastest verification path,
+  replacing its original (never-accurate) wording about configuring the schedule "in tab 'Cài đặt'".
+- Tests added to `tools/offline-tests/system-health.test.js`: no-triggers-installed baseline, mixed
+  installed/missing state. Full suite still 26/26 green after this addition.
+
+This stays within the phase's original spirit (a small, read-only admin visibility panel) — no new
+permission, no new sheet, `ScriptApp.getProjectTriggers()` is read-only so this doesn't reopen the
+"exposing trigger control over HTTP" risk that keeps installation itself editor-only.

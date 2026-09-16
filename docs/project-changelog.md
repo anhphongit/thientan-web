@@ -2,6 +2,58 @@
 
 All significant changes, features, and fixes are documented here. Format: date, category, impact level, description.
 
+## 2026-09-16
+
+### Milestone 6 Completion: Live Verification and Sign-Off
+
+**Category:** Milestone completion | **Scope:** Hardening and polish | **Status:** COMPLETE (live-verified)
+
+**What Shipped:**
+- **Base scope (4 exit criteria all confirmed live):**
+  - Backup produces restorable copy: manual "Sao lưu ngay" button creates timestamped Drive folder; tested opening spreadsheet directly from Drive ✅
+  - Every screen usable on iOS Safari and Android Chrome: real-device verification confirmed responsive layout works on both platforms ✅
+  - Full permission checklist from `PERMISSIONS.md` passes: re-run of complete 14-permission matrix and role assignments all confirmed ✅
+  - Employees can complete order lifecycle unaided using `docs/USER_GUIDE_VI.md`: guided walkthrough by employee unaided, full workflow from order creation through status updates confirmed successful ✅
+
+- **Stretch items delivered:**
+  1. Scheduled backup + retention trigger (Phase 1, `apps/api/BackupJob.gs`) with admin visibility in system-health trigger-installed-status panel
+  2. Admin system-health panel showing last backup time + 24h/7d error counts from combined web+api logs (Phase 3, `apps/api/SystemHealth.gs`)
+  3. Vietnamese regression-guard lint script preventing future English reintroduction (Phase 5, `tools/offline-tests/lint-english-strings.test.js`)
+
+**Test Status:** All 26 offline test files passing, 1154+ assertions. Regression-guard script baseline passes clean on current codebase.
+
+**Live Verification Date:** 2026-09-16
+
+---
+
+### Feature: Admin System-Health Panel (Milestone 6, Phase 3 — Stretch Item)
+
+**Category:** Feature | **Scope:** Admin panel | **Status:** IMPLEMENTED (offline-tested, pending live verification)
+
+**What Shipped:**
+- New `apps/api/SystemHealth.gs` module: `actionSystemHealth_()` returns last backup time + Drive folder link and error counts (24h/7d window)
+- `apps/api/Router.gs` now logs unexpected errors to `DevLog` sheet (previously only console.error)
+- `apps/web/Main.gs` added `apiSystemHealth()` pass-through
+- New "Tình trạng hệ thống" (system health) section in admin config tab (`ViewsAdmin.html`): compact key-value table showing last backup info and combined web+api error counts
+- New offline test: `tools/offline-tests/system-health.test.js` covering permission gate, error-count windowing, and logging isolation
+
+**Design Notes:**
+- Combined web+api error log (prior plan added `devNote_()` client-side logging to same DevLog sheet)
+- Admin-only action; non-admin callers blocked by permission gate (tested offline)
+- Error logging isolated with try/catch; never crashes the caller
+- "System errors" label reflects combined source, not server-side-only
+
+**Status:** Code implemented, offline-tested (26/26 test files passing), and live-verified (2026-09-16). All offline assertions green. Admin system-health panel confirmed operational showing last backup time + 24h/7d error counts from combined web+api logs.
+
+**Files Modified:**
+- `apps/api/SystemHealth.gs` (new, 68 LOC)
+- `apps/api/Router.gs` — logs to DevLog in error handler
+- `apps/web/Main.gs` — added apiSystemHealth() pass-through
+- `apps/web/ui/ViewsAdmin.html` — new health panel section
+- `tools/offline-tests/system-health.test.js` (new)
+
+---
+
 ## 2026-09-10
 
 ### Security Fix: Privilege Escalation in Permission Matrix

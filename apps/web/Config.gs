@@ -10,7 +10,7 @@
  */
 
 /** Bump on every meaningful web change. Shown in the footer when DEV_MODE is on. */
-var BUILD = 'web-2026-09-06d-scopehelp';
+var BUILD = 'web-2026-09-15a-m6-hardening';
 
 var PROP = {
   API_URL: 'API_URL',
@@ -38,4 +38,30 @@ var MSG = {
 /** True when this deployment should show build stamps and diagnostics. */
 function isDevMode_() {
   return PropertiesService.getScriptProperties().getProperty(PROP.DEV_MODE) === 'on';
+}
+
+/**
+ * Milestone 6 / Phase 2 — error message hardening (web project's own copy;
+ * separate Apps Script project, no shared module system, so this is
+ * deliberately duplicated rather than imported — see apps/api/Config.gs's
+ * copy for the full rationale). Every existing `throw new Error(MSG.X)` in
+ * this project already throws a message that is exactly one of the values
+ * in `MSG` above; anything else reaching handle_()'s catch is an unexpected
+ * exception and must not reach the browser verbatim.
+ */
+var KNOWN_MSG_VALUES_ = null;
+function isKnownMessage_(text) {
+  if (!KNOWN_MSG_VALUES_) {
+    KNOWN_MSG_VALUES_ = {};
+    Object.keys(MSG).forEach(function (k) { KNOWN_MSG_VALUES_[MSG[k]] = true; });
+  }
+  return !!KNOWN_MSG_VALUES_[text];
+}
+
+/** Call at every top-level catch that currently forwards err.message to the browser. */
+function safeErrorMessage_(err) {
+  var text = (err && err.message) ? err.message : String(err);
+  if (isKnownMessage_(text)) return text;
+  console.error('unexpected error: ' + (err && err.stack ? err.stack : err));
+  return MSG.GENERIC;
 }

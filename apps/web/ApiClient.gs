@@ -130,6 +130,15 @@ function apiCall_(action, payload) {
 
   lastApiBuild_ = body.build || '';
 
+  // Milestone 6 / Phase 2 — this pass-through is safe by construction, not
+  // routed through this project's own safeErrorMessage_: apps/api's every
+  // { ok: false } response now carries either one of ITS OWN already-safe
+  // MSG.* values (either an intentional validation message, or MSG.GENERIC
+  // from Router.gs's doPost catch, which itself now sanitizes any unexpected
+  // exception before it ever leaves apps/api — see Router.gs's doPost). This
+  // web project only knows its OWN small MSG vocabulary, not apps/api's ~85
+  // messages, so applying isKnownMessage_ here would incorrectly genericize
+  // every legitimate API validation error (e.g. MSG.ORDER_LOCK_BUSY).
   if (!body.ok) throw new Error(body.error || MSG.GENERIC);
 
   if (body.data && typeof body.data === 'object') {

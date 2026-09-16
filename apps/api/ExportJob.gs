@@ -237,7 +237,12 @@ function resumeExportJob_(e) {
     runExportJobWork_(job, built, sheet);
   } catch (err) {
     job.status = 'error';
-    job.error = String((err && err.message) || err);
+    // Milestone 6 / Phase 2 — safeErrorMessage_ (Config.gs) logs the real
+    // detail via console.error and only returns err.message verbatim when
+    // it's one of the known MSG.* values; job.error is surfaced verbatim to
+    // the browser by actionExportJobStatus_ below, so it must never carry
+    // raw internal detail.
+    job.error = safeErrorMessage_(err);
     job.updatedAt = new Date().toISOString();
     saveExportJob_(job);
     console.error('resumeExportJob_: job ' + jobId + ' failed: ' + job.error);
@@ -438,7 +443,11 @@ function deliverExportJob_(job) {
         job.tempSheetId + ': ' + (cleanupErr && cleanupErr.message));
     }
   } catch (err) {
-    job.deliveryError = String((err && err.message) || err);
+    // Milestone 6 / Phase 2 — same rationale as resumeExportJob_'s catch
+    // above: job.deliveryError is surfaced verbatim to the browser by
+    // actionExportJobStatus_, so it must go through safeErrorMessage_
+    // rather than carry raw internal detail.
+    job.deliveryError = safeErrorMessage_(err);
     job.updatedAt = new Date().toISOString();
     saveExportJob_(job);
     console.error('deliverExportJob_: delivery failed for job ' + job.jobId + ': ' + job.deliveryError);

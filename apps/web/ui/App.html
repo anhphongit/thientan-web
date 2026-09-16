@@ -103,6 +103,21 @@
   }
 
   /**
+   * Milestone 6 / Phase 4 — this app runs inside Google's sandboxed Apps
+   * Script iframe (Main.gs doGet, XFrameOptionsMode.ALLOWALL). On iOS
+   * Safari the iframe's own box can lag the visual viewport while Safari's
+   * chrome (URL bar/toolbar) shows/hides on scroll, so CSS `100dvh` alone
+   * isn't fully trustworthy there — and the `visualViewport` API (the
+   * usual fix for this) is blocked inside this sandbox. `--app-vh` mirrors
+   * `window.innerHeight` as a CSS custom property so a full-height
+   * container (`.boot` in Styles.html) can use it as an authoritative,
+   * JS-measured fallback: `min-height: var(--app-vh, 100dvh)`.
+   */
+  function syncViewportHeight() {
+    document.documentElement.style.setProperty('--app-vh', window.innerHeight + 'px');
+  }
+
+  /**
    * The bridge the view modules (ui/Views*.html) use. `config` and `session` are
    * read through functions, not captured once: a view built before the session
    * arrived would otherwise hold an empty object forever.
@@ -717,6 +732,14 @@
     el('boot').classList.remove('hidden');
     start();
   });
+
+  // Milestone 6 / Phase 4 — keep --app-vh (see syncViewportHeight doc
+  // comment above) in sync as Safari's chrome shows/hides on scroll or the
+  // device rotates; run once immediately so .boot has a correct value on
+  // first paint, before any resize has fired.
+  syncViewportHeight();
+  window.addEventListener('resize', syncViewportHeight);
+  window.addEventListener('orientationchange', syncViewportHeight);
 
   start();
 })();

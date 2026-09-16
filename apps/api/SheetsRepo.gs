@@ -64,6 +64,12 @@ function getSpreadsheet_() {
                     '"Execute as" setting. Raw: ' + text);
       throw new Error(MSG.DEPLOY_MISCONFIGURED);
     }
+    // Milestone 6 / Phase 2 — deliberately rethrown unchanged, not sanitized
+    // here: this is not a top-level catch, so it has no [ok, error] response
+    // to shape. The eventual top-level catch (Router.gs's doPost) is the one
+    // that calls safeErrorMessage_ on whatever reaches it, which is exactly
+    // what makes this unmatched-permission-error case degrade to MSG.GENERIC
+    // downstream instead of leaking the original raw Drive/Sheets exception.
     throw err;
   }
 }

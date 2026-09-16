@@ -1,7 +1,7 @@
 ---
 title: "Milestone 6 — Hardening and Polish"
 description: "Backup-to-Drive, error-message leak fix, responsive/i18n hardening, admin health panel, user guide — closes out MILESTONES.md M6 before employee rollout."
-status: pending
+status: complete
 priority: P1
 branch: "main"
 tags: [milestone-6, hardening, backup, error-handling, i18n, mobile]
@@ -29,8 +29,9 @@ Scope was explicitly **expanded** (user choice, 2026-09-13 scope challenge) with
 items, each independently droppable without touching the base 5:
 
 6. Scheduled auto-backup + retention (daily trigger + pruning old backups)
-7. ~~Admin system-health panel~~ — **cancelled during validation, 2026-09-14** (see Phase 3 and
-   Validation Log below)
+7. Admin system-health panel — cancelled during validation (2026-09-14), **un-cancelled 2026-09-16**
+   at user request; design confirmed as-is plus a compact key-value table layout for the UI section
+   (see Phase 3 and Validation Log below)
 8. Regression-guard script (offline lint that catches new hardcoded English strings)
 
 Research backing this plan:
@@ -66,18 +67,19 @@ Research backing this plan:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Backup to Drive (manual+scheduled+retention)](./phase-01-backup-to-drive-manual-scheduled-retention.md) | Pending |
-| 2 | [Error message hardening](./phase-02-error-message-hardening.md) | Pending |
-| 3 | ~~[Admin system-health panel](./phase-03-admin-system-health-panel.md)~~ (stretch) | **Cancelled** |
-| 4 | [Mobile responsive hardening](./phase-04-mobile-responsive-hardening.md) | Pending |
-| 5 | [Vietnamese sweep + regression guard script](./phase-05-vietnamese-sweep-regression-guard-script.md) (stretch script) | Pending |
-| 6 | [User guide + checklist assembly](./phase-06-user-guide-checklist-assembly.md) | Pending |
-| 7 | [Live verification and docs sync](./phase-07-live-verification-and-docs-sync.md) | Pending |
+| 1 | [Backup to Drive (manual+scheduled+retention)](./phase-01-backup-to-drive-manual-scheduled-retention.md) | Complete |
+| 2 | [Error message hardening](./phase-02-error-message-hardening.md) | Complete |
+| 3 | [Admin system-health panel](./phase-03-admin-system-health-panel.md) (stretch) | Complete |
+| 4 | [Mobile responsive hardening](./phase-04-mobile-responsive-hardening.md) | Complete |
+| 5 | [Vietnamese sweep + regression guard script](./phase-05-vietnamese-sweep-regression-guard-script.md) (stretch script) | Complete |
+| 6 | [User guide + checklist assembly](./phase-06-user-guide-checklist-assembly.md) | Complete |
+| 7 | [Live verification and docs sync](./phase-07-live-verification-and-docs-sync.md) | Complete |
 
-Phase 3 (stretch) was **cancelled during validation** (2026-09-14) — kept as a fully-worked
-reference in its file, not implemented. Phases 4-6 have no code dependency on 1/2 and could be
-reordered, but are executed in this order to keep one active file-set at a time (single-agent
-sequential execution, not `--parallel` mode).
+Phase 3 (stretch) was **cancelled during validation** (2026-09-14), then **un-cancelled 2026-09-16**
+at user request — design confirmed as-is, plus a compact key-value table layout chosen for the new
+Admin UI section. Phases 4-6 have no code dependency on 1/2 and could be reordered, but are executed
+in this order to keep one active file-set at a time (single-agent sequential execution, not
+`--parallel` mode).
 
 ## Dependencies
 
@@ -188,11 +190,57 @@ Step 2.5 verification-pass guard was satisfied — went straight to the intervie
 - Phases 1, 2, 4, 5, 6, 7: unchanged by this validation session (already consistent with the
   confirmed answers).
 
+### Session 2 — 2026-09-16
+**Trigger:** User ran `/ck:cook 260913-2326. lets also complete phase 3`, asking to implement the
+previously-cancelled stretch item.
+**Questions asked:** 2 (scope confirmation + Phase 7 follow-on), plus a UI layout choice for the
+new Admin panel section (mock-first rule).
+
+#### Questions & Answers
+1. **[Scope]** "Implement Phase 3 as-designed, or revise the design first?"
+   - **Answer:** Revise design first → on follow-up, user confirmed no functional changes needed
+     ("nothing changed, review completed"). Design proceeds exactly as written in Phase 3's file.
+2. **[Sequencing]** "Also run Phase 7 after Phase 3, or stop after Phase 3?"
+   - **Answer:** Also run Phase 7.
+3. **[UI mock-first]** Presented 3 layout options for the Admin panel's health section (inline stat
+   row, two mini-cards, compact key-value table).
+   - **Answer:** Compact key-value table (2 columns: label, value).
+
+#### Confirmed Decisions
+- Phase 3 status: `cancelled` → `in_progress`, un-cancelled at user request.
+- Design: unchanged from the 2026-09-14 red-team-revised version (DevLog reuse, apps/api-only
+  scope, isolated try/catch logging, ScriptProperties read from Phase 1).
+- Admin UI section layout: compact key-value table.
+- This `/ck:cook` run covers Phase 3 then Phase 7.
+
+#### Action Items
+- [x] Mark Phase 3 `status: in_progress` in its frontmatter, with an updated banner
+- [x] Update plan.md's phase table, Overview stretch-item list, and Phases section prose
+- [x] Record the compact-table layout choice in Phase 3's Requirements section
+
 ### Verification Results
 - **Tier:** Full (7 phases at red-team time; Step 2.5's guard was satisfied by the existing
   `## Red Team Review` section's embedded Fact Checker/Flow Tracer/Scope Auditor/Contract Verifier
   results — no separate verification pass re-run here)
 - No `[UNVERIFIED]` tags found in any phase file to resolve
+
+## Completion
+
+**Status:** ✅ Milestone 6 complete, live-verified 2026-09-16
+
+All 5 base scope items shipped and live-verified:
+1. Backup to Drive (manual + scheduled trigger with retention)
+2. Error message hardening (no stack traces to users)
+3. Mobile responsive hardening (iOS Safari + Android Chrome verified)
+4. Vietnamese completeness sweep (zero English strings left)
+5. User guide in Vietnamese + full PERMISSIONS.md checklist
+
+Stretch items delivered:
+- Phase 1: Scheduled backup + retention (3 backups kept, 14-day cleanup)
+- Phase 3: Admin system-health panel (live backup/error visibility + trigger status display)
+- Phase 5: Regression-guard script (offline lint for new hardcoded English strings)
+
+User confirmed all MILESTONES.md M6 exit criteria passed on real devices during Phase 7 walkthrough.
 
 ## Out of scope (explicitly deferred)
 

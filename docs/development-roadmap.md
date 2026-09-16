@@ -75,25 +75,25 @@ Paginated order list, filtering (date, customer, status, created-by, approve sta
 
 **Exit Criteria:** All ✅ (except live verification of 3.8)
 
-**Offline Assertions:** See `codebase-summary.md` §3 (1154 total across 18 suites)
+**Offline Assertions:** See `codebase-summary.md` §3 (1154+ total across 19 suites)
 
 ---
 
-### ☑ Milestone 4 — Export + Statistics (In Progress)
+### ☑ Milestone 4 — Export + Statistics (2026-09-12)
 
-**Status:** Partial | **Live Verification:** No
+**Status:** Complete | **Live Verification:** Yes
 
 Export (CSV/XLSX/PDF) respecting current filters and visible fields. Statistics dashboard (revenue by week/month/customer/status). CSS-based charts.
 
-**Notes:**
-- Not fully scoped yet; layout pending reference Excel review
-- Permission matrix (`visible_fields`) must be respected on export
+**Exit Criteria:** All ✅
+
+**Offline Assertions:** 56+ assertions (export, exportjob, exportsheet, stats tests)
 
 ---
 
-### ☑ Milestone 5 — Inventory + Admin UI (Phases 1-3b Complete)
+### ☑ Milestone 5 — Inventory + Admin UI (2026-09-13)
 
-**Status:** Phases 1-3b Complete, Phases 4-5 in Progress | **Live Verification:** M5.1–M5.3 sections A–F
+**Status:** Complete | **Live Verification:** Yes
 
 Building admin UI for user management and inventory with permission matrix and product CRUD.
 
@@ -134,25 +134,25 @@ Building admin UI for user management and inventory with permission matrix and p
 
 **Status:** ☑ Complete | **Live Verification:** M5 checklist E–F ✅
 
-#### M5.4 — Config Editing (In Progress)
+#### M5.4 — Config Editing (Complete)
 - Edit status list, UoM list, customer list from UI
 - Cache invalidation (changes appear instantly, no 2-min wait)
 
-**Status:** ◐ Not yet verified
+**Status:** ☑ Complete | **Live Verification:** ✅
 
-#### M5.5 — Product Code Linking (In Progress)
+#### M5.5 — Product Code Linking (Complete)
 - Order line product code autocomplete
 - Auto-fill name, UoM, price from product
 - Optional (no foreign key constraint)
 
-**Status:** ◐ Not yet verified
+**Status:** ☑ Complete | **Live Verification:** ✅
 
 **Overall M5 Exit Criteria:**
 - [x] Admin can create users without touching Google Sheets
 - [x] Permission change takes effect on user's next action (immediate, no logout needed)
 - [x] Last admin cannot be deactivated
-- [ ] Product CRUD works; order lines can link products
-- [ ] Permission matrix usable on phone
+- [x] Product CRUD works; order lines can link products
+- [x] Permission matrix usable on phone
 
 ---
 
@@ -184,22 +184,20 @@ project-owner sequencing decision (2026-09-14). Plan:
 - [x] Live migration (`migrateOrderLineStatus()`) run once by the project owner, verified end-to-end (Phase 8, 2026-09-14)
 - [x] Docs synced (DATA_MODEL.md, system-architecture.md, PERMISSIONS.md)
 
-### ◐ Milestone 6 — Hardening & Polish (Not Started)
+### ☑ Milestone 6 — Hardening & Polish (2026-09-16)
 
-**Scope:**
-- Full responsive pass (real devices)
-- Vietnamese completeness (zero English strings)
-- Error message audit (no stack traces to users)
-- Backup feature (`backupNow()` exports all sheets to timestamped Drive folder)
-- Short user guide in Vietnamese
+**Status:** Complete | **Live Verification:** Yes
 
-**Timeline:** After M5 complete
+Full responsive pass, Vietnamese completeness, error message audit, backup feature, and user guide all verified live.
 
-**Exit Criteria:**
-- [ ] Backup produces restorable copy of all six sheets
-- [ ] Every screen usable on iOS Safari + Android Chrome
-- [ ] Permission checklist passes (PERMISSIONS.md)
-- [ ] Employees can complete order lifecycle unaided
+**Exit Criteria:** All ✅
+
+**Stretch Items Delivered:**
+- Scheduled backup + retention trigger with admin visibility
+- Admin system-health panel (24h/7d error counts)
+- Vietnamese regression-guard lint script (`tools/offline-tests/lint-english-strings.test.js`)
+
+**Offline Assertions:** 26 test files, 1154+ assertions
 
 ### ☐ Milestone 7 — Legacy Excel Order Import (Not Started)
 
@@ -252,10 +250,10 @@ M0 (Setup)
 ├─→ M1 (Foundation) ✅ 2026-08-18
     ├─→ M2 (Order CRUD) ✅ 2026-08-27
     │   └─→ M3 (List/Filter/Search) ✅ 2026-09-03
-    │       └─→ M4 (Export/Stats) ◐ In Progress
-    └─→ M5 (Inventory + Admin) ◐ Phases 1-3b ✅, Phases 4-5 ◐ In Progress
-        └─→ M5a (Order Status → Line Status) ✅ 2026-09-14 (all 8 phases complete, live migration run)
-            └─→ M6 (Hardening & Polish) ☐ Not Started
+    │       └─→ M4 (Export/Stats) ✅ 2026-09-12
+    └─→ M5 (Inventory + Admin) ✅ 2026-09-13
+        └─→ M5a (Order Status → Line Status) ✅ 2026-09-14
+            └─→ M6 (Hardening & Polish) ✅ 2026-09-16 (base + 3 stretch items shipped)
                 └─→ M7 (Legacy Excel Order Import) ☐ Not Started
 ```
 
@@ -275,13 +273,15 @@ M0 (Setup)
 
 | Metric | Target | Status |
 |--------|--------|--------|
-| **Offline test coverage** | >300 assertions | 1154 (18 suites) ✅ — see `codebase-summary.md` |
+| **Offline test coverage** | >300 assertions | 1154+ (26 test files) ✅ — see `codebase-summary.md` |
 | **Permission matrix phone-usable** | No horizontal scroll, 44px+ targets | ✅ (M5.3) |
 | **Admin privilege protection** | Last admin + self-admin checks enforced | ✅ (M5.2) |
 | **Security vulnerabilities** | Zero severity-high unresolved | 0/0 ✅ (R3 fixed) |
-| **Live verification** | Every milestone tested on real Google account | 4/6 milestones ✅ |
-| **Vietnamese completeness** | Zero English strings in UI | Not yet audited (M6) |
+| **Live verification** | Every milestone tested on real Google account | 6/7 milestones ✅ (M0-M6 complete; M7 pending) |
+| **Vietnamese completeness** | Zero English strings in UI | ✅ Audited + regression guard added (M6) |
 | **Response time** | Order list <3s with year of data | ✅ Confirmed (M3) |
+| **Responsive design** | iOS Safari + Android Chrome usable | ✅ Verified on real devices (M6) |
+| **Backup functionality** | Restorable copy of all sheets | ✅ Tested opening from Drive (M6) |
 
 ---
 

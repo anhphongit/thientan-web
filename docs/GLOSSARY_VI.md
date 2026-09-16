@@ -105,6 +105,21 @@ via the `Config` sheet.
 
 ---
 
+## Loanwords / proper nouns kept as-is (deliberate, not oversight)
+
+Decided during Milestone 6 Phase 5's Vietnamese completeness sweep (2026-09-15) — these
+4 strings were flagged as borderline by a full-codebase audit; each is a one-time decision
+recorded here (not a code comment) so future sweeps don't re-flag them as violations.
+
+| String | Where | Decision | Rationale |
+|--------|-------|----------|-----------|
+| Email | `ViewsAdmin.html` form label ("Email"/"Email *"), `App.html` diagnostics `<dt>Email</dt>` | Kept as-is | Universal loanword in Vietnamese business software; "Email" is understood and used verbatim far more often than "Thư điện tử". |
+| PDF | `ViewsOrders.html` export delivery banner label | Kept as-is | File-format acronym, not translatable — used as-is in all Vietnamese software/UI. |
+| Excel | `ViewsOrders.html` export delivery banner label | Kept as-is | Product/brand name (Microsoft Excel) — proper nouns are not translated. |
+| Chrome, Firefox, Edge, Opera, Safari | `App.html` `browserInfo()` account-switch helper sentences | Kept as-is | Browser proper nouns — never translated in any locale. |
+
+---
+
 ## Formatting
 
 - **Money:** `11.949.000 ₫` — dot as thousand separator, no decimals, `₫` after the number.
