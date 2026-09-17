@@ -297,17 +297,14 @@ Scope:
 
 ---
 
-## ☐ Milestone 7 — Legacy Excel Order Import
-
-New milestone, for the live/go-live stage, per project-owner request (2026-09-14). Inserted
-after M6, before employee rollout with real data. Full plan:
-`plans/260914-1115-milestone-7-legacy-excel-import/plan.md`.
+## ☑ Milestone 7 — Legacy Excel Order Import  *(done 2026-09-17)*
 
 A deliberate, one-time exception to the 2026-08-15 decision recorded in `OPEN_QUESTIONS.md`
-("Import the existing Excel? No. Reference only") — this milestone imports the real historical
+("Import the existing Excel? No. Reference only") — this milestone imported the real historical
 `FILE THEO DOI DON HANG.xlsx` (Jan–Aug 2026, ~206 orders / ~534 lines) into live data so
 employees start with real order history instead of an empty app. It does not change the
-app's manual-entry design going forward.
+app's manual-entry design going forward. Full plan:
+`plans/260914-1115-milestone-7-legacy-excel-import/plan.md`.
 
 Scope:
 - One-time admin migration script (`migrateImportLegacyOrders()`, `apps/api/LegacyImport.gs`),
@@ -317,18 +314,18 @@ Scope:
 - Populates `Orders` + `OrderLines` + `Invoices` only; `Config.customerList`/`uomList` self-fill
   via the existing live mechanism, not separately seeded
 - Line status (`OrderLines.status`/`statusNote`) populated directly from the source file's
-  per-row `TRẠNG THÁI` column — requires Milestone 5a's schema first
+  per-row `TRẠNG THÁI` column (Milestone 5a schema prerequisite)
 - Reconciles every imported month's total against the file's own printed `DOANH SỐ THÁNG n`
   figure before and after the live run
 - Requires a fresh `backupNow()` (Milestone 6) snapshot immediately before the live run
 
 **Exit criteria**
 
-- [ ] All 8 months' imported totals reconcile against their printed `DOANH SỐ THÁNG n` value
-- [ ] Live run executed once against production, with a fresh verified backup taken immediately
+- [x] All 8 months' imported totals reconcile against their printed `DOANH SỐ THÁNG n` value
+- [x] Live run executed once against production, with a fresh verified backup taken immediately
       before it, project owner present
-- [ ] Spot-checked orders render correctly in the live web app (not just the Sheet)
-- [ ] `EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`,
+- [x] Spot-checked orders render correctly in the live web app (not just the Sheet)
+- [x] `EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`,
       `development-roadmap.md` synced to describe this as a one-time historical import
 
 ---

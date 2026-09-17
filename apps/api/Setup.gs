@@ -109,7 +109,18 @@ function guardSetup_() {
                     // (that's simply never adding these names to
                     // getActions_() below — see BackupJob.gs's file doc
                     // comment).
-                    'installBackupTrigger', 'runScheduledBackup_', 'cleanupOldBackups_'];
+                    'installBackupTrigger', 'runScheduledBackup_', 'cleanupOldBackups_',
+                    // Milestone 7 — legacy Excel order import (dry-run parse,
+                    // bulk write, resume-index reset, post-hoc reconcile).
+                    // Same editor-only, run-by-hand shape as
+                    // migrateAddLineCount/setupMilestone5 above — none of
+                    // these four are ever added to getActions_() (Router.gs).
+                    'dryRunImportLegacyOrders', 'migrateImportLegacyOrders',
+                    'resetLegacyImportResumePoint', 'reconcileLegacyImport',
+                    // 2026-09-16 — diagnostic for the date-parsing incident
+                    // below (LegacyImportDateAudit.gs), same shape as the
+                    // four above.
+                    'legacyAuditNgayHdFormats'];
   var registry = getActions_();
   for (var i = 0; i < editorOnly.length; i++) {
     if (registry[editorOnly[i]]) {

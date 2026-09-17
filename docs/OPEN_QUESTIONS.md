@@ -174,7 +174,7 @@ Two rates observed: 8% (438 lines) and 10% (94 lines).
 | Date | Question | Answer |
 |------|----------|--------|
 | 2026-08-15 | Which architecture? | Option C — Apps Script + private Sheets |
-| 2026-08-15 | Import the existing Excel? | No. Reference only; users enter live data |
+| 2026-08-15 | Import the existing Excel? | No. Reference only; users enter live data. **Exception:** Milestone 7 (2026-09-17) imported the file as a one-time historical event to seed the live app with real order history before employee rollout — see `MILESTONES.md` and `development-roadmap.md` for details. |
 | 2026-08-15 | Use clasp? | Yes |
 | 2026-08-20 | Q1 — deposits | Explicit fields: `customerDeposit`, `supplierName`, `supplierPaid` |
 | 2026-08-20 | Q2 — revenue | Show ex-VAT **and** inc-VAT; month basis switchable (order date / invoice date) |

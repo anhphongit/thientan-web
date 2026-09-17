@@ -1,10 +1,12 @@
 # Excel Reference — `FILE THEO DOI DON HANG.xlsx`
 
-**Reference only.** This file is *not* imported and *not* migrated. It exists so the
-data model matches how the business actually works, and so exports feel familiar.
-Live data will be entered by the Admin and users through the app.
+**Reference only.** This file was **imported once, as a historical event on 2026-09-17** (Milestone 7)
+to seed the live app with real order history (~206 orders, Jan–Aug 2026). That one-time import is now complete.
+Going forward, it remains *not* imported and *not* migrated — live data is entered by the Admin and
+users through the app. This document describes the file structure, and serves as the source reference
+for the reconciliation that validated the historical import.
 
-Observed on 2026-08-15.
+File observed on 2026-08-15.
 
 ---
 

@@ -50,4 +50,7 @@ scaffold. Implementation starts at Milestone 1.
 
 `FILE THEO DOI DON HANG.xlsx` is the spreadsheet the business uses today. It is kept
 here **for reference only** — to shape the data model and to make exports feel
-familiar. It is never imported. Live data is entered through the app.
+familiar. **Note:** It was imported once on 2026-09-17 (Milestone 7) as a one-time historical
+import to seed the live app with real order history before employee rollout. Going forward,
+it is not imported — live data is entered through the app. See `docs/MILESTONES.md`
+for details on the historical import.

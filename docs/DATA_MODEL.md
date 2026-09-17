@@ -50,7 +50,7 @@ Rules:
 | `totalExVat` | number | **computed server-side** = Σ line `amountExVat` |
 | `totalIncVat` | number | **computed server-side** = Σ line `amountIncVat` |
 | `lineCount` | number | **computed server-side** = count of this order's `OrderLines` rows (M2.5). Maintained on every save so `actionListOrders_` need not read entire `OrderLines` sheet. |
-| `createdBy` | string | email — drives the "own orders only" rule |
+| `createdBy` | string | email — drives the "own orders only" rule. **Note:** Historical orders imported by Milestone 7 (2026-09-17) carry the admin's email address as their `createdBy`, reflecting that they were loaded via an admin migration script rather than created interactively by an end user. This explains seeing ~206 orders with the same creator email spanning Jan–Aug 2026 (before the app itself went live). |
 | `createdAt` | datetime | |
 | `updatedBy` | string | email |
 | `updatedAt` | datetime | |

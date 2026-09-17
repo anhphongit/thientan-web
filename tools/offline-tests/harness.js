@@ -396,7 +396,57 @@ function makeEnv(configOverrides) {
 
   ['Config.gs', 'Auth.gs', 'Permissions.gs', 'Orders.gs', 'Export.gs', 'ExportSheet.gs',
    'ExportJob.gs', 'Stats.gs', 'Products.gs', 'Admin.gs', 'AdminConfig.gs',
-   'BackupJob.gs', 'SystemHealth.gs'].forEach(f => {
+   'BackupJob.gs', 'SystemHealth.gs',
+   // Milestone 7 / Phase 1 — legacy Excel import, row-grouping/parsing only
+   // (LegacyImport.gs's Drive/SpreadsheetApp orchestration functions are not
+   // exercised offline — no Advanced Drive Service fake exists in this
+   // harness — but parseLegacySheet_ (LegacyImportParse.gs) needs no Drive
+   // access at all, only a sheet-like getDataRange().getDisplayValues()).
+   'LegacyImport.gs', 'LegacyImportParse.gs',
+   // 2026-09-16 — date-format audit diagnostic. legacyBuildDateAuditReport_
+   // is a pure function over parseLegacySheet_'s output (no Drive/Sheets
+   // access); legacyAuditNgayHdFormats() itself (Drive conversion +
+   // guardSetup_) is not exercised offline, same limitation as
+   // dryRunImportLegacyOrders() above.
+   'LegacyImportDateAudit.gs',
+   // Milestone 7 / Phase 2 — field mapping/extraction rules, pure functions,
+   // no Drive/Sheets access either. LegacyImportMap.gs's detectVatRate_/
+   // mapLegacyOrderGroup_ (via LegacyImportMapDeposit.gs's
+   // extractDepositSupplier_) call legacyParseNumber_, so LegacyImportParse.gs
+   // must load first (already the case, listed above).
+   'LegacyImportMap.gs', 'LegacyImportMapCompose.gs', 'LegacyImportMapDeposit.gs',
+   // Milestone 7 / Phase 3 — bulk write path. LegacyImportWriteOrder.gs's
+   // legacyConvertLineFieldsOrThrow_/legacyResolveOrderDate_/legacyWriteOneOrder_
+   // call money_/quantity_/parseDate_/buildLineRecord_/sumLines_/nextOrderId_/
+   // makeLineId_/withOrderLock_/appendStatusHistory_ (all defined in Orders.gs,
+   // already loaded above) and readPublicConfig_/appendRecord_ (this harness's
+   // own sandbox stubs) — load order only matters here in that both new files
+   // must come after Orders.gs, which it already does.
+   // Milestone 7 / Phase 4 — idempotency/resumability. LegacyImportWriteResume.gs
+   // (getLegacyImportResumePoint_/setLegacyImportResumePoint_/
+   // resetLegacyImportResumePoint/legacyAssertNoOrderLinesForOrderId_) must load
+   // before LegacyImportWriteOrder.gs (calls the tripwire) and
+   // LegacyImportWrite.gs (calls the resume-point get/set) — both use
+   // PropertiesService/findBy_, already stubbed above, and PROP.LEGACY_IMPORT_
+   // RESUME_INDEX, defined by Config.gs (already loaded first). Report
+   // formatting (legacyDescribeOrder_/legacyBuildWriteReport_) is split into
+   // LegacyImportWriteReport.gs, loaded before LegacyImportWrite.gs (its
+   // legacyRunImportBatch_ calls both).
+   // 2026-09-16 — date-parsing fix (see file doc comment). Loaded before
+   // LegacyImportWriteOrder.gs, which calls legacyParseHistoricalDate_;
+   // that function calls legacyImportYear_() (LegacyImportReconcile.gs,
+   // loaded later below) only at call-time, so load order relative to that
+   // one is not load-bearing — every file is loaded before any test runs.
+   'LegacyImportDateParse.gs',
+   'LegacyImportWriteResume.gs', 'LegacyImportWriteOrder.gs',
+   'LegacyImportWriteReport.gs', 'LegacyImportWrite.gs',
+   // Milestone 7 / Phase 5 — post-hoc reconciliation. legacyReconcileMonths_/
+   // legacyImportYear_ read LEGACY_SHEET_NAME_ (LegacyImport.gs, already
+   // loaded above) and touch no Drive/Sheets API, so no new sandbox stub is
+   // needed; reconcileLegacyImport() itself (Drive conversion + guardSetup_)
+   // is not exercised offline, same documented limitation as
+   // dryRunImportLegacyOrders()/migrateImportLegacyOrders() above.
+   'LegacyImportReconcile.gs'].forEach(f => {
     vm.runInContext(fs.readFileSync(path + f, 'utf8'), sandbox, { filename: f });
   });
   return sandbox;
@@ -449,4 +499,41 @@ function done() {
   process.exit(fail ? 1 : 0);
 }
 
-module.exports = { makeEnv, user, check, eq, throws, done, withApprovalFlow };
+/**
+ * Milestone 7 / Phase 1 — a minimal read-oriented fake Sheet for
+ * legacy-import-parse.test.js. The existing fake sheet inside
+ * SpreadsheetApp.create() (above) is write-oriented (setValues() records
+ * into an in-memory grid meant to be inspected by the test afterward);
+ * parseLegacySheet_ instead needs a sheet it can READ a pre-built 2D array
+ * of display strings FROM, via getDataRange().getDisplayValues() — the same
+ * method production code uses so multi-line/Vietnamese text survives intact
+ * (see LegacyImportParse.gs's file doc comment). getLastRow()/getRange()
+ * are included too even though parseLegacySheet_ only calls getDataRange(),
+ * so a future caller that prefers the range-based read path is covered
+ * without needing another harness change.
+ *
+ * @param {string[][]} rows a 2D array of already-stringified cell values
+ *   (the shape getDisplayValues() itself returns).
+ */
+function makeFakeSheetFromRows(rows) {
+  return {
+    getDataRange() {
+      return { getDisplayValues: () => rows, getValues: () => rows };
+    },
+    getLastRow: () => rows.length,
+    getLastColumn: () => rows.reduce((max, r) => Math.max(max, r.length), 0),
+    getRange(row, col, numRows, numCols) {
+      const nR = numRows || 1, nC = numCols || 1;
+      const slice = [];
+      for (let r = 0; r < nR; r++) {
+        const src = rows[row - 1 + r] || [];
+        const line = [];
+        for (let c = 0; c < nC; c++) line.push(src[col - 1 + c] === undefined ? '' : src[col - 1 + c]);
+        slice.push(line);
+      }
+      return { getDisplayValues: () => slice, getValues: () => slice };
+    }
+  };
+}
+
+module.exports = { makeEnv, user, check, eq, throws, done, withApprovalFlow, makeFakeSheetFromRows };

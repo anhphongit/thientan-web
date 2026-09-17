@@ -199,28 +199,25 @@ Full responsive pass, Vietnamese completeness, error message audit, backup featu
 
 **Offline Assertions:** 26 test files, 1154+ assertions
 
-### ☐ Milestone 7 — Legacy Excel Order Import (Not Started)
+---
 
-New milestone, for the live/go-live stage, per project-owner request (2026-09-14). Plan:
-`plans/260914-1115-milestone-7-legacy-excel-import/plan.md`. Blocked by M5a and M6.
+### ☑ Milestone 7 — Legacy Excel Order Import (2026-09-17)
+
+**Status:** Complete | **Live Verification:** Yes
+
+One-time historical import of the legacy `FILE THEO DOI DON HANG.xlsx` (Jan–Aug 2026, ~206 orders / ~534 lines) into live production data. Reconciliation confirmed all 8 months matching their printed `DOANH SỐ THÁNG n` totals. This was a deliberate, scoped exception to the 2026-08-15 "never imported" decision — a one-time go-live event that does not reverse the manual-entry-only design going forward.
 
 **Scope:**
-- One-time admin migration script imports the real historical `FILE THEO DOI DON HANG.xlsx`
-  (~206 orders / ~534 lines, Jan–Aug 2026) into live `Orders`/`OrderLines`/`Invoices`
-- Deliberate, scoped exception to the 2026-08-15 "never imported" decision — a one-time
-  go-live event, not a reversal of manual-entry-only design
-- Raw legacy `.xlsx` parsed as-is (month blocks, multi-line cells, per-line VAT detection)
-- Line status populated from the source file directly into `OrderLines` (post-M5a schema)
-- Reconciled against the file's own printed monthly revenue totals; requires a fresh M6 backup
-  immediately before the live run
+- One-time admin migration script executed once on 2026-09-17
+- Raw `.xlsx` parsed as-is (month blocks, multi-line cells, per-line VAT detection)
+- All 8 months reconciled against printed revenue totals
+- Fresh backup taken immediately before live run per M6 requirements
 
-**Timeline:** After M5a and M6 complete, before employee rollout with real data
-
-**Exit Criteria:**
-- [ ] All 8 months reconcile against printed `DOANH SỐ THÁNG n` totals
-- [ ] Live run executed once against production with a fresh verified backup, owner present
-- [ ] Spot-checked orders render correctly in the live web app
-- [ ] Docs (`EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`) synced
+**Exit Criteria:** All ✅
+- [x] All 8 months reconcile against printed `DOANH SỐ THÁNG n` totals
+- [x] Live run executed once against production with fresh verified backup, owner present
+- [x] Spot-checked orders render correctly in live web app
+- [x] Docs synced (`EXCEL_REFERENCE.md`, `OPEN_QUESTIONS.md`, `README.md`, `DATA_MODEL.md`)
 
 ---
 
@@ -254,7 +251,7 @@ M0 (Setup)
     └─→ M5 (Inventory + Admin) ✅ 2026-09-13
         └─→ M5a (Order Status → Line Status) ✅ 2026-09-14
             └─→ M6 (Hardening & Polish) ✅ 2026-09-16 (base + 3 stretch items shipped)
-                └─→ M7 (Legacy Excel Order Import) ☐ Not Started
+                └─→ M7 (Legacy Excel Order Import) ✅ 2026-09-17
 ```
 
 ### Critical Path
@@ -277,7 +274,7 @@ M0 (Setup)
 | **Permission matrix phone-usable** | No horizontal scroll, 44px+ targets | ✅ (M5.3) |
 | **Admin privilege protection** | Last admin + self-admin checks enforced | ✅ (M5.2) |
 | **Security vulnerabilities** | Zero severity-high unresolved | 0/0 ✅ (R3 fixed) |
-| **Live verification** | Every milestone tested on real Google account | 6/7 milestones ✅ (M0-M6 complete; M7 pending) |
+| **Live verification** | Every milestone tested on real Google account | 7/7 milestones ✅ (M0-M7 complete) |
 | **Vietnamese completeness** | Zero English strings in UI | ✅ Audited + regression guard added (M6) |
 | **Response time** | Order list <3s with year of data | ✅ Confirmed (M3) |
 | **Responsive design** | iOS Safari + Android Chrome usable | ✅ Verified on real devices (M6) |

@@ -28,7 +28,14 @@ var PROP = {
   // segment (unlike ORDER_SEQ_*): a product catalog doesn't reset yearly the
   // way an order sequence does, per docs/DATA_MODEL.md's example id.
   PRODUCT_SEQ_NEXT: 'PRODUCT_SEQ_NEXT',
-  DEV_MODE: 'DEV_MODE'
+  DEV_MODE: 'DEV_MODE',
+  // Milestone 7 / Phase 4 — resume-position index for the legacy Excel
+  // import write path (LegacyImportWriteResume.gs): how many orders, in
+  // legacyRunImportBatch_'s deterministic parsed order, are already
+  // resolved (written or explicitly skipped) by a previous run. See that
+  // file's doc comment for why this is an integer index rather than a
+  // sheet-scan tag like DevSeed.gs's nextSeedNumber_.
+  LEGACY_IMPORT_RESUME_INDEX: 'LEGACY_IMPORT_RESUME_INDEX'
 };
 
 var SHEETS = {
@@ -401,7 +408,18 @@ var CONFIG_DEFAULTS = [
       { key: 'delivered_not_invoiced', label: 'Đã giao, chưa xuất' },
       { key: 'invoiced_unpaid', label: 'Đã xuất, chưa TT' },
       { key: 'paid', label: 'Đã thanh toán' },
-      { key: 'cancelled', label: 'Đã huỷ' }
+      { key: 'cancelled', label: 'Đã huỷ' },
+      // Milestone 7 (code review 2026-09-16) — legacy Excel import's TRẠNG
+      // THÁI column matches "done"/"Done" (case-insensitive) on ~443 of
+      // ~534 source lines (docs/EXCEL_REFERENCE.md §6), the single highest-
+      // frequency raw status value, but no prior entry here matched it —
+      // every one of those lines fell through to a status-unmatched review
+      // flag. This is a NEW default: it only seeds a fresh Config sheet
+      // (seedConfigDefaults_ below skips keys already present) — see
+      // runbook.md's pre-flight steps for adding it to an existing
+      // production Config sheet via the admin config UI before the real
+      // dry-run.
+      { key: 'done', label: 'Hoàn thành' }
     ]),
     'Danh sách trạng thái đơn hàng'],
   ['uomList', JSON.stringify(['Cái', 'Cuộn', 'Bịch', 'Bộ', 'm', 'Hộp', 'SET', 'Xấp']),
