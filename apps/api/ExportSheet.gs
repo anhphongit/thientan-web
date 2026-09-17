@@ -118,8 +118,21 @@ function withTempExportSheet_(user, buckets, fn) {
  *  wrapping several item lines) even though the source file itself only
  *  blank-repeats rather than truly merging (EXCEL_REFERENCE.md §3) —
  *  Phong's call, 2026-09-03: the XLSX export should look more finished
- *  than a 1:1 text reproduction. 1-indexed, matches EXPORT_CSV_HEADER. */
-var EXPORT_MERGE_COLS = [1, 2, 3, 12]; // STT, PO, KHÁCH HÀNG, TRẠNG THÁI
+ *  than a 1:1 text reproduction. 1-indexed, matches EXPORT_CSV_HEADER.
+ *
+ *  TRẠNG THÁI (col 12) deliberately NOT in this list (2026-09-17 fix,
+ *  Phong's report): it used to be, back when status was one value per
+ *  ORDER (pre-Milestone 5a) — merging it made sense then, the same way
+ *  STT/PO/KHÁCH HÀNG still do today. Milestone 5a moved status onto
+ *  OrderLines, so different lines of the same order can now have genuinely
+ *  different statuses (buildExportRows_, Export.gs, already computes each
+ *  line's OWN status into its own cell) — merging the column was silently
+ *  discarding every line's status but the first and displaying it across
+ *  the whole merged block, undoing that per-line data the moment it
+ *  reached the XLSX sheet. CSV was never affected (buildExportCsv_ has no
+ *  concept of a merged cell), only XLSX/the large-export job path, which
+ *  both render through this same grid. */
+var EXPORT_MERGE_COLS = [1, 2, 3]; // STT, PO, KHÁCH HÀNG
 
 /** Money columns (ĐƠN GIÁ, THÀNH TIỀN, TRỊ GIÁ HĐ) — Milestone 4 revision,
  *  2026-09-03 (Phong: exported numbers should read as currency, thousand
@@ -239,8 +252,8 @@ function applyExportGridStyles_(sheet, built) {
     });
   });
   // Merged multi-row cells default to bottom/middle-aligned in Sheets;
-  // top-align so STT/PO/KHÁCH HÀNG/TRẠNG THÁI line up with the order's
-  // FIRST item line, not float to the visual center of the merged block.
+  // top-align so STT/PO/KHÁCH HÀNG line up with the order's FIRST item
+  // line, not float to the visual center of the merged block.
   if (built.orderMerges.length) {
     built.orderMerges.forEach(function (m) {
       EXPORT_MERGE_COLS.forEach(function (col) {

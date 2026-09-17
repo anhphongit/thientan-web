@@ -316,11 +316,13 @@ function buildExportRows_(user, buckets) {
           // the reference file, not just blank-repeat) — only the FIRST
           // line of an order group carries groupSize, the count of rows
           // this order occupies. writeExportRowsToSheet_ (ExportSheet.gs)
-          // reads it to merge STT/PO/KHÁCH HÀNG/TRẠNG THÁI down that many
-          // rows; CSV (buildExportCsv_) ignores this field entirely — a
-          // flat text format has no concept of a merged cell, so it keeps
-          // rendering the blank-on-2nd-line pattern the reference file
-          // itself uses in plain-text form.
+          // reads it to merge STT/PO/KHÁCH HÀNG down that many rows (NOT
+          // TRẠNG THÁI since the 2026-09-17 fix — status is per-line,
+          // EXPORT_MERGE_COLS no longer includes it, see that file); CSV
+          // (buildExportCsv_) ignores this field entirely — a flat text
+          // format has no concept of a merged cell, so it keeps rendering
+          // the blank-on-2nd-line pattern the reference file itself uses
+          // in plain-text form.
           groupSize: first ? orderLines.length : undefined,
           cells: [
             first ? stt : '',

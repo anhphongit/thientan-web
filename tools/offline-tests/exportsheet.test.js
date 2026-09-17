@@ -147,16 +147,18 @@ console.log('\n6. THÁNG/DOANH SỐ rows are merged (banner look), not left as s
   check('DOANH SỐ row merges only the blank lead-in (A:G), leaving H for the label', totalMerge && totalMerge.col === 1 && totalMerge.numCols === 7);
 }
 
-/* ---------- 7. an order's line rows merge STT/PO/KHÁCH HÀNG/TRẠNG THÁI ---------- */
-console.log('\n7. a multi-line order merges STT/PO/KHÁCH HÀNG/TRẠNG THÁI down its rows, single-line order does not merge at all');
+/* ---------- 7. an order's line rows merge STT/PO/KHÁCH HÀNG, NOT TRẠNG THÁI ---------- */
+console.log('\n7. a multi-line order merges STT/PO/KHÁCH HÀNG down its rows (NOT TRẠNG THÁI — per-line status, 2026-09-17 fix), single-line order does not merge at all');
 {
   const { sheet, calls } = fakeSheet();
   const rows = [
     { kind: 'group', cells: ['THÁNG 8'] },
-    // 3-line order: groupSize on the first line only, per buildExportRows_'s contract
+    // 3-line order: groupSize on the first line only, per buildExportRows_'s contract.
+    // Each line carries its OWN status (col 12) — 'Nháp', 'Đã xác nhận', 'Đã huỷ' — to
+    // prove none of them get clobbered by a merge.
     { kind: 'data', groupSize: 3, cells: ['1', 'PO1', 'KH A', 'Dòng 1', 100, 1, 'Cái', 100, 108, '', '', 'Nháp'] },
-    { kind: 'data', cells: ['', '', 'KH A', 'Dòng 2', 100, 1, 'Cái', 100, 108, '', '', ''] },
-    { kind: 'data', cells: ['', '', 'KH A', 'Dòng 3', 100, 1, 'Cái', 100, 108, '', '', ''] },
+    { kind: 'data', cells: ['', '', 'KH A', 'Dòng 2', 100, 1, 'Cái', 100, 108, '', '', 'Đã xác nhận'] },
+    { kind: 'data', cells: ['', '', 'KH A', 'Dòng 3', 100, 1, 'Cái', 100, 108, '', '', 'Đã huỷ'] },
     // single-line order: groupSize 1 -> no merge needed at all
     { kind: 'data', groupSize: 1, cells: ['2', 'PO2', 'KH B', 'Dòng 1', 50, 1, 'Cái', 50, 54, '', '', 'Nháp'] }
   ];
@@ -164,20 +166,25 @@ console.log('\n7. a multi-line order merges STT/PO/KHÁCH HÀNG/TRẠNG THÁI do
 
   // Sheet rows: 1=header, 2=group, 3-5=order 1's 3 lines, 6=order 2's 1 line
   const merged3Row = calls.merge.filter(m => m.row === 3);
-  check('order 1 (3 lines) merges exactly 4 ranges: STT, PO, KHÁCH HÀNG, TRẠNG THÁI', merged3Row.length === 4);
-  check('STT merge spans rows 3-5 (span 3), starting at the first line', 
+  check('order 1 (3 lines) merges exactly 3 ranges: STT, PO, KHÁCH HÀNG', merged3Row.length === 3);
+  check('STT merge spans rows 3-5 (span 3), starting at the first line',
     !!merged3Row.find(m => m.col === 1 && m.numRows === 3));
   check('PO merge spans rows 3-5 (span 3)', !!merged3Row.find(m => m.col === 2 && m.numRows === 3));
   check('KHÁCH HÀNG merge spans rows 3-5 (span 3)', !!merged3Row.find(m => m.col === 3 && m.numRows === 3));
-  check('TRẠNG THÁI merge spans rows 3-5 (span 3)', !!merged3Row.find(m => m.col === 12 && m.numRows === 3));
+  check('TRẠNG THÁI (col 12) is NOT merged — each line keeps its own status distinct',
+    !merged3Row.find(m => m.col === 12));
   check('CHI TIẾT (col 4) is NOT merged — every line keeps its own description', !merged3Row.find(m => m.col === 4));
+
+  const written = calls.setValues[0].grid;
+  check('the 3 written data rows keep their 3 DISTINCT status values (not collapsed to the first)',
+    written[2][11] === 'Nháp' && written[3][11] === 'Đã xác nhận' && written[4][11] === 'Đã huỷ');
 
   const merged6Row = calls.merge.filter(m => m.row === 6);
   check('order 2 (1 line, groupSize 1) has no merge at all — nothing to span', merged6Row.length === 0);
 
   const topAligned = calls.setVerticalAlignment.filter(c => c.row === 3);
-  check('merged cells are top-aligned so labels sit with the first line, not centered', 
-    topAligned.length === 4 && topAligned.every(c => c.align === 'top'));
+  check('merged cells are top-aligned so labels sit with the first line, not centered',
+    topAligned.length === 3 && topAligned.every(c => c.align === 'top'));
 }
 
 /* ---------- 8. fetchSpreadsheetExportBase64_ builds the export URL with all given params ---------- */
