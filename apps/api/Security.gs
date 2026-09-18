@@ -319,7 +319,7 @@ function keepWarmPing() {
  *   the write itself throws, so a caller can distinguish "nothing
  *   happened" from "look at Stackdriver."
  */
-function logDevEvent_(level, source, message, detail, actor) {
+function logDevEvent_(level, source, message, detail, actor, reqId) {
   try {
     var ss = getSpreadsheet_();
     var sheet = ss.getSheetByName(SHEETS.DEV_LOG);
@@ -333,13 +333,21 @@ function logDevEvent_(level, source, message, detail, actor) {
       sheet.getRange(1, 1, 1, HEADERS.DevLog.length).setFontWeight('bold');
       sheet.setFrozenRows(1);
     }
+    // Milestone 7 / Phase 0 extension (260917-1210) — embed as a prefix in
+    // the existing free-text detail field when present, not a new column;
+    // HEADERS.DevLog stays unchanged.
+    var detailText = String(detail || '').substring(0, 1500);
+    // Truncated same as Router.gs's other untrusted-reqId treatment —
+    // actionLogDev_ (below) has no permission gate, so this field can
+    // arrive from any resolvable actor at whatever length they choose.
+    if (reqId) detailText = '[reqId=' + String(reqId).substring(0, 40) + '] ' + detailText;
     sheet.appendRow([
       new Date(),
       String(level || 'info').substring(0, 20),
       String(source || '').substring(0, 40),
       String(actor || '').substring(0, 80),
       String(message || '').substring(0, 200),
-      String(detail || '').substring(0, 1500)
+      detailText
     ]);
     var rows = sheet.getLastRow() - 1;
     if (rows > DEV_LOG_MAX_ROWS + 50) {
@@ -358,7 +366,8 @@ function actionLogDev_(user, payload) {
     (payload && payload.source) || 'web',
     (payload && payload.message) || '',
     (payload && payload.detail) || '',
-    user.email
+    user.email,
+    (payload && payload.reqId) || ''
   );
   return { logged: logged };
 }

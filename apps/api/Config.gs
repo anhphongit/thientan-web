@@ -385,7 +385,17 @@ var CACHE = {
   LIST_KEY_PREFIX: 'orders:list:',
 
   /** Safety-net TTL for a list page (seconds). Version bump is the real invalidator. */
-  LIST_TTL_SECONDS: 300
+  LIST_TTL_SECONDS: 300,
+
+  /**
+   * Milestone 7 / Phase 0 (260917-1210) — live burst instrumentation.
+   * One fixed key holding a capped JSON array of {t, action} receipts, one
+   * per request that reaches doPost (Router.gs). TTL is long enough to
+   * cover a reproduction test, short enough to never need manual cleanup.
+   */
+  REQUEST_RECEIPTS_KEY: 'requests:receipts',
+  REQUEST_RECEIPTS_TTL_SECONDS: 1800,
+  REQUEST_RECEIPTS_MAX: 200
 };
 
 /**

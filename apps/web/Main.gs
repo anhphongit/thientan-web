@@ -435,6 +435,29 @@ function apiSystemHealth() {
 }
 
 /**
+ * Milestone 7 / Phase 0 (260917-1210) — live burst instrumentation read.
+ * Returns the {t, action} receipts Router.gs's recordRequestReceipt_ has
+ * been recording. manage_users is re-checked on the API side
+ * (SystemHealth.gs's actionGetRequestReceipts_), nothing here decides
+ * anything. @return {Array<{t:number,action:string}>} */
+function apiGetRequestReceipts() {
+  return handle_('apiGetRequestReceipts', function () {
+    return apiCall_('getRequestReceipts', {});
+  });
+}
+
+/**
+ * Admin-requested reset (2026-09-18) of the same receipts log, so a live
+ * re-test can start clean. manage_users is re-checked on the API side
+ * (SystemHealth.gs's actionClearRequestReceipts_). @return {{cleared: boolean}}
+ */
+function apiClearRequestReceipts() {
+  return handle_('apiClearRequestReceipts', function () {
+    return apiCall_('clearRequestReceipts', {});
+  });
+}
+
+/**
  * Build strings, for spotting the one real hazard of a two-project setup:
  * pushing one side and forgetting to publish a new version of the other.
  * Null outside DEV_MODE so production shows nothing.

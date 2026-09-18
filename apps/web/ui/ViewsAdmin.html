@@ -74,7 +74,16 @@
     // fetched best-effort alongside config (see fetchHealth) — a fetch
     // failure only clears this section (healthError), never blocks the
     // rest of the settings screen.
-    health: null, healthError: null
+    health: null, healthError: null,
+
+    // ---- Live burst instrumentation (Milestone 7 / Phase 0, 260917-1210) ----
+    // receipts: raw Array<{t,action}> from the last apiGetRequestReceipts
+    // call THIS SESSION — not auto-fetched (unlike health above), only on
+    // button press, since this is an on-demand diagnostic, not a summary.
+    receiptsBusy: false, receipts: null, receiptsError: null,
+    // Admin-requested reset (2026-09-18) — separate busy flag from
+    // receiptsBusy above since read and clear are independent actions.
+    receiptsClearBusy: false
   };
 
   function isBusy() { return !!state.busyAction; }
@@ -1059,6 +1068,7 @@
       '<div style="max-width: 700px; margin: 0 auto; padding: 0 16px;">' +
         backupSectionHtml() +
         healthSectionHtml() +
+        receiptsSectionHtml() +
         state.config.map(function (item) { return configSectionHtml(item, isSaving); }).join('') +
       '</div>' +
       configSaveBarHtml();
@@ -1213,6 +1223,94 @@
       state.health = null;
       state.healthError = err.message;
       if (state.activeTab === 'config') paintConfigTab();
+    });
+  }
+
+  /**
+   * Milestone 7 / Phase 0 (260917-1210) — on-demand diagnostic card: shows
+   * the raw {t, action} receipts Router.gs's recordRequestReceipt_ has been
+   * recording, so a concurrency burst can be inspected without DevTools or
+   * a raw curl call. Same card shell as backupSectionHtml() above. Not
+   * auto-fetched (unlike healthSectionHtml) — this reads a diagnostic cache,
+   * not a summary meant to always be visible.
+   */
+  function receiptsSectionHtml() {
+    var busy = state.receiptsBusy;
+    var resultHtml = '';
+    if (state.receiptsError) {
+      resultHtml = '<p class="config-desc err-text">' + T.esc(state.receiptsError) + '</p>';
+    } else if (state.receipts) {
+      resultHtml = '<p class="config-desc">' + state.receipts.length + ' receipt(s):</p>' +
+        '<pre style="max-height: 300px; overflow: auto; background: var(--c-bg); ' +
+        'border: 1px solid var(--c-border); border-radius: 4px; padding: 8px; ' +
+        'font-size: 12px; white-space: pre-wrap; word-break: break-all;">' +
+        T.esc(JSON.stringify(state.receipts, null, 2)) + '</pre>';
+    }
+
+    return '' +
+      '<section class="card" style="margin-bottom: 16px; padding: 16px;">' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border);">' +
+          '<h3 style="margin: 0; font-size: 14px; font-weight: 600; color: var(--c-text);">Nhật ký request gần đây (chẩn đoán)</h3>' +
+        '</div>' +
+        '<p class="config-desc">Xem các request gần nhất đã đến được máy chủ — dùng để chẩn đoán lỗi khi nhiều người dùng cùng lúc.</p>' +
+        '<button type="button" class="btn btn-primary" data-act="get-request-receipts"' +
+          (busy || state.receiptsClearBusy ? ' disabled' : '') + '>' +
+          (busy ? 'Đang tải...' : 'Xem nhật ký request') +
+        '</button> ' +
+        '<button type="button" class="btn" data-act="clear-request-receipts"' +
+          (busy || state.receiptsClearBusy ? ' disabled' : '') + '>' +
+          (state.receiptsClearBusy ? 'Đang xoá...' : 'Xoá nhật ký') +
+        '</button>' +
+        resultHtml +
+      '</section>';
+  }
+
+  /** Read-only diagnostic — no confirm needed, mirrors runBackupNow_()'s
+   *  busy/result/error bookkeeping minus the destructive-action confirm. */
+  function runGetRequestReceipts_() {
+    if (state.receiptsBusy || state.receiptsClearBusy) return;
+    state.receiptsBusy = true;
+    state.receiptsError = null;
+    paintConfigTab();
+
+    T.call('apiGetRequestReceipts', {}).then(function (data) {
+      state.receiptsBusy = false;
+      state.receipts = data;
+      paintConfigTab();
+    }).catch(function (err) {
+      state.receiptsBusy = false;
+      state.receiptsError = err.message;
+      paintConfigTab();
+      T.toast(err.message, true);
+    });
+  }
+
+  /**
+   * Admin-requested reset (2026-09-18) — clears the server-side receipts
+   * cache so a live re-test starts from an empty log instead of reading
+   * past-test noise out of the last 200 entries. Confirm first (same
+   * T.confirm() pattern as runBackupNow_ above), then clear the locally
+   * displayed list too so the panel visibly reflects the reset without
+   * needing a second "Xem nhật ký request" click.
+   */
+  function runClearRequestReceipts_() {
+    if (state.receiptsClearBusy || state.receiptsBusy) return;
+    T.confirm('Xoá toàn bộ nhật ký request đã ghi trên máy chủ?').then(function (confirmed) {
+      if (!confirmed) return;
+      state.receiptsClearBusy = true;
+      paintConfigTab();
+
+      T.call('apiClearRequestReceipts', {}).then(function () {
+        state.receiptsClearBusy = false;
+        state.receipts = [];
+        state.receiptsError = null;
+        paintConfigTab();
+        T.toast('Đã xoá nhật ký request.');
+      }).catch(function (err) {
+        state.receiptsClearBusy = false;
+        paintConfigTab();
+        T.toast(err.message, true);
+      });
     });
   }
 
@@ -1515,6 +1613,14 @@
     }
     if (act === 'backup-now') {
       runBackupNow_();
+      return;
+    }
+    if (act === 'get-request-receipts') {
+      runGetRequestReceipts_();
+      return;
+    }
+    if (act === 'clear-request-receipts') {
+      runClearRequestReceipts_();
       return;
     }
     if (act === 'add-status') {

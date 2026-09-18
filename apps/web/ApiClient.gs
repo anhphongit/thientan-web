@@ -24,11 +24,20 @@ function apiCall_(action, payload) {
     throw new Error(MSG.NOT_CONFIGURED);
   }
 
+  // Milestone 7 / Phase 0 extension (260917-1210) — one id per logical call
+  // (covers this call's own internal retries below), threaded through every
+  // log line and payload this call already produces, so a later burst's
+  // client-side error and apps/api's receipt can be matched exactly instead
+  // of by nearest-timestamp guessing.
+  var reqId = Utilities.getUuid();
+  console.log('apiCall_(' + action + ') start reqId=' + reqId);
+
   var bodyJson = JSON.stringify({
     secret: secret,
     actor: email,
     action: action,
-    payload: payload || {}
+    payload: payload || {},
+    reqId: reqId
   });
 
   // Milestone 2.5 / P1: this fetch IS the cross-project hop the perf notes in
@@ -46,13 +55,13 @@ function apiCall_(action, payload) {
     attempt++;
     var tAttempt = Date.now();
     try {
-      response = postJsonToApi_(url, bodyJson);
+      response = postJsonToApi_(url, bodyJson, reqId);
       lastErr = null;
     } catch (err) {
       var msAttemptErr = Date.now() - tAttempt;
       lastErr = err;
       console.error('apiCall_(' + action + '): fetch failed (attempt ' + attempt +
-        ', ' + msAttemptErr + 'ms): ' + err);
+        ', ' + msAttemptErr + 'ms): ' + err + ' reqId=' + reqId);
 
       // 2026-09-06 — a brand-new visitor whose OAuth consent for THIENTAN-WEB
       // never completed (interrupted, cancelled, or a stale/narrower grant
@@ -64,7 +73,7 @@ function apiCall_(action, payload) {
       // and the (wrong, for this case) account-switch options — see
       // docs/IDENTITY.md §9.
       if (isMissingAuthScopeError_(err)) {
-        devNote_('error', 'ApiClient', 'missing OAuth scope grant: ' + action, String(err));
+        devNote_('error', 'ApiClient', 'missing OAuth scope grant: ' + action, String(err), reqId);
         throw new Error(MSG.SCOPE_NOT_GRANTED + devSuffix_('fetch threw: ' + err));
       }
 
@@ -72,7 +81,7 @@ function apiCall_(action, payload) {
         Utilities.sleep(400);
         continue;
       }
-      devNote_('error', 'ApiClient', 'fetch failed: ' + action, String(err));
+      devNote_('error', 'ApiClient', 'fetch failed: ' + action, String(err), reqId);
       throw new Error(MSG.API_UNREACHABLE + devSuffix_('fetch threw: ' + err));
     }
 
@@ -86,9 +95,9 @@ function apiCall_(action, payload) {
     var headers = {};
     try { headers = response.getAllHeaders(); } catch (e) { /* best-effort only */ }
     console.error('apiCall_(' + action + '): HTTP ' + code + ' (attempt ' + attempt +
-      ', ' + msAttempt + 'ms) headers=' + JSON.stringify(headers));
+      ', ' + msAttempt + 'ms) headers=' + JSON.stringify(headers) + ' reqId=' + reqId);
     console.error('apiCall_(' + action + '): HTTP ' + code + ' (attempt ' + attempt + ') — ' +
-      response.getContentText().slice(0, 300));
+      response.getContentText().slice(0, 300) + ' reqId=' + reqId);
     // Retry transient server errors, bare 3xx redirects not resolved by
     // followRedirects:true, AND a bare 404 — plan 260912-1110 Phase 4:
     // live-captured 2026-09-14 with `Server: ESF` in the response headers
@@ -107,7 +116,7 @@ function apiCall_(action, payload) {
     devNote_('error', 'ApiClient', 'HTTP ' + code + ' on ' + action,
       response.getContentText().slice(0, 1500) +
       ' | headers=' + JSON.stringify(headers).slice(0, 500) +
-      ' | msAttempt=' + msAttempt);
+      ' | msAttempt=' + msAttempt, reqId);
     throw new Error(MSG.API_UNREACHABLE + devSuffix_(
       'HTTP ' + code + ' · ' + snippet_(response.getContentText())));
   }
@@ -120,8 +129,8 @@ function apiCall_(action, payload) {
   } catch (err) {
     // "THIENTAN API" = doGet ran (POST was followed as GET on a redirect).
     // HTML = wrong access setting or wrong URL.
-    console.error('apiCall_(' + action + '): non-JSON response: ' + text.slice(0, 300));
-    devNote_('error', 'ApiClient', 'non-JSON on ' + action, text.slice(0, 1500));
+    console.error('apiCall_(' + action + '): non-JSON response: ' + text.slice(0, 300) + ' reqId=' + reqId);
+    devNote_('error', 'ApiClient', 'non-JSON on ' + action, text.slice(0, 1500), reqId);
     var hint = (String(text).trim() === 'THIENTAN API')
       ? 'got doGet text (redirect followed as GET). Retried once; still failed.'
       : ('body starts with: ' + snippet_(text));
@@ -148,6 +157,8 @@ function apiCall_(action, payload) {
     body.data._ms.transport = Math.max(0, msFetch - apiTotal);
   }
 
+  console.log('apiCall_(' + action + ') success reqId=' + reqId +
+    ' msFetch=' + msFetch + ' attempts=' + attempt);
   return body.data;
 }
 
@@ -167,7 +178,7 @@ var lastApiBuild_ = '';
  * plain text "THIENTAN API". On that body only, wait briefly and retry the
  * same POST once (cold-start / first-hit pattern).
  */
-function postJsonToApi_(url, bodyJson) {
+function postJsonToApi_(url, bodyJson, reqId) {
   var options = {
     method: 'post',
     contentType: 'application/json',
@@ -180,7 +191,8 @@ function postJsonToApi_(url, bodyJson) {
   var text = String(response.getContentText() || '').trim();
 
   if (text === 'THIENTAN API') {
-    console.error('postJsonToApi_: got doGet body "THIENTAN API" — retrying once after short wait');
+    console.error('postJsonToApi_: got doGet body "THIENTAN API" — retrying once after short wait' +
+      ' reqId=' + reqId);
     Utilities.sleep(500);
     response = UrlFetchApp.fetch(url, options);
   }
@@ -223,7 +235,7 @@ function devSuffix_(detail) {
  * not just while a developer happens to have DEV_MODE on). Never throws.
  * Uses the same POST helper as apiCall_ (no followRedirects:false).
  */
-function devNote_(level, source, message, detail) {
+function devNote_(level, source, message, detail, reqId) {
   try {
     var props = PropertiesService.getScriptProperties();
     var url = props.getProperty(PROP.API_URL);
@@ -239,9 +251,13 @@ function devNote_(level, source, message, detail) {
         level: level || 'error',
         source: source || 'web',
         message: String(message || '').substring(0, 200),
-        detail: String(detail || '').substring(0, 1500)
+        detail: String(detail || '').substring(0, 1500),
+        // Milestone 7 / Phase 0 extension (260917-1210) — read by
+        // actionLogDev_ (Security.gs) and prefixed into the DevLog row's
+        // detail cell server-side by logDevEvent_.
+        reqId: reqId || ''
       }
-    }));
+    }), reqId);
 
     // 2026-09-14 — the round trip succeeding (HTTP 200) proves nothing about
     // whether a row actually landed in the DevLog sheet: logDevEvent_ (API

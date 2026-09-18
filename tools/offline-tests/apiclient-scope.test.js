@@ -47,7 +47,7 @@ const ok = (name, cond, detail) => cond ? (pass++, console.log('  ok   ' + name)
       })
     },
     UrlFetchApp: { fetch: (url, opts) => { fetchCalls++; return fetchBehavior(url, opts); } },
-    Utilities: { sleep: (ms) => { sleepCalls++; } },
+    Utilities: { sleep: (ms) => { sleepCalls++; }, getUuid: () => 'test-uuid-' + Math.random() },
     resolveActiveEmail_: () => 'nhanvien@x.com',
     isDevMode_: () => false
     // devNote_ is deliberately NOT stubbed here — ApiClient.gs defines its
@@ -195,7 +195,7 @@ const ok = (name, cond, detail) => cond ? (pass++, console.log('  ok   ' + name)
       })
     },
     UrlFetchApp: { fetch: (url, opts) => { fetchCalls++; return fetchBehavior(url, opts); } },
-    Utilities: { sleep: (ms) => { sleepCalls++; } },
+    Utilities: { sleep: (ms) => { sleepCalls++; }, getUuid: () => 'test-uuid-' + Math.random() },
     resolveActiveEmail_: () => 'nhanvien@x.com',
     isDevMode_: () => false
   };

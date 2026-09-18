@@ -90,6 +90,51 @@ function actionSystemHealth_(user) {
 }
 
 /**
+ * Milestone 7 / Phase 0 (260917-1210) — admin-only read of the live burst
+ * instrumentation receipts recorded by Router.gs's recordRequestReceipt_.
+ * Same admin gate as every other diagnostic in this file. Degrades to []
+ * rather than throwing whenever the cache is unavailable, empty, or holds
+ * something unparseable — this is a diagnostic, not a source of truth, so a
+ * cache miss must never surface as a panel error.
+ *
+ * @return {Array<{t:number,action:string}>}
+ */
+function actionGetRequestReceipts_(user) {
+  requirePermission_(user, 'manage_users');
+
+  var cache = CacheService.getScriptCache();
+  if (!cache) return [];
+  var raw;
+  try { raw = cache.get(CACHE.REQUEST_RECEIPTS_KEY); } catch (err) { return []; }
+  if (!raw) return [];
+  try {
+    var arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Admin-requested reset of the live burst instrumentation receipts —
+ * requested 2026-09-18 so a live re-test can start from an empty log
+ * instead of reading past-test noise out of the last 200 entries. Same
+ * gate as the read above; clearing is a diagnostic reset, not data loss
+ * (the cache is a 30-min-TTL scratch buffer, never a source of truth).
+ *
+ * @return {{cleared: boolean}}
+ */
+function actionClearRequestReceipts_(user) {
+  requirePermission_(user, 'manage_users');
+
+  var cache = CacheService.getScriptCache();
+  if (cache) {
+    try { cache.remove(CACHE.REQUEST_RECEIPTS_KEY); } catch (err) { /* best-effort */ }
+  }
+  return { cleared: true };
+}
+
+/**
  * Counts DevLog rows at level 'error' within the last 24h/7d. Reads
  * defensively: a fresh deployment that has never logged anything yet may
  * not have a DevLog sheet at all (it's created lazily by logDevEvent_'s

@@ -585,6 +585,16 @@
    *   cancel too, never meaningful then — always check ok first)
    */
   function confirm_(opts) {
+    // 2026-09-18 — three call sites (ViewsAdmin.html's runBackupNow_,
+    // onPresetChange_, runClearRequestReceipts_) pass a bare string instead
+    // of {title, message}. Both were read unconditionally below, so a
+    // string's .title/.message (undefined) rendered a blank dialog with
+    // only the icon and buttons — silently defeating the confirm step.
+    // Normalizing here fixes all string call sites at once rather than
+    // each individually; the string becomes the title (the prominent,
+    // bold line — matches how each of those three reads: a standalone
+    // question, not a detail line under a separate title).
+    if (typeof opts === 'string') opts = { title: opts, message: '' };
     return new Promise(function (resolve) {
       var danger = !!(opts && opts.danger);
       var okLabel = (opts && opts.okLabel) || 'Xác nhận';

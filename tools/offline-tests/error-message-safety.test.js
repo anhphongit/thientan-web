@@ -365,7 +365,7 @@ testSafeErrorMessage('apps/web', WEB_ROOT,
       })
     },
     UrlFetchApp: { fetch: (url, opts) => fetchBehavior(url, opts) },
-    Utilities: { sleep: () => {} },
+    Utilities: { sleep: () => {}, getUuid: () => 'test-uuid-' + Math.random() },
     resolveActiveEmail_: () => 'nhanvien@x.com',
     isDevMode_: () => false
   };
